@@ -1,0 +1,56 @@
+# User blocks
+##################################################
+# Username should be in ime.prezime@skole.hr format
+# Password is a cleartext skole.hr LDAP/SSO password
+# There can be as many user blocks as needed
+#
+[[user]]
+username = "ime.prezime@skole.hr"
+password = "lozinka"
+
+#[[user]]
+#username = "ime2.prezime2@skole.hr"
+#password = "lozinka2"
+
+# Telegram block
+##################################################
+# Create a bot: https://core.telegram.org/bots#3-how-do-i-create-a-bot
+# Find a ChatID: https://sean-bradley.medium.com/get-telegram-chat-id-80b575520659
+# And: https://api.telegram.org/botYOUR_BOT_TOKEN/getUpdates
+#
+[telegram]
+token = "telegram_bot_token"
+chatids = [ "chat_id", "chat_id2" ]
+
+# Discord block
+##################################################
+# Create a bot: https://discordpy.readthedocs.io/en/stable/discord.html
+# Find UserIDs: https://www.remote.tools/remote-work/how-to-find-discord-id
+# Permissions Calculator: https://discordapi.com/permissions.html
+# Permissions: only "Send Messages"
+#
+#[discord]
+#token = "discord_bot_token"
+#userids = [ "user_id", "user_id2" ]
+
+# Slack block
+##################################################
+# Create a bot: https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace
+# Permissions: only chat:write
+#
+#[slack]
+#token = "xoxb-slack_bot_token"
+#chatids = [ "chat_id", "chat_id2" ]
+
+# Mail/SMTP block
+##################################################
+# Configuration for Gmail: https://support.google.com/a/answer/176600?hl=en
+#
+#[mail]
+#server = "smtp.gmail.com"
+#port = "587"
+#username = "user.name@gmail.com"
+#password = "legacy_app_password"
+#from = "user.name@gmail.com"
+#subject = "Nova ocjena iz e-Dnevnika"
+#to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]

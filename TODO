@@ -1,0 +1,2 @@
+- README with howtos for each service
+- don't acknowledge alert that didn't go through with at least one consumer
