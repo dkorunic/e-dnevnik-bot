@@ -22,6 +22,7 @@
 package main
 
 import (
+	"os"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/db"
@@ -35,7 +36,7 @@ const (
 )
 
 var (
-	debug, daemon                        *bool
+	debug, daemon, help                  *bool
 	confFile, dbFile, tickIntervalString *string
 	tickInterval                         time.Duration
 )
@@ -44,6 +45,7 @@ var (
 func init() {
 	debug = getopt.BoolLong("verbose", 'v', "enable verbose/debug log level")
 	daemon = getopt.BoolLong("daemon", 'd', "enable daemon mode (running as a service)")
+	help = getopt.BoolLong("help", '?', "display help")
 	confFile = getopt.StringLong("conffile", 'f', DefaultConfFile, "configuration file (in TOML)")
 	dbFile = getopt.StringLong("database", 'b', db.DefaultDBPath, "alert database file")
 	tickIntervalString = getopt.StringLong("interval", 'i', DefaultTickInterval,
@@ -53,6 +55,11 @@ func init() {
 // parseFlags parses input arguments and flags.
 func parseFlags() {
 	getopt.Parse()
+
+	if *help {
+		getopt.PrintUsage(os.Stderr)
+		os.Exit(0)
+	}
 
 	var err error
 	tickInterval, err = time.ParseDuration(*tickIntervalString)

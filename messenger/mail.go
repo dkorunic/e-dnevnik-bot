@@ -65,8 +65,8 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 			}
 
 			// format message, have both text/plain and text/html alternative
-			plainContent := format.PlainMsg(g.Username, g.Subject, g.Descriptions, g.Fields)
-			htmlContent := format.HTMLMsg(g.Username, g.Subject, g.Descriptions, g.Fields)
+			plainContent := format.PlainMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
+			htmlContent := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 
 			// establish dialer
 			d := mail.NewDialer(server, portInt, username, password)

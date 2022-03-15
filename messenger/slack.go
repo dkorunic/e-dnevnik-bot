@@ -69,7 +69,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 			}
 
 			// format message as Markup
-			m := format.MarkupMsg(g.Username, g.Subject, g.Descriptions, g.Fields)
+			m := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 
 			// send to all recipients: channels and nicknames are permitted
 			for _, u := range chatIDs {

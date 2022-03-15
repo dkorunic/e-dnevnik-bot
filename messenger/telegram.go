@@ -76,7 +76,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 			}
 
 			// format message as HTML
-			m := format.HTMLMsg(g.Username, g.Subject, g.Descriptions, g.Fields)
+			m := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 
 			// send to all recipients
 			for _, u := range chatIDs {

@@ -25,11 +25,16 @@ import (
 	"strings"
 )
 
+const (
+	GradePrefix = "Nova ocjena: "       // grade title prefix
+	EventPrefix = "⚠ NAJAVLJEN ISPIT: " // exam title prefix
+)
+
 // PlainMsg formats grade report as cleartext block in a string.
-func PlainMsg(username, subject string, descriptions, grade []string) string {
+func PlainMsg(username, subject string, isExam bool, descriptions, grade []string) string {
 	sb := &strings.Builder{}
 
-	plainAddHeader(sb, username, subject)
+	plainAddHeader(sb, username, subject, isExam)
 
 	for i := range grade {
 		// grade listing will print scraped corresponding descriptions
@@ -42,10 +47,20 @@ func PlainMsg(username, subject string, descriptions, grade []string) string {
 	return sb.String()
 }
 
-// plainAddHeader adds cleartext header containing username and subject name.
-func plainAddHeader(sb *strings.Builder, user, subject string) {
+// PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.
+func PlainFormatSubject(sb *strings.Builder, user, subject string, isExam bool) {
+	if isExam {
+		sb.WriteString(EventPrefix)
+	} else {
+		sb.WriteString(GradePrefix)
+	}
 	sb.WriteString(user)
 	sb.WriteString(" / ")
 	sb.WriteString(subject)
+}
+
+// plainAddHeader adds cleartext header containing username and subject name, and a delimiter.
+func plainAddHeader(sb *strings.Builder, user, subject string, isExam bool) {
+	PlainFormatSubject(sb, user, subject, isExam)
 	sb.WriteString("\n\n")
 }

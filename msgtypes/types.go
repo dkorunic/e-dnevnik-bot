@@ -23,8 +23,9 @@ package msgtypes
 
 // Message structure holds alert subject and description as well as grades fields, as well as corresponding username.
 type Message struct {
-	Username     string   // grade username (SSO/SAML)
-	Subject      string   // grade subject
+	IsExam       bool     // message is an exam event
+	Username     string   // username (SSO/SAML)
+	Subject      string   // subject
 	Descriptions []string // descriptions for fields
-	Fields       []string // fields with actual grades and remarks
+	Fields       []string // fields with actual grades/exams and remarks
 }

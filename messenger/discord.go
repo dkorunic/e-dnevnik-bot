@@ -24,7 +24,10 @@ package messenger
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/dkorunic/e-dnevnik-bot/format"
 
 	"github.com/avast/retry-go"
 
@@ -90,8 +93,12 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 					Inline: true,
 				})
 			}
+
+			sb := &strings.Builder{}
+			format.PlainFormatSubject(sb, g.Username, g.Subject, g.IsExam)
+
 			msg := &discordgo.MessageEmbed{
-				Title:  fmt.Sprintf("%v / %v", g.Username, g.Subject),
+				Title:  sb.String(),
 				Fields: fields,
 			}
 

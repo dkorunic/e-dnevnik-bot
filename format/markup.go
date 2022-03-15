@@ -26,10 +26,10 @@ import (
 )
 
 // MarkupMsg formats grade report as preformatted Markup block in a string.
-func MarkupMsg(username, subject string, descriptions, grade []string) string {
+func MarkupMsg(username, subject string, isExam bool, descriptions, grade []string) string {
 	sb := &strings.Builder{}
 
-	markupAddHeader(sb, username, subject)
+	markupAddHeader(sb, username, subject, isExam)
 
 	sb.WriteString("```\n")
 	// grade listing will print scraped corresponding descriptions
@@ -44,11 +44,9 @@ func MarkupMsg(username, subject string, descriptions, grade []string) string {
 	return sb.String()
 }
 
-// markupAddHeader adds Markup bold header containing username and subject name.
-func markupAddHeader(sb *strings.Builder, user, subject string) {
+// markupAddHeader adds Markup bold header containing username and subject name, and a delimiter.
+func markupAddHeader(sb *strings.Builder, user, subject string, isExam bool) {
 	sb.WriteString("*")
-	sb.WriteString(user)
-	sb.WriteString(" / ")
-	sb.WriteString(subject)
+	PlainFormatSubject(sb, user, subject, isExam)
 	sb.WriteString("*\n\n")
 }

@@ -26,10 +26,10 @@ import (
 )
 
 // HTMLMsg formats grade report as preformatted HTML block in a string.
-func HTMLMsg(username, subject string, descriptions, grade []string) string {
+func HTMLMsg(username, subject string, isExam bool, descriptions, grade []string) string {
 	sb := &strings.Builder{}
 
-	htmlAddHeader(sb, username, subject)
+	htmlAddHeader(sb, username, subject, false)
 
 	sb.WriteString("<pre>\n")
 	// grade listing will print scraped corresponding descriptions
@@ -44,11 +44,9 @@ func HTMLMsg(username, subject string, descriptions, grade []string) string {
 	return sb.String()
 }
 
-// htmlAddHeader adds bold header containing username and subject name.
-func htmlAddHeader(sb *strings.Builder, user, subject string) {
+// htmlAddHeader adds bold header containing username and subject name, and a delimiter.
+func htmlAddHeader(sb *strings.Builder, user, subject string, isExam bool) {
 	sb.WriteString("<b>")
-	sb.WriteString(user)
-	sb.WriteString(" / ")
-	sb.WriteString(subject)
+	PlainFormatSubject(sb, user, subject, isExam)
 	sb.WriteString("</b>\n")
 }

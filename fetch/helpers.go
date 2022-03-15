@@ -75,8 +75,7 @@ func (c *Client) getCSRFToken() error {
 		})
 
 	// drain rest of the body
-	//nolint:errcheck
-	io.Copy(io.Discard, resp.Body)
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if !csrfTokenExists {
 		return fmt.Errorf(ErrCSRFToken)
@@ -119,8 +118,7 @@ func (c *Client) doSAMLRequest() error {
 	defer resp.Body.Close()
 
 	// drain rest of the body
-	//nolint:errcheck
-	io.Copy(io.Discard, resp.Body)
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	// regular SSO response should have HTTP 302 status
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {

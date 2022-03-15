@@ -36,6 +36,7 @@ const (
 	DateDescription  = "Datum ispita" // exam date field description
 	EventSummary     = "Predmet"      // exam summary field description (typically a subject name)
 	EventDescription = "Napomena"     // exam remark field description (typically a target of the exam)
+
 )
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
@@ -111,6 +112,7 @@ func parseEvents(username string, events fetch.Events, ch chan<- msgtypes.Messag
 		timestamp := ev.Start.Format(TimeFormat)
 
 		ch <- msgtypes.Message{
+			IsExam:   true,
 			Username: username,
 			Subject:  subject,
 			Descriptions: []string{
