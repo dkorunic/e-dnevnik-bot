@@ -13,9 +13,11 @@ require (
 	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
+	github.com/mattn/go-isatty v0.0.14
 	github.com/pborman/getopt/v2 v2.1.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/slack-go/slack v0.10.2
+	github.com/tj/go-spin v1.1.0
 	gopkg.in/mail.v2 v2.3.1
 )
 
@@ -33,13 +35,11 @@ require (
 	github.com/google/flatbuffers v2.0.6+incompatible // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/klauspost/compress v1.15.1 // indirect
-	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/tj/go-spin v1.1.0 // indirect
 	go.opencensus.io v0.23.0 // indirect
-	golang.org/x/crypto v0.0.0-20220312131142-6068a2e6cfdc // indirect
+	golang.org/x/crypto v0.0.0-20220315160706-3147a52a75dd // indirect
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f // indirect
-	golang.org/x/sys v0.0.0-20220310020820-b874c991c1a5 // indirect
+	golang.org/x/sys v0.0.0-20220315194320-039c03cc5b86 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 )

@@ -82,6 +82,7 @@ func main() {
 		// in case of context cancellation, try to propagate and exit
 		case <-ctx.Done():
 			logrus.Info("Received stop signal, asking all routines to stop")
+			ticker.Stop()
 			go stop()
 			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
 				go spinner()
