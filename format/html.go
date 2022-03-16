@@ -29,7 +29,7 @@ import (
 func HTMLMsg(username, subject string, isExam bool, descriptions, grade []string) string {
 	sb := &strings.Builder{}
 
-	htmlAddHeader(sb, username, subject, false)
+	htmlAddHeader(sb, username, subject, isExam)
 
 	sb.WriteString("<pre>\n")
 	// grade listing will print scraped corresponding descriptions
