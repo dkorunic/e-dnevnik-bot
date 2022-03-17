@@ -32,13 +32,7 @@ func HTMLMsg(username, subject string, isExam bool, descriptions, grade []string
 	htmlAddHeader(sb, username, subject, isExam)
 
 	sb.WriteString("<pre>\n")
-	// grade listing will print scraped corresponding descriptions
-	for i := range grade {
-		sb.WriteString(descriptions[i])
-		sb.WriteString(": ")
-		sb.WriteString(grade[i])
-		sb.WriteString("\n")
-	}
+	plainFormatGrades(sb, descriptions, grade)
 	sb.WriteString("</pre>\n")
 
 	return sb.String()

@@ -35,7 +35,13 @@ func PlainMsg(username, subject string, isExam bool, descriptions, grade []strin
 	sb := &strings.Builder{}
 
 	plainAddHeader(sb, username, subject, isExam)
+	plainFormatGrades(sb, descriptions, grade)
 
+	return sb.String()
+}
+
+// plainFormatGrades formats grade descriptions and values.
+func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 	for i := range grade {
 		// grade listing will print scraped corresponding descriptions
 		sb.WriteString(descriptions[i])
@@ -43,8 +49,6 @@ func PlainMsg(username, subject string, isExam bool, descriptions, grade []strin
 		sb.WriteString(grade[i])
 		sb.WriteString("\n")
 	}
-
-	return sb.String()
 }
 
 // PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.

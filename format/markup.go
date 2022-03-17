@@ -32,13 +32,7 @@ func MarkupMsg(username, subject string, isExam bool, descriptions, grade []stri
 	markupAddHeader(sb, username, subject, isExam)
 
 	sb.WriteString("```\n")
-	// grade listing will print scraped corresponding descriptions
-	for i := range grade {
-		sb.WriteString(descriptions[i])
-		sb.WriteString(": ")
-		sb.WriteString(grade[i])
-		sb.WriteString("\n")
-	}
+	plainFormatGrades(sb, descriptions, grade)
 	sb.WriteString("```\n")
 
 	return sb.String()
