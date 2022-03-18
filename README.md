@@ -51,11 +51,11 @@ Bot bi trebao moći funkcionirati na bilo kakvom embedded računalu (Raspberry P
 
 ## Installation / Instalacija
 
-Just download the binary from the [releases](releases) page as well as the [configuration file](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
+Just download the binary from the [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) page as well as the [configuration file](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
 
 --
 
-Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](releases) stranice te [konfiguracijsku datoteku](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
+Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) stranice te [konfiguracijsku datoteku](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
 
 ### Usage / Upute za upotrebu
 
@@ -96,7 +96,6 @@ Ostali parametri su:
 - `-i`: interval između buđenja bota (minimalno 1h, standardno 1h),
 - `-t`: služi za slanje testne poruke na sve konfigurirane servise slanja poruka odnosno e-maila,
 - `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena.
-
 
 ### Configuration / Konfiguracija
 
