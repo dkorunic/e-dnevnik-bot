@@ -51,16 +51,16 @@ Bot bi trebao moći funkcionirati na bilo kakvom embedded računalu (Raspberry P
 
 ## Installation / Instalacija
 
-Just download the binary from the [releases](releases) page.
+Just download the binary from the [releases](releases) page as well as the [configuration file](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
 
 --
 
-Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](releases) stranice.
+Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](releases) stranice te [konfiguracijsku datoteku](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
 
-### Usage
+### Usage / Upute za upotrebu
 
 ```shell
-Usage: e-dnevnik-bot [-?dv] [-b value] [-f value] [-i value] [parameters ...]
+Usage: e-dnevnik-bot [-?dtv] [-b value] [-f value] [-i value] [parameters ...]
  -?, --help     display help
  -b, --database=value
                 alert database file [.e-dnevnik.db]
@@ -69,12 +69,140 @@ Usage: e-dnevnik-bot [-?dv] [-b value] [-f value] [-i value] [parameters ...]
                 configuration file (in TOML) [.e-dnevnik.toml]
  -i, --interval=value
                 interval between polls when in daemon mode [1h]
+ -t, --test     send a test event (to check if messaging works)
  -v, --verbose  enable verbose/debug log level
 ```
 
 Typically bot will run from current working directory and attempt to load [TOML](https://github.com/toml-lang/toml) configuration from `.e-dnevnik.toml` file or the file specified with `-f` flag.
-It is possible to enable debug mode with `-v` flag that increases verbosity level, showing some of internal operation details. The bot without any options runs in a single-run mode, but it is also possible to make it run as a service with `-d` flag. When bot runs as a service it will periodically wake up and fetch new grades/exams and that tick value is possible to change with `-i` option, typically specified as time duration (ie. with h, m or s suffixes). Finally it is also possible to change the database name and path with `-b` flag.
+
+Other flags are:
+
+- `-b`: alert database file path used to mark seen alerts (default is `.e-dnevnik.db`),
+- `-d`: enable daemon mode aka service mode where bot works continously, waking up on regular intervals (specified with `-i`) and by default this is disabled,
+- `-f`: configuration file path to configure usernames, passwords and various messaging services (in [TOML](https://github.com/toml-lang/toml) format),
+- `-i`: interval between polls when in daemon/service mode (at minimum 1h, default 1h),
+- `-t`: sends a test message to all configured messaging services,
+- `-v`: enables verbose/debug messages for more insight into bot operation and by default this is disabled.
 
 --
 
+Bot se koristi iz tekućeg direktorija u kojem se nalazi i izvršna datoteka i pokušati će učitati datoteku `.e-dnevnik.toml` koja je u [TOML](https://github.com/toml-lang/toml) sintaksi, odnosno učitati će datoteku specificiranu kroz `-f` parametar.
+
+Ostali parametri su:
+
+- `-b`: staza do baze poslanih obavijesti (standardno je to `.e-dnevnik.db` iz tekućeg direktorija),
+- `-d`: omogućuje servisni rad gdje bot radi kontinuirano i budi se u regularnim intervalima (koje odabiremo sa `-i` parametrom) te je ovakav način rada standardno ugašen,
+- `-f`: staza do konfiguracijske datoteke koja sadrži korisnička imena, lozinke i ostalu konfiguraciju za servise slanja poruka odnosno e-maila (u [TOML](https://github.com/toml-lang/toml) sintaksi),
+- `-i`: interval između buđenja bota (minimalno 1h, standardno 1h),
+- `-t`: služi za slanje testne poruke na sve konfigurirane servise slanja poruka odnosno e-maila,
+- `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena.
+
+
 ### Configuration / Konfiguracija
+
+Configuration has several blocks. User configuration can be repeated as many times as needed, while Telegram, Discord, Slack and e-mail configuration blocks can be appear only once, but they can be all enabled and disabled as needed. Targets (User IDs, Chat IDs and To) are defined as arrays and permit as many receivers as needed. Alerts are broadcasted to all of chat services or e-mail service at once.
+
+--
+
+Konfiguracija ima nekoliko blokova. Konfiguracija za korisnika se može ponavljati nekoliko puta za različite korisnike iz @skole.hr domene. Konfiguracije za Telegram, Discord, Slack i e-mail se mogu odnosno smiju pojaviti samo jednom ali mogu biti omogućene sve po potrebi. Odredišta (User ID, Chat ID, To) su sva definirana kao vektori i dozvoljavaju unošenje koliko je god potrebno odredišta koliko treba. Sve obavijesti se šalju istovremeno na sve servise odnosno e-mail.
+
+#### User configuration
+
+```toml
+[[user]]
+username = "ime.prezime@skole.hr"
+password = "lozinka"
+```
+
+It is possible to specify as many of user blocks as needed and they will all get processed in parallel.
+
+--
+
+Moguće je definirati koliko je god potrebno korisnika i podaci za sve će se dohvaćati i obrađivati istovremeno.
+
+#### Telegram configuration
+
+```toml
+[telegram]
+token = "telegram_bot_token"
+chatids = [ "chat_id", "chat_id2" ]
+```
+
+Steps required:
+
+1. Create a Telegram bot by following the official [Telegram bot HOWTO](https://core.telegram.org/bots#3-how-do-i-create-a-bot), which amounts to messaging BotFather and doing a few simple steps.
+2. When you create a bot, you will need to message it directly from each Telegram account you plan to configure for the bot to message and find Chat IDs, typically by using [https://api.telegram.org/botTOKEN/getUpdates](https://api.telegram.org/botTOKEN/getUpdates) and replacing **TOKEN** with the Bot Token you got from step 1.
+
+--
+
+Potrebni koraci:
+
+1. Stvara se Telegram bot prateći [službene upute](https://core.telegram.org/bots#3-how-do-i-create-a-bot), što se svodi na slanje poruke BotFather korisniku i praćenje dobivenih uputa.
+2. Kada se dovrši prethodni korak i bot je stvoren, treba mu poslati poruku sa svakog Telegram accounta kojeg želimo dodati kao korisnika. Chat ID se zatim može pronaći koristeći [](https://api.telegram.org/botTOKEN/getUpdates%5D(https://api.telegram.org/botTOKEN/getUpdates) link u kojem ste zamijenili riječ **TOKEN** sa Bot Token zapisom iz koraka 1.
+
+#### Discord configuration
+
+```toml
+[discord]
+token = "discord_bot_token"
+userids = [ "user_id", "user_id2" ]
+```
+
+Steps required:
+
+1. Create a Discord bot by following the [Discord bot HOWTO](https://discordpy.readthedocs.io/en/stable/discord.html). This step requires both creating a bot and inviting it to your server.
+2. Permissions neded should be set only to **Send Messages** and nothing else,
+3. You can find User IDs by [enabling](https://www.remote.tools/remote-work/how-to-find-discord-id) **Developer Mode** in your Discord client after messaging your bot.
+
+--
+
+Potrebni koraci:
+
+1. Stvara se Discord bot prateći [neslužbene upute](https://discordpy.readthedocs.io/en/stable/discord.html). Ovaj korak podrazumijeva i stvaranje bota i pozivanje njega na vlastiti server.
+2. Potrebne dozvole su isključivo one za slanje poruka odnosno **Send Messages**.
+3. Moguće je pronaci User ID tako da se upali [način razvijanja](https://www.remote.tools/remote-work/how-to-find-discord-id) odnosno **Developer Mode** u Discord klijentu i pogleda u chatu koji se otvori nakon slanja poruke botu.
+
+#### Slack configuration
+
+```toml
+[slack]
+token = "xoxb-slack_bot_token"
+chatids = [ "chat_id", "chat_id2" ]
+```
+
+Steps required:
+
+1. Create a Slack bot by following the [official Slack bot HOWTO](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
+2. Permissions that are needed are only **chat:write**.
+3. Chat IDs can be copied from Slack user interface, just click either on a desired username, then View full profile, then **Copy member ID**. Channel ID can be also used instead, when sending a group message.
+
+--
+
+Potrebni koraci:
+
+1. Stvara se Slack bot prateći [službene upute](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
+2. Potrebne dozvole su isključivo **chat:write**.
+3. Chat ID se može naći iz Slack klijenta, dovoljno je kliknuti na željenog korisnika, zatim View full profile te onda **Copy member ID**. Moguće je koristiti i Channel ID ako Slack bot treba slati grupne poruke.
+
+#### Mail/SMTP configuration
+
+```toml
+[mail]
+server = "smtp.gmail.com"
+port = "587"
+username = "user.name@gmail.com"
+password = "legacy_app_password"
+from = "user.name@gmail.com"
+subject = "Nova ocjena iz e-Dnevnika"
+to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
+```
+
+Steps required:
+
+1. Gmail SMTP configuration can be set up by following Gmail [Help Center answer](https://support.google.com/a/answer/176600?hl=en). Other SMTP services follow the similar, self-explanatory configuration.
+
+--
+
+Potrebni koraci:
+
+1. Gmail SMTP konfiguraciju je moguće složiti koristeći odgovor sa [Google centra](https://support.google.com/a/answer/176600?hl=en) za pomoć. Svi ostali SMTP servisi se slično konfiguriraju.

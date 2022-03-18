@@ -24,6 +24,8 @@ package scrape
 import (
 	"strings"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -36,7 +38,6 @@ const (
 	DateDescription  = "Datum ispita" // exam date field description
 	EventSummary     = "Predmet"      // exam summary field description (typically a subject name)
 	EventDescription = "Napomena"     // exam remark field description (typically a target of the exam)
-
 )
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
@@ -46,6 +47,7 @@ func parseGrades(username, rawGrades string, ch chan<- msgtypes.Message) error {
 	if err != nil {
 		return err
 	}
+	var parsedGrades int
 
 	// each subject has a div with class "table-container new-grades-table"
 	doc.Find("div.content > div.table-container.new-grades-table").
@@ -88,8 +90,13 @@ func parseGrades(username, rawGrades string, ch chan<- msgtypes.Message) error {
 						Descriptions: descriptions,
 						Fields:       spans,
 					}
+					parsedGrades++
 				})
 		})
+
+	if parsedGrades == 0 {
+		logrus.Debugf("No grades found in the scraped content for user %v", username)
+	}
 
 	return nil
 }
@@ -106,6 +113,10 @@ func cleanEventDescription(summary string) string {
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
 func parseEvents(username string, events fetch.Events, ch chan<- msgtypes.Message) error {
+	if len(events) == 0 {
+		logrus.Debugf("No scheduled exams for user %v", username)
+	}
+
 	for _, ev := range events {
 		subject := cleanEventDescription(ev.Summary)
 		description := cleanEventDescription(ev.Description)
