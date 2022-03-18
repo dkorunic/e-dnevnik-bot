@@ -137,7 +137,7 @@ Steps required:
 Potrebni koraci:
 
 1. Stvara se Telegram bot prateći [službene upute](https://core.telegram.org/bots#3-how-do-i-create-a-bot), što se svodi na slanje poruke BotFather korisniku i praćenje dobivenih uputa.
-2. Kada se dovrši prethodni korak i bot je stvoren, treba mu poslati poruku sa svakog Telegram accounta kojeg želimo dodati kao korisnika. Chat ID se zatim može pronaći koristeći [](https://api.telegram.org/botTOKEN/getUpdates%5D(https://api.telegram.org/botTOKEN/getUpdates) link u kojem ste zamijenili riječ **TOKEN** sa Bot Token zapisom iz koraka 1.
+2. Kada se dovrši prethodni korak i bot je stvoren, treba mu poslati poruku sa svakog Telegram accounta kojeg želimo dodati kao korisnika. Chat ID se zatim može pronaći koristeći [https://api.telegram.org/botTOKEN/getUpdates](https://api.telegram.org/botTOKEN/getUpdates) link u kojem ste zamijenili riječ **TOKEN** sa Bot Token zapisom iz koraka 1.
 
 #### Discord configuration
 
