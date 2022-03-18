@@ -40,6 +40,10 @@ const (
 	chanBufLen         = 500                   // broadcast channel buffer length
 	exitDelay          = 5 * time.Second       // sleep time before giving up on cancellation
 	logTimestampFormat = "02-01-2006 15:04:05" // logrus timestamp format
+	testUsername       = "korisnik@test.domena"
+	testSubject        = "Ovo je testni predmet"
+	testDescription    = "Testni opis"
+	testField          = "Testna vrijednost"
 )
 
 func main() {
@@ -65,6 +69,33 @@ func main() {
 	config, err := loadConfig()
 	if err != nil {
 		logrus.Fatalf("Error loading configuration: %v", err)
+	}
+
+	// test mode: send messages and exit
+	if *emulation {
+		logrus.Info("Emulation/testing mode enabled, will try to send a test message")
+		signal.Reset()
+
+		gradesMsg := make(chan msgtypes.Message, chanBufLen)
+		gradesMsg <- msgtypes.Message{
+			Username: testUsername,
+			Subject:  testSubject,
+			Descriptions: []string{
+				testDescription,
+			},
+			Fields: []string{
+				testField,
+			},
+		}
+		close(gradesMsg)
+
+		var wgMsg sync.WaitGroup
+		msgSend(ctx, &wgMsg, gradesMsg, config)
+		wgMsg.Wait()
+
+		logrus.Info("Exiting now.")
+
+		return
 	}
 
 	// initial ticker delay of 1s

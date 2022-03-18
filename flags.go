@@ -36,7 +36,7 @@ const (
 )
 
 var (
-	debug, daemon, help                  *bool
+	debug, daemon, help, emulation       *bool
 	confFile, dbFile, tickIntervalString *string
 	tickInterval                         time.Duration
 )
@@ -46,6 +46,7 @@ func init() {
 	debug = getopt.BoolLong("verbose", 'v', "enable verbose/debug log level")
 	daemon = getopt.BoolLong("daemon", 'd', "enable daemon mode (running as a service)")
 	help = getopt.BoolLong("help", '?', "display help")
+	emulation = getopt.BoolLong("test", 't', "send a test event (to check if messaging works)")
 	confFile = getopt.StringLong("conffile", 'f', DefaultConfFile, "configuration file (in TOML)")
 	dbFile = getopt.StringLong("database", 'b', db.DefaultDBPath, "alert database file")
 	tickIntervalString = getopt.StringLong("interval", 'i', DefaultTickInterval,
