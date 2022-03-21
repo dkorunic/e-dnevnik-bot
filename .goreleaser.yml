@@ -3,10 +3,6 @@ builds:
       - -trimpath
     env:
       - CGO_ENABLED=0
-    asmflags:
-      - all=-trimpath={{.Env.GOPATH}}
-    gcflags:
-      - all=-trimpath={{.Env.GOPATH}}
     ldflags: |
       -s -w -extldflags '-static'
     goos:
