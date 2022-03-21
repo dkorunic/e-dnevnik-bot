@@ -205,3 +205,60 @@ Steps required:
 Potrebni koraci:
 
 1. Gmail SMTP konfiguraciju je moguće složiti koristeći odgovor sa [Google centra](https://support.google.com/a/answer/176600?hl=en) za pomoć. Svi ostali SMTP servisi se slično konfiguriraju.
+
+## HOWTO
+
+### Integration with Systemd
+
+To have minimal [systemd](https://systemd.io/) configuration with the service running as user `ubuntu` inside `/home/ubuntu/e-dnevnik` directory, the following file should be saved to `/etc/systemd/system/e-dnevnik.service`:
+
+```
+# /etc/systemd/system/e-dnevnik.service
+[Unit]
+Description=e-Dnevnik daemon
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/ubuntu/e-dnevnik
+ExecStart=/home/ubuntu/e-dnevnik/e-dnevnik-bot --daemon --verbose
+
+Restart=always
+RestartSec=2
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Steps to enable would be as usual:
+
+```shell
+systemctl daemon-reload
+systemctl enable --now e-dnevnik
+systemctl status e-dnevnik
+```
+
+### Running as a Docker container
+
+We have up to date [Docker Hub](https://hub.docker.com/r/dkorunic/e-dnevnik-bot) builds that can be used to run bot as Linux amd64/arm64/arm containers. To set this up, we need a persistent directory named `ednevnik` on host in a local folder containing configuration file `.e-dnevnik-toml`. That same directory will also store persistent alerts database named `.e-dnevnik.db` as well, and we will do a classic volume mount from host to container:
+
+```shell
+cd some/workdir
+mkdir ednevnik
+
+curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example \
+    --output ednevnik/.e-dnevnik.toml
+editor ednevnik/.e-dnevnik.toml
+
+docker pull dkorunic/e-dnevnik-bot
+
+docker run --detach \
+    --volume "$(pwd)/ednevnik:/ednevnik" \
+    --restart unless-stopped \
+    dkorunic/e-dnevnik-bot \
+    --daemon \
+    --verbose \
+    --database /ednevnik/.e-dnevnik.db \
+    --conffile /ednevnik/.e-dnevnik.toml
+```
