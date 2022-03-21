@@ -18,6 +18,11 @@ builds:
       - amd64
       - arm
       - arm64
+    goarm:
+      - 6
+      - 7
+universal_binaries:
+  - replace: true
 archives:
   - replacements:
       linux: Linux
@@ -29,6 +34,10 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
+    files:
+      - README.md
+      - LICENSE
+      - .e-dnevnik.toml.example
 checksum:
   name_template: "checksums.txt"
 snapshot:
@@ -39,3 +48,67 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+dockers:
+  - use: buildx
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-amd64"
+      - "dkorunic/{{.ProjectName}}:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+  - use: buildx
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-arm64v8"
+      - "dkorunic/{{.ProjectName}}:latest-arm64v8"
+    build_flag_templates:
+      - "--platform=linux/arm64/v8"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+  - use: buildx
+    goos: linux
+    goarch: arm
+    goarm: 6
+    image_templates:
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv6"
+      - "dkorunic/{{.ProjectName}}:latest-armv6"
+    build_flag_templates:
+      - "--platform=linux/arm/v6"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+  - use: buildx
+    goos: linux
+    goarch: arm
+    goarm: 7
+    image_templates:
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv7"
+      - "dkorunic/{{.ProjectName}}:latest-armv7"
+    build_flag_templates:
+      - "--platform=linux/arm/v7"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+docker_manifests:
+  - name_template: "dkorunic/{{ .ProjectName }}:{{ .Version }}"
+    image_templates:
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-amd64"
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-arm64v8"
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv6"
+      - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv7"
+  - name_template: "dkorunic/{{ .ProjectName }}:latest"
+    image_templates:
+      - "dkorunic/{{.ProjectName}}:latest-amd64"
+      - "dkorunic/{{.ProjectName}}:latest-arm64v8"
+      - "dkorunic/{{.ProjectName}}:latest-armv6"
+      - "dkorunic/{{.ProjectName}}:latest-armv7"
