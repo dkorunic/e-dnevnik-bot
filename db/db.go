@@ -24,6 +24,7 @@ package db
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/dgraph-io/badger/v3"
@@ -51,6 +52,12 @@ func New(filePath string) (*Edb, error) {
 
 	logrus.Debugf("Opening database: %v", filePath)
 	opts := badger.DefaultOptions(filePath)
+
+	if strconv.IntSize == 32 {
+		logrus.Info("Detected 32-bit environment, tuning DB for lower memory usage")
+		opts.ValueLogFileSize = 1 << 20
+	}
+
 	db, err := badger.Open(opts.WithLogger(nil)) // disable Badger verbose logging
 	if err != nil {
 		if isExisting {

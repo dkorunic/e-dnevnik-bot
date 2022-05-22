@@ -17,6 +17,11 @@ builds:
     goarm:
       - 6
       - 7
+    ignore:
+      - goos: windows
+        goarch: arm64
+      - goos: windows
+        goarch: arm
 universal_binaries:
   - replace: true
 archives:
