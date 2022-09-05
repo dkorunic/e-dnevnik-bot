@@ -5,7 +5,7 @@ all: update build
 
 update:
 	go get -u
-	go mod tidy -compat=1.18
+	go mod tidy -compat=1.19
 
 .PHONY: build
 build:
