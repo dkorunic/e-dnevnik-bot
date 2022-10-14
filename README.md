@@ -262,3 +262,65 @@ docker run --detach \
     --database /ednevnik/.e-dnevnik.db \
     --conffile /ednevnik/.e-dnevnik.toml
 ```
+
+### Running in Github Actions
+
+This great and simple integration has been created by Luka Kladaric [@allixsenos](https://twitter.com/allixsenos), thanks Luka! Link to his original Gist is [here](https://gist.github.com/allixsenos/f12977de767f32450f435ec2f33b93f0) and a copy is below:
+
+```yaml
+name: e-imenik run
+
+# Controls when the action will run.
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  # Run on push to any branch for testing
+  push:
+  # Run every 6 hours
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Render the config file
+        run: |
+          cat > .e-dnevnik.toml <<EOF
+          [[user]]
+          username = "$SKOLE_USERNAME"
+          password = "$SKOLE_PASSWORD"
+
+          [telegram]
+          token = "$TELEGRAM_TOKEN"
+          chatids = [ "$TELEGRAM_CHATID" ]
+          EOF
+        env:
+          SKOLE_USERNAME: ${{ secrets.SKOLE_USERNAME }}
+          SKOLE_PASSWORD: ${{ secrets.SKOLE_PASSWORD }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHATID: ${{ secrets.TELEGRAM_CHATID }}
+
+      - name: Run dkorunic/e-dnevnik-bot
+        run: |
+          docker run -t \
+            --volume "$(pwd):/ednevnik" \
+            --user $(id -u):$(id -g) \
+            dkorunic/e-dnevnik-bot \
+            --verbose \
+            --database /ednevnik/.e-dnevnik.db \
+            --conffile /ednevnik/.e-dnevnik.toml
+
+      - name: Delete the config file so it doesn't get committed back :)
+        run: rm .e-dnevnik.toml
+
+      - name: Commit the DB
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_author: GitHub Actions <actions@github.com>
+```
+
+This Github Actions recipe runs every 6 hours and upon each run will checkout the database, render the configuration file, run the bot and commit the database back, taking care of the persistency.
