@@ -23,6 +23,7 @@ package messenger
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -34,10 +35,13 @@ import (
 )
 
 const (
-	MailSendDelay         = 50 * time.Millisecond
-	MailSubject           = "Nova ocjena iz e-Dnevnika"
-	ErrMailSendingMessage = "Error sending mail message: %v"
-	ErrMailInvalidPort    = "Invalid or missing SMTP port, will try with default 465/tcp"
+	MailSendDelay = 50 * time.Millisecond
+	MailSubject   = "Nova ocjena iz e-Dnevnika"
+)
+
+var (
+	ErrMailSendingMessage = errors.New("error sending mail message")
+	ErrMailInvalidPort    = errors.New("invalid or missing SMTP port, will try with default 465/tcp")
 )
 
 // Mail messenger processes events from a channel and attempts to send emails to one or more recipients,
@@ -49,7 +53,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
-		logrus.Warnf(ErrMailInvalidPort)
+		logrus.Warnf("%v: %v", ErrMailInvalidPort, port)
 		portInt = 465
 	}
 
@@ -93,7 +97,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf(ErrMailSendingMessage, err)
+					logrus.Errorf("%v: %v", ErrMailSendingMessage, err)
 
 					break
 				}

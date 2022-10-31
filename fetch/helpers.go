@@ -22,6 +22,7 @@
 package fetch
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,15 +34,15 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-const (
-	ErrUnexpectedStatus = "unexpected status code %v"
-	ErrCSRFToken        = "could not find CSRF token"
+var (
+	ErrUnexpectedStatus = errors.New("unexpected status code")
+	ErrCSRFToken        = errors.New("could not find CSRF token")
 )
 
 // getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
 // security cookie.
 func (c *Client) getCSRFToken() error {
-	req, err := http.NewRequestWithContext(c.ctx, "GET", LoginURL, nil)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, LoginURL, nil)
 	if err != nil {
 		return err
 	}
@@ -59,7 +60,7 @@ func (c *Client) getCSRFToken() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf(ErrUnexpectedStatus, resp.StatusCode)
+		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
@@ -78,7 +79,7 @@ func (c *Client) getCSRFToken() error {
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if !csrfTokenExists {
-		return fmt.Errorf(ErrCSRFToken)
+		return fmt.Errorf("%w", ErrCSRFToken)
 	}
 
 	return nil
@@ -98,7 +99,7 @@ func (c *Client) doSAMLRequest() error {
 		"password":   {c.password},
 		"csrf_token": {c.csrfToken},
 	}
-	req, err := http.NewRequestWithContext(c.ctx, "POST", u.String(), strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, u.String(), strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,7 @@ func (c *Client) doSAMLRequest() error {
 
 	// regular SSO response should have HTTP 302 status
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
-		return fmt.Errorf(ErrUnexpectedStatus, resp.StatusCode)
+		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
 	return nil
@@ -135,7 +136,7 @@ func (c *Client) getGrades() (string, error) {
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(c.ctx, "GET", u.String(), nil)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +155,7 @@ func (c *Client) getGrades() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf(ErrUnexpectedStatus, resp.StatusCode)
+		return "", fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -172,7 +173,7 @@ func (c *Client) getCalendar() (Events, error) {
 		return Events{}, err
 	}
 
-	req, err := http.NewRequestWithContext(c.ctx, "GET", u.String(), nil)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return Events{}, err
 	}
@@ -191,7 +192,7 @@ func (c *Client) getCalendar() (Events, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return Events{}, fmt.Errorf(ErrUnexpectedStatus, resp.StatusCode)
+		return Events{}, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)

@@ -23,6 +23,7 @@ package messenger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -38,28 +39,32 @@ import (
 )
 
 const (
-	DiscordSendDelay          = 50 * time.Millisecond // recommended delay between messages
-	ErrDiscordEmptyAPIKey     = "empty Discord API key"
-	ErrDiscordEmptyUserIds    = "empty list of Discord User IDs"
-	ErrDiscordCreatingSession = "Error creating Discord session: %v"
-	ErrDiscordCreatingChannel = "Error creating Discord channel: %v"
-	ErrDiscordSendingMessage  = "Error sending Discord message: %v"
+	DiscordSendDelay = 50 * time.Millisecond // recommended delay between messages
+
+)
+
+var (
+	ErrDiscordEmptyAPIKey     = errors.New("empty Discord API key")
+	ErrDiscordEmptyUserIds    = errors.New("empty list of Discord User IDs")
+	ErrDiscordCreatingSession = errors.New("error creating Discord session")
+	ErrDiscordCreatingChannel = errors.New("error creating Discord channel")
+	ErrDiscordSendingMessage  = errors.New("error sending Discord message")
 )
 
 // Discord messenger processes events from a channel and attempts to communicate to one or more UserIDs, optionally
 // returning an error.
 func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs []string) error {
 	if token == "" {
-		return fmt.Errorf(ErrDiscordEmptyAPIKey)
+		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
 	if len(userIDs) == 0 {
-		return fmt.Errorf(ErrDiscordEmptyUserIds)
+		return fmt.Errorf("%w", ErrDiscordEmptyUserIds)
 	}
 
 	// create a Discord session
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
-		logrus.Errorf(ErrDiscordCreatingSession, err)
+		logrus.Errorf("%v: %v", ErrDiscordCreatingSession, err)
 
 		return err
 	}
@@ -107,7 +112,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 				// create a new user/private channel if needed
 				c, err := dg.UserChannelCreate(u)
 				if err != nil {
-					logrus.Errorf(ErrDiscordCreatingChannel, err)
+					logrus.Errorf("%v: %v", ErrDiscordCreatingChannel, err)
 
 					break
 				}
@@ -122,7 +127,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf(ErrDiscordSendingMessage, err)
+					logrus.Errorf("%v: %v", ErrDiscordSendingMessage, err)
 
 					break
 				}

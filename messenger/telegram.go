@@ -23,6 +23,7 @@ package messenger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -37,21 +38,24 @@ import (
 )
 
 const (
-	telegramSendDelay         = 50 * time.Millisecond
-	ErrTelegramEmptyAPIKey    = "empty Telegram API key"
-	ErrTelegramEmptyUserIds   = "empty list of Telegram Chat IDs"
-	ErrTelegramInvalidChatID  = "Invalid Telegram Chat ID: %v"
-	ErrTelegramSendingMessage = "Error sending Telegram message: %v"
+	telegramSendDelay = 50 * time.Millisecond
+)
+
+var (
+	ErrTelegramEmptyAPIKey    = errors.New("empty Telegram API key")
+	ErrTelegramEmptyUserIds   = errors.New("empty list of Telegram Chat IDs")
+	ErrTelegramInvalidChatID  = errors.New("invalid Telegram Chat ID")
+	ErrTelegramSendingMessage = errors.New("error sending Telegram message")
 )
 
 // Telegram messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
 // returning an error.
 func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs []string) error {
 	if apiKey == "" {
-		return fmt.Errorf(ErrTelegramEmptyAPIKey)
+		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
 	if len(chatIDs) == 0 {
-		return fmt.Errorf(ErrTelegramEmptyUserIds)
+		return fmt.Errorf("%w", ErrTelegramEmptyUserIds)
 	}
 
 	// new Telegram client
@@ -82,7 +86,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 			for _, u := range chatIDs {
 				uu, err := strconv.ParseInt(u, 10, 64)
 				if err != nil {
-					logrus.Errorf(ErrTelegramInvalidChatID, err)
+					logrus.Errorf("%v: %v", ErrTelegramInvalidChatID, err)
 
 					return err
 				}
@@ -105,7 +109,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf(ErrTelegramSendingMessage, err)
+					logrus.Errorf("%v: %v", ErrTelegramSendingMessage, err)
 
 					break
 				}

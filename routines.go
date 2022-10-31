@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -38,13 +39,16 @@ import (
 )
 
 const (
-	broadcastBufLen    = 10 // events to broadcast for sending at once
-	ErrScrapingUser    = "Error scraping data for user %v: %v"
-	ErrDiscord         = "Discord messenger issue: %v"
-	ErrTelegram        = "Telegram messenger issue: %v"
-	ErrSlack           = "Slack messenger issue: %v"
-	ErrMail            = "Mail messenger issue: %v"
+	broadcastBufLen    = 10                     // events to broadcast for sending at once
 	spinnerRotateDelay = 100 * time.Millisecond // spinner delay
+)
+
+var (
+	ErrScrapingUser = errors.New("error scraping data for user")
+	ErrDiscord      = errors.New("Discord messenger issue")      //nolint:stylecheck
+	ErrTelegram     = errors.New("Telegram messenger issue: %v") //nolint:stylecheck
+	ErrSlack        = errors.New("Slack messenger issue: %v")    //nolint:stylecheck
+	ErrMail         = errors.New("Mail messenger issue: %v")     //nolint:stylecheck
 )
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
@@ -59,7 +63,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 
 			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password)
 			if err != nil {
-				logrus.Warnf(ErrScrapingUser, i.Username, err)
+				logrus.Warnf("%v %v: %v", ErrScrapingUser, i.Username, err)
 			}
 		}()
 	}
@@ -85,7 +89,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 				defer wgMsg.Done()
 				logrus.Debug("Discord messenger started")
 				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs); err != nil {
-					logrus.Warnf(ErrDiscord, err)
+					logrus.Warnf("%v: %v", ErrDiscord, err)
 				}
 			}()
 		}
@@ -102,7 +106,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 				defer wgMsg.Done()
 				logrus.Debug("Telegram messenger started")
 				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs); err != nil {
-					logrus.Warnf(ErrTelegram, err)
+					logrus.Warnf("%v: %v", ErrTelegram, err)
 				}
 			}()
 		}
@@ -119,7 +123,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 				defer wgMsg.Done()
 				logrus.Debug("Slack messenger started")
 				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs); err != nil {
-					logrus.Warnf(ErrSlack, err)
+					logrus.Warnf("%v: %v", ErrSlack, err)
 				}
 			}()
 		}
@@ -137,7 +141,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 				logrus.Debug("Mail messenger started")
 				if err := messenger.Mail(ctx, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username,
 					config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To); err != nil {
-					logrus.Warnf(ErrMail, err)
+					logrus.Warnf("%v: %v", ErrMail, err)
 				}
 			}()
 		}

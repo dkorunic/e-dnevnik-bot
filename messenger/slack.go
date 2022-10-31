@@ -23,6 +23,7 @@ package messenger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -34,20 +35,23 @@ import (
 )
 
 const (
-	slackSendDelay         = 1000 * time.Millisecond
-	ErrSlackEmptyAPIKey    = "empty Slack API key"
-	ErrSlackEmptyUserIds   = "empty list of Slack Chat IDs"
-	ErrSlackSendingMessage = "Error sending Slack message: %v"
+	slackSendDelay = 1000 * time.Millisecond
+)
+
+var (
+	ErrSlackEmptyAPIKey    = errors.New("empty Slack API key")
+	ErrSlackEmptyUserIds   = errors.New("empty list of Slack Chat IDs")
+	ErrSlackSendingMessage = errors.New("error sending Slack message")
 )
 
 // Slack messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
 // returning an error.
 func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []string) error {
 	if token == "" {
-		return fmt.Errorf(ErrSlackEmptyAPIKey)
+		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
 	if len(chatIDs) == 0 {
-		return fmt.Errorf(ErrSlackEmptyUserIds)
+		return fmt.Errorf("%w", ErrSlackEmptyUserIds)
 	}
 
 	// new full Slack client
@@ -88,7 +92,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf(ErrSlackSendingMessage, err)
+					logrus.Errorf("%v: %v", ErrSlackSendingMessage, err)
 
 					break
 				}
