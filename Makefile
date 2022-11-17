@@ -10,4 +10,3 @@ update:
 .PHONY: build
 build:
 	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags="-s -w" -o $(TARGET)
-	upx $(TARGET) || true

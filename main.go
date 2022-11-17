@@ -34,6 +34,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	_ "go.uber.org/automaxprocs"
 )
 
 const (
