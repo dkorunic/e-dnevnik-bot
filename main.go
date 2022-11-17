@@ -33,6 +33,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	_ "go.uber.org/automaxprocs"
 )
