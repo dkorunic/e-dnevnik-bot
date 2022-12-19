@@ -7,20 +7,20 @@ require (
 	github.com/KimMachineGun/automemlimit v0.2.4
 	github.com/PuerkitoBio/goquery v1.8.0
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
-	github.com/avast/retry-go v3.0.0+incompatible
+	github.com/avast/retry-go/v4 v4.3.1
 	github.com/bwmarrin/discordgo v0.26.1
 	github.com/corpix/uarand v0.2.0
-	github.com/dgraph-io/badger/v3 v3.2103.4
+	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
 	github.com/mattn/go-isatty v0.0.16
 	github.com/pborman/getopt/v2 v2.1.0
 	github.com/sirupsen/logrus v1.9.0
-	github.com/slack-go/slack v0.11.4
+	github.com/slack-go/slack v0.12.0
 	github.com/tj/go-spin v1.1.0
 	go.uber.org/automaxprocs v1.5.1
-	go.uber.org/goleak v1.1.12
+	go.uber.org/goleak v1.2.0
 	gopkg.in/mail.v2 v2.3.1
 )
 

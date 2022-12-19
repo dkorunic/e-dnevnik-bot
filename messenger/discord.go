@@ -30,7 +30,7 @@ import (
 
 	"github.com/dkorunic/e-dnevnik-bot/format"
 
-	"github.com/avast/retry-go"
+	"github.com/avast/retry-go/v4"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 
