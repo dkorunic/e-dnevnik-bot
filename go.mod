@@ -17,7 +17,7 @@ require (
 	github.com/mattn/go-isatty v0.0.16
 	github.com/pborman/getopt/v2 v2.1.0
 	github.com/sirupsen/logrus v1.9.0
-	github.com/slack-go/slack v0.12.0
+	github.com/slack-go/slack v0.12.1
 	github.com/tj/go-spin v1.1.0
 	go.uber.org/automaxprocs v1.5.1
 	go.uber.org/goleak v1.2.0
