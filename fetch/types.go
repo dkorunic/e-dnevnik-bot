@@ -29,6 +29,7 @@ import (
 )
 
 // Client structure holds all HTTP Client related fields.
+//
 //nolint:containedctx
 type Client struct {
 	httpClient *http.Client

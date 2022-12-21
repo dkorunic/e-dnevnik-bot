@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -47,6 +48,8 @@ const (
 	testDescription    = "Testni opis"
 	testField          = "Testna vrijednost"
 )
+
+var exitWithError atomic.Bool
 
 func main() {
 	parseFlags()
@@ -95,7 +98,7 @@ func main() {
 		msgSend(ctx, &wgMsg, gradesMsg, config)
 		wgMsg.Wait()
 
-		logrus.Info("Exiting now.")
+		logrus.Info("Exiting with scucess from emulation.")
 
 		return
 	}
@@ -121,8 +124,12 @@ func main() {
 				go spinner()
 			}
 			time.Sleep(exitDelay)
-			logrus.Info("Exiting now.")
+			if exitWithError.Load() {
+				logrus.Warn("Exiting, during run some errors were encountered.")
+				os.Exit(1)
+			}
 
+			logrus.Info("Exiting with success.")
 			return
 		case <-ticker.C:
 			logrus.Info("Doing a scheduled run")
@@ -149,7 +156,11 @@ func main() {
 			wgMsg.Wait()
 
 			if !*daemon {
-				logrus.Info("Exiting with success")
+				if exitWithError.Load() {
+					logrus.Warn("Exiting, during run some errors were encountered.")
+					os.Exit(1)
+				}
+				logrus.Info("Exiting with success.")
 
 				return
 			}
