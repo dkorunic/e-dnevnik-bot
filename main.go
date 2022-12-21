@@ -126,7 +126,7 @@ func main() {
 			time.Sleep(exitDelay)
 			if exitWithError.Load() {
 				logrus.Warn("Exiting, during run some errors were encountered.")
-				os.Exit(1)
+				os.Exit(1) //nolint:gocritic
 			}
 			logrus.Info("Exiting with a success.")
 
@@ -134,6 +134,9 @@ func main() {
 		case <-ticker.C:
 			logrus.Info("Doing a scheduled run")
 			ticker.Reset(tickInterval)
+
+			// reset exit error status
+			exitWithError.Store(false)
 
 			// subjects/grades/exams scraper routines
 			gradesScraped := make(chan msgtypes.Message, chanBufLen)
