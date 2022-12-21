@@ -98,7 +98,7 @@ func main() {
 		msgSend(ctx, &wgMsg, gradesMsg, config)
 		wgMsg.Wait()
 
-		logrus.Info("Exiting with scucess from emulation.")
+		logrus.Info("Exiting with a success from the emulation.")
 
 		return
 	}
@@ -129,7 +129,7 @@ func main() {
 				os.Exit(1)
 			}
 
-			logrus.Info("Exiting with success.")
+			logrus.Info("Exiting with a success.")
 			return
 		case <-ticker.C:
 			logrus.Info("Doing a scheduled run")
@@ -160,7 +160,7 @@ func main() {
 					logrus.Warn("Exiting, during run some errors were encountered.")
 					os.Exit(1)
 				}
-				logrus.Info("Exiting with success.")
+				logrus.Info("Exiting with a success.")
 
 				return
 			}
