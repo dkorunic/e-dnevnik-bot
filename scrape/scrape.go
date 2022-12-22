@@ -23,6 +23,7 @@ package scrape
 
 import (
 	"context"
+	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -30,16 +31,11 @@ import (
 	"github.com/avast/retry-go/v4"
 )
 
-const (
-	defaultScrapeTimeout = fetch.Timeout * defaultAttempts // max time permitted for all attempts
-	defaultAttempts      = 10                              // total number of full csrf/auth/fetch attempts
-)
-
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
-func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string) error {
+func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
 	err := func() error {
-		ctx, stop := context.WithTimeout(ctx, defaultScrapeTimeout)
+		ctx, stop := context.WithTimeout(ctx, time.Duration(retries)*fetch.Timeout)
 		defer stop()
 
 		client, err := fetch.NewClientWithContext(ctx, username, password)
@@ -57,7 +53,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 				return err
 			},
-			retry.Attempts(defaultAttempts),
+			retry.Attempts(retries),
 			retry.Context(ctx),
 		)
 		if err != nil {

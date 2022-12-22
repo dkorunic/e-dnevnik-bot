@@ -60,7 +60,7 @@ Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](https://githu
 ### Usage / Upute za upotrebu
 
 ```shell
-Usage: e-dnevnik-bot [-?dtv] [-b value] [-f value] [-i value] [parameters ...]
+Usage: e-dnevnik-bot [-?dtv] [-b value] [-f value] [-i value] [-r value] [parameters ...]
  -?, --help     display help
  -b, --database=value
                 alert database file [.e-dnevnik.db]
@@ -69,6 +69,8 @@ Usage: e-dnevnik-bot [-?dtv] [-b value] [-f value] [-i value] [parameters ...]
                 configuration file (in TOML) [.e-dnevnik.toml]
  -i, --interval=value
                 interval between polls when in daemon mode [1h]
+ -r, --retries=value
+                default retry attempts on error [3]
  -t, --test     send a test event (to check if messaging works)
  -v, --verbose  enable verbose/debug log level
 ```
@@ -81,6 +83,7 @@ Other flags are:
 - `-d`: enable daemon mode aka service mode where bot works continously, waking up on regular intervals (specified with `-i`) and by default this is disabled,
 - `-f`: configuration file path to configure usernames, passwords and various messaging services (in [TOML](https://github.com/toml-lang/toml) format),
 - `-i`: interval between polls when in daemon/service mode (at minimum 1h, default 1h),
+- `-r`: retries between unsuccessful attempts to scrape and/or send alerts (default 3),
 - `-t`: sends a test message to all configured messaging services,
 - `-v`: enables verbose/debug messages for more insight into bot operation and by default this is disabled.
 
@@ -94,6 +97,7 @@ Ostali parametri su:
 - `-d`: omogućuje servisni rad gdje bot radi kontinuirano i budi se u regularnim intervalima (koje odabiremo sa `-i` parametrom) te je ovakav način rada standardno ugašen,
 - `-f`: staza do konfiguracijske datoteke koja sadrži korisnička imena, lozinke i ostalu konfiguraciju za servise slanja poruka odnosno e-maila (u [TOML](https://github.com/toml-lang/toml) sintaksi),
 - `-i`: interval između buđenja bota (minimalno 1h, standardno 1h),
+- `-r`: broj pokušaja kod neuspjeha prilikom dohvata ocjena i/ili slanja poruka odnosno e-mailova,
 - `-t`: služi za slanje testne poruke na sve konfigurirane servise slanja poruka odnosno e-maila,
 - `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena.
 

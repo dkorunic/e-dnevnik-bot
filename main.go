@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"sync"
@@ -36,7 +37,7 @@ import (
 
 	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-	_ "go.uber.org/automaxprocs"
+	"go.uber.org/automaxprocs/maxprocs"
 )
 
 const (
@@ -49,7 +50,10 @@ const (
 	testField          = "Testna vrijednost"
 )
 
-var exitWithError atomic.Bool
+var (
+	exitWithError atomic.Bool
+	ErrMaxProc    = errors.New("failed to set GOMAXPROCS")
+)
 
 func main() {
 	parseFlags()
@@ -64,6 +68,13 @@ func main() {
 	logrus.SetOutput(os.Stdout)
 	if *debug {
 		logrus.SetLevel(logrus.DebugLevel)
+	}
+
+	// auto-configure GOMAXPROCS
+	undo, err := maxprocs.Set()
+	defer undo()
+	if err != nil {
+		logrus.Warnf("%v: %v", ErrMaxProc, err)
 	}
 
 	// context with signal integration

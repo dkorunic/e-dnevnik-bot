@@ -46,7 +46,7 @@ var (
 
 // Slack messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
 // returning an error.
-func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []string) error {
+func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
@@ -89,6 +89,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 
 						return err
 					},
+					retry.Attempts(retries),
 					retry.Context(ctx),
 				)
 				if err != nil {

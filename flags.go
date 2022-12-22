@@ -33,12 +33,14 @@ import (
 const (
 	DefaultConfFile     = ".e-dnevnik.toml" // default configuration filename
 	DefaultTickInterval = "1h"              // default (and minimal permitted value) is 1 tick per 1h
+	DefaultRetries      = 3                 // default retry attempts
 )
 
 var (
 	debug, daemon, help, emulation       *bool
 	confFile, dbFile, tickIntervalString *string
 	tickInterval                         time.Duration
+	retries                              *uint
 )
 
 // init initializes flags configuration.
@@ -51,6 +53,7 @@ func init() {
 	dbFile = getopt.StringLong("database", 'b', db.DefaultDBPath, "alert database file")
 	tickIntervalString = getopt.StringLong("interval", 'i', DefaultTickInterval,
 		"interval between polls when in daemon mode")
+	retries = getopt.UintLong("retries", 'r', DefaultRetries, "default retry attempts on error")
 }
 
 // parseFlags parses input arguments and flags.

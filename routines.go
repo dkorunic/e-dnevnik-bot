@@ -61,7 +61,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 		go func() {
 			defer wgScrape.Done()
 
-			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password)
+			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
 			if err != nil {
 				logrus.Warnf("%v %v: %v", ErrScrapingUser, i.Username, err)
 				exitWithError.Store(true)
@@ -89,7 +89,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			go func() {
 				defer wgMsg.Done()
 				logrus.Debug("Discord messenger started")
-				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs); err != nil {
+				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs, *retries); err != nil {
 					logrus.Warnf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
 				}
@@ -107,7 +107,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			go func() {
 				defer wgMsg.Done()
 				logrus.Debug("Telegram messenger started")
-				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs); err != nil {
+				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries); err != nil {
 					logrus.Warnf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
 				}
@@ -125,7 +125,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			go func() {
 				defer wgMsg.Done()
 				logrus.Debug("Slack messenger started")
-				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs); err != nil {
+				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs, *retries); err != nil {
 					logrus.Warnf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
 				}
@@ -144,7 +144,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 				defer wgMsg.Done()
 				logrus.Debug("Mail messenger started")
 				if err := messenger.Mail(ctx, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username,
-					config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To); err != nil {
+					config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
 					logrus.Warnf("%v: %v", ErrMail, err)
 					exitWithError.Store(true)
 				}
