@@ -40,7 +40,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/flatbuffers/go v0.0.0-20230104232246-af9ceabeef1a // indirect
+	github.com/google/flatbuffers/go v0.0.0-20230108034003-5638a6a900f3 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/klauspost/compress v1.15.14 // indirect
 	github.com/opencontainers/runtime-spec v1.0.2 // indirect

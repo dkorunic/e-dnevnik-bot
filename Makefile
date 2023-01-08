@@ -13,3 +13,7 @@ check:
 .PHONY: build
 build:
 	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags="-s -w" -o $(TARGET)
+
+.PHONY: build-debug
+build-debug:
+	CGO_ENABLED=1 go build -race -o $(TARGET)

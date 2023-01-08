@@ -55,6 +55,14 @@ var (
 	ErrMaxProc    = errors.New("failed to set GOMAXPROCS")
 )
 
+func fatalIfErrors() {
+	if exitWithError.Load() {
+		logrus.Warn("Exiting, during run some errors were encountered.")
+		os.Exit(1) //nolint:gocritic
+	}
+	logrus.Info("Exiting with a success.")
+}
+
 func main() {
 	parseFlags()
 
@@ -121,7 +129,7 @@ func main() {
 	if *daemon {
 		logrus.Infof("Service started, will collect information every %v", tickInterval)
 	} else {
-		logrus.Info("Doing a single run")
+		logrus.Info("Service is not enabled, doing just a single run")
 	}
 
 	for {
@@ -135,15 +143,11 @@ func main() {
 				go spinner()
 			}
 			time.Sleep(exitDelay)
-			if exitWithError.Load() {
-				logrus.Warn("Exiting, during run some errors were encountered.")
-				os.Exit(1) //nolint:gocritic
-			}
-			logrus.Info("Exiting with a success.")
+			fatalIfErrors()
 
 			return
 		case <-ticker.C:
-			logrus.Info("Doing a scheduled run")
+			logrus.Info("Scheduled run in progress")
 			ticker.Reset(tickInterval)
 
 			// reset exit error status
@@ -170,11 +174,7 @@ func main() {
 			wgMsg.Wait()
 
 			if !*daemon {
-				if exitWithError.Load() {
-					logrus.Warn("Exiting, during run some errors were encountered.")
-					os.Exit(1)
-				}
-				logrus.Info("Exiting with a success.")
+				fatalIfErrors()
 
 				return
 			}

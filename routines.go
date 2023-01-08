@@ -45,10 +45,10 @@ const (
 
 var (
 	ErrScrapingUser = errors.New("error scraping data for user")
-	ErrDiscord      = errors.New("Discord messenger issue")      //nolint:stylecheck
-	ErrTelegram     = errors.New("Telegram messenger issue: %v") //nolint:stylecheck
-	ErrSlack        = errors.New("Slack messenger issue: %v")    //nolint:stylecheck
-	ErrMail         = errors.New("Mail messenger issue: %v")     //nolint:stylecheck
+	ErrDiscord      = errors.New("Discord messenger issue")  //nolint:stylecheck
+	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:stylecheck
+	ErrSlack        = errors.New("Slack messenger issue")    //nolint:stylecheck
+	ErrMail         = errors.New("Mail messenger issue")     //nolint:stylecheck
 )
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
