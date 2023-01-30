@@ -319,9 +319,11 @@ In project directory where `docker-compose.yml` is located run docker compose co
 ```bash
 user@server:~/docker-compose/ednevnik$ docker compose up -d
 ```
+
 Option `-d` or `--detach` means detached mode and will run containers in the background
 
 In order to stop docker run following command:
+
 ```bash
 user@server:~/docker-compose/ednevnik$ docker compose down
 ```
