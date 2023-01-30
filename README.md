@@ -273,7 +273,15 @@ In order to use `docker compose` you need to have [Docker Compose installed](htt
 
 #### Step 1: Define services in a Compose file
 
-Create a file called `docker-compose.yml` in your project directory and paste the following to the `docker-compose.yml` file:
+Create a ednevnik file called `docker-compose.yml` in your project directory (ie. `~/docker-compose/ednevnik`):
+
+```bash
+user@server:~/docker-compose$ mkdir ednevnik
+user@server:~/docker-compose$ cd ednevnik
+user@server:~/docker-compose$ editor docker-compose.yml
+```
+
+and paste the following to the `docker-compose.yml` file:
 
 ```yaml
 version: "3"
@@ -295,26 +303,27 @@ services:
 
 In your project directory create a directory called `ednevnik` which will be persistent directory and follow the instructions from [Running as a Docker container](#configuration--konfiguracija) in order to download and configure `.e-dnevnik.toml` configuration file.
 
-```shell
-mkdir ednevnik
+```bash
+user@server:~/docker-compose/ednevnik$ mkdir ednevnik
 
-curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example \
+user@server:~/docker-compose/ednevnik$ curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example \
     --output ednevnik/.e-dnevnik.toml
 
-editor ednevnik/.e-dnevnik.toml
+user@server:~/docker-compose/ednevnik$ editor ednevnik/.e-dnevnik.toml
 ```
 
 #### Step 3: How to run and stop docker compose
 
 In project directory where `docker-compose.yml` is located run docker compose command as follows:
 
-```shell
-docker compose up -d
+```bash
+user@server:~/docker-compose/ednevnik$ docker compose up -d
 ```
+Option `-d` or `--detach` means detached mode and will run containers in the background
 
 In order to stop docker run following command:
-```shell
-docker compose down
+```bash
+user@server:~/docker-compose/ednevnik$ docker compose down
 ```
 
 ### Running in Github Actions
