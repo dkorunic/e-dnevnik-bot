@@ -267,6 +267,55 @@ docker run --detach \
     --conffile /ednevnik/.e-dnevnik.toml
 ```
 
+### Running using Docker Compose
+
+In order to use `docker compose` you need to have [Docker Compose installed](https://docs.docker.com/compose/install/).
+
+Step 1: Define services in a Compose file
+
+Create a file called `docker-compose.yml` in your project directory and paste the following to the `docker-compose.yml` file:
+
+```yaml
+version: "3"
+# More info at https://github.com/dkorunic/e-dnevnik-bot
+services:
+  ednevnik:
+    container_name: e-dnevnik
+    image: dkorunic/e-dnevnik-bot:latest
+    command:
+      - "--database=/ednevnik/.e-dnevnik.db"
+      - "--conffile=/ednevnik/.e-dnevnik.toml"
+    # Volumes store your data between container upgrades
+    volumes:
+      - ./ednevnik:/ednevnik
+    restart: unless-stopped
+```
+
+Step 2: Create persistent directory and download configuration file
+
+In your project directory create a directory called `ednevnik` which will be persistent directory and follow the instructions from [Running as a Docker container](#configuration--konfiguracija) in order to download and configure `.e-dnevnik.toml` configuration file.
+
+```shell
+mkdir ednevnik
+
+curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example --output ednevnik/.e-dnevnik.toml
+
+editor ednevnik/.e-dnevnik.toml
+```
+
+Step 3: How to run and stop docker compose
+
+In project directory where `docker-compose.yml` is located run docker compose command as follows:
+
+```shell
+docker compose up -d
+```
+
+In order to stop docker run following command:
+```shell
+docker compose down
+```
+
 ### Running in Github Actions
 
 This great and simple integration has been created by Luka Kladaric [@allixsenos](https://twitter.com/allixsenos), thanks Luka! Link to his original Gist is [here](https://gist.github.com/allixsenos/f12977de767f32450f435ec2f33b93f0) and a copy is below:
