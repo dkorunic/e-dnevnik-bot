@@ -298,7 +298,8 @@ In your project directory create a directory called `ednevnik` which will be per
 ```shell
 mkdir ednevnik
 
-curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example --output ednevnik/.e-dnevnik.toml
+curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example \
+    --output ednevnik/.e-dnevnik.toml
 
 editor ednevnik/.e-dnevnik.toml
 ```
