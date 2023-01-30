@@ -271,7 +271,7 @@ docker run --detach \
 
 In order to use `docker compose` you need to have [Docker Compose installed](https://docs.docker.com/compose/install/).
 
-Step 1: Define services in a Compose file
+#### Step 1: Define services in a Compose file
 
 Create a file called `docker-compose.yml` in your project directory and paste the following to the `docker-compose.yml` file:
 
@@ -291,7 +291,7 @@ services:
     restart: unless-stopped
 ```
 
-Step 2: Create persistent directory and download configuration file
+#### Step 2: Create persistent directory and download configuration file
 
 In your project directory create a directory called `ednevnik` which will be persistent directory and follow the instructions from [Running as a Docker container](#configuration--konfiguracija) in order to download and configure `.e-dnevnik.toml` configuration file.
 
@@ -304,7 +304,7 @@ curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.to
 editor ednevnik/.e-dnevnik.toml
 ```
 
-Step 3: How to run and stop docker compose
+#### Step 3: How to run and stop docker compose
 
 In project directory where `docker-compose.yml` is located run docker compose command as follows:
 
