@@ -117,7 +117,7 @@ func main() {
 		close(gradesMsg)
 
 		var wgMsg sync.WaitGroup
-		msgSend(ctx, &wgMsg, gradesMsg, config, msgPool)
+		msgSend(ctx, msgPool, &wgMsg, gradesMsg, config)
 		wgMsg.Wait()
 
 		logrus.Info("Exiting with a success from the emulation.")
@@ -159,7 +159,7 @@ func main() {
 			// subjects/grades/exams scraper routines
 			gradesScraped := make(chan *msgtypes.Message, chanBufLen)
 			var wgScrape sync.WaitGroup
-			scrapers(ctx, &wgScrape, gradesScraped, config, msgPool)
+			scrapers(ctx, msgPool, &wgScrape, gradesScraped, config)
 
 			// message/alert database checking routine
 			gradesMsg := make(chan *msgtypes.Message, chanBufLen)
@@ -168,7 +168,7 @@ func main() {
 
 			// messenger routines
 			var wgMsg sync.WaitGroup
-			msgSend(ctx, &wgMsg, gradesMsg, config, msgPool)
+			msgSend(ctx, msgPool, &wgMsg, gradesMsg, config)
 
 			wgScrape.Wait()
 			close(gradesScraped)

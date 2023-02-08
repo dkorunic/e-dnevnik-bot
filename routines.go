@@ -53,8 +53,8 @@ var (
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
 // to a channel.
-func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- *msgtypes.Message, config tomlConfig,
-	msgPool *sync.Pool,
+func scrapers(ctx context.Context, msgPool *sync.Pool, wgScrape *sync.WaitGroup, gradesScraped chan<- *msgtypes.Message,
+	config tomlConfig,
 ) {
 	logrus.Debug("Starting scrapers")
 	for _, i := range config.User {
@@ -73,8 +73,8 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 }
 
 // msgSend will process grades/exams messages and broadcast to one or more message services.
-func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan *msgtypes.Message, config tomlConfig,
-	msgPool *sync.Pool,
+func msgSend(ctx context.Context, msgPool *sync.Pool, wgMsg *sync.WaitGroup, gradesMsg <-chan *msgtypes.Message,
+	config tomlConfig,
 ) {
 	wgMsg.Add(1)
 	go func() {
