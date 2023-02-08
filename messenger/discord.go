@@ -26,7 +26,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/format"
@@ -54,9 +53,7 @@ var (
 
 // Discord messenger processes events from a channel and attempts to communicate to one or more UserIDs, optionally
 // returning an error.
-func Discord(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, token string, userIDs []string,
-	retries uint,
-) error {
+func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
@@ -87,7 +84,7 @@ func Discord(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, tok
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(*msgtypes.Message)
+			g, ok := o.(msgtypes.Message)
 			if !ok {
 				logrus.Warn("Received invalid type from channel, trying to continue")
 
@@ -140,9 +137,6 @@ func Discord(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, tok
 
 				time.Sleep(DiscordSendDelay)
 			}
-
-			g.Reset()
-			msgPool.Put(g)
 		}
 	}
 

@@ -1,4 +1,6 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
+filippo.io/mostly-harmless/cryptosource v0.0.0-20230118130925-0e48fbe82492 h1:NAY9xvJk+R3YRG86EeCpEvGVE12UITw/6R4WI6huMIU=
+filippo.io/mostly-harmless/cryptosource v0.0.0-20230118130925-0e48fbe82492/go.mod h1:hIhrS2FFqXOAlsXLtU3FZ3R5TMD47Mhh/8UQ+vBylQk=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/OneOfOne/xxhash v1.2.2 h1:KMrpdQIwFcEqXDklaen+P1axHaj9BSKzvpUUfnHldSE=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=

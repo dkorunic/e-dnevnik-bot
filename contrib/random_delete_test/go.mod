@@ -2,7 +2,10 @@ module github.com/dkorunic/e-dnevnik-bot/contrib
 
 go 1.20
 
-require github.com/dgraph-io/badger/v3 v3.2103.5
+require (
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20230118130925-0e48fbe82492
+	github.com/dgraph-io/badger/v3 v3.2103.5
+)
 
 require (
 	github.com/cespare/xxhash v1.1.0 // indirect

@@ -22,8 +22,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
+
+	"filippo.io/mostly-harmless/cryptosource"
 
 	"github.com/dgraph-io/badger/v3"
 )
@@ -33,7 +36,7 @@ const (
 )
 
 func main() {
-	db, err := badger.Open(badger.DefaultOptions(DefaultDBName))
+	db, err := badger.Open(badger.DefaultOptions(DefaultDBName).WithLogger(nil))
 	if err != nil {
 		log.Fatalf("Could not open database: %v\n", err)
 	}
@@ -59,12 +62,22 @@ func main() {
 		log.Fatalf("Could not list keys: %v\n", err)
 	}
 
-	// rand.Seed(time.Now().UTC().UnixNano())
+	totalKeys := len(keys)
+
+	fmt.Printf("Found total of %v keys.\n", totalKeys)
+
+	r := rand.New(cryptosource.New())
 
 	// delete two random keys
 	for i := 0; i < 2; i++ {
-		randKey := keys[rand.Intn(len(keys))]
+		randIdx := r.Intn(totalKeys)
+		randKey := keys[randIdx]
+		fmt.Printf("Deleting key number %v: %v\n", randIdx, randKey)
 
+		// delete key from keys slice
+		keys = append(keys[:randIdx], keys[randIdx+1:]...)
+
+		// delete k/v from DB
 		err = db.Update(func(txn *badger.Txn) error {
 			return txn.Delete(randKey)
 		})
@@ -72,5 +85,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to delete key: %v", err)
 		}
+
 	}
 }

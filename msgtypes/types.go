@@ -21,8 +21,6 @@
 
 package msgtypes
 
-import "sync"
-
 // Message structure holds alert subject and description as well as grades fields, as well as corresponding username.
 type Message struct {
 	IsExam       bool     // message is an exam event
@@ -30,22 +28,4 @@ type Message struct {
 	Subject      string   // subject
 	Descriptions []string // descriptions for fields
 	Fields       []string // fields with actual grades/exams and remarks
-}
-
-// Reset clears Message structure
-func (m *Message) Reset() {
-	m.IsExam = false
-	m.Username = m.Username[:0]
-	m.Subject = m.Subject[:0]
-	m.Descriptions = m.Descriptions[:0]
-	m.Fields = m.Fields[:0]
-}
-
-// NewPool returns new sync.Pool for Message objects
-func NewPool() *sync.Pool {
-	return &sync.Pool{
-		New: func() interface{} {
-			return new(Message)
-		},
-	}
 }

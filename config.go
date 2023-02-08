@@ -28,50 +28,50 @@ import (
 
 // user struct holds a single AAI/SSO username.
 type user struct {
-	Username string
-	Password string
+	Username string `toml:"username"`
+	Password string `toml:"password"`
 }
 
 // telegram struct holds Telegram messenger configuration.
 type telegram struct {
-	Token   string
-	ChatIDs []string
+	Token   string   `toml:"token"`
+	ChatIDs []string `toml:"chatids"`
 }
 
 // discord struct holds Discord messenger configuration.
 type discord struct {
-	Token   string
-	UserIDs []string
+	Token   string   `toml:"token"`
+	UserIDs []string `toml:"userids"`
 }
 
 // slack struct holds Slack messenger configuration.
 type slack struct {
-	Token   string
-	ChatIDs []string
+	Token   string   `toml:"token"`
+	ChatIDs []string `toml:"chatids"`
 }
 
 // mail struct hold e-mail messenger configuration.
 type mail struct {
-	Server   string
-	Port     string
-	Username string
-	Password string
-	From     string
-	Subject  string
-	To       []string
+	Server   string   `toml:"server"`
+	Port     string   `toml:"port"`
+	Username string   `toml:"username"`
+	Password string   `toml:"password"`
+	From     string   `toml:"from"`
+	Subject  string   `toml:"subject"`
+	To       []string `toml:"to"`
 }
 
 // tomlConfig struct holds all other configuration structures.
 type tomlConfig struct {
-	User            []user
-	Telegram        telegram
-	Discord         discord
-	Slack           slack
-	Mail            mail
-	telegramEnabled bool
-	discordEnabled  bool
-	slackEnabled    bool
-	mailEnabled     bool
+	User            []user   `toml:"user"`
+	Telegram        telegram `toml:"telegram"`
+	Discord         discord  `toml:"discord"`
+	Slack           slack    `toml:"slack"`
+	Mail            mail     `toml:"mail"`
+	telegramEnabled bool     `toml:"telegram_enabled"`
+	discordEnabled  bool     `toml:"discord_enabled"`
+	slackEnabled    bool     `toml:"slack_enabled"`
+	mailEnabled     bool     `toml:"mail_enabled"`
 }
 
 // loadConfig attempts to load and decode configuration file in TOML format, doing a minimal sanity checking and

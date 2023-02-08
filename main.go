@@ -97,9 +97,6 @@ func main() {
 		logrus.Fatalf("Error loading configuration: %v", err)
 	}
 
-	// allocate message pool
-	msgPool := msgtypes.NewPool()
-
 	// enable CPU profiling dump on exit
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
@@ -135,8 +132,8 @@ func main() {
 		logrus.Info("Emulation/testing mode enabled, will try to send a test message")
 		signal.Reset()
 
-		gradesMsg := make(chan *msgtypes.Message, chanBufLen)
-		gradesMsg <- &msgtypes.Message{
+		gradesMsg := make(chan msgtypes.Message, chanBufLen)
+		gradesMsg <- msgtypes.Message{
 			Username: testUsername,
 			Subject:  testSubject,
 			Descriptions: []string{
@@ -149,7 +146,7 @@ func main() {
 		close(gradesMsg)
 
 		var wgMsg sync.WaitGroup
-		msgSend(ctx, msgPool, &wgMsg, gradesMsg, config)
+		msgSend(ctx, &wgMsg, gradesMsg, config)
 		wgMsg.Wait()
 
 		logrus.Info("Exiting with a success from the emulation.")
@@ -189,18 +186,18 @@ func main() {
 			exitWithError.Store(false)
 
 			// subjects/grades/exams scraper routines
-			gradesScraped := make(chan *msgtypes.Message, chanBufLen)
+			gradesScraped := make(chan msgtypes.Message, chanBufLen)
 			var wgScrape sync.WaitGroup
-			scrapers(ctx, msgPool, &wgScrape, gradesScraped, config)
+			scrapers(ctx, &wgScrape, gradesScraped, config)
 
 			// message/alert database checking routine
-			gradesMsg := make(chan *msgtypes.Message, chanBufLen)
+			gradesMsg := make(chan msgtypes.Message, chanBufLen)
 			var wgFilter sync.WaitGroup
 			msgDedup(ctx, &wgFilter, gradesScraped, gradesMsg)
 
 			// messenger routines
 			var wgMsg sync.WaitGroup
-			msgSend(ctx, msgPool, &wgMsg, gradesMsg, config)
+			msgSend(ctx, &wgMsg, gradesMsg, config)
 
 			wgScrape.Wait()
 			close(gradesScraped)

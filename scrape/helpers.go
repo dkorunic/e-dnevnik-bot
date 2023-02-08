@@ -23,7 +23,6 @@ package scrape
 
 import (
 	"strings"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 
@@ -43,7 +42,7 @@ const (
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
-func parseGrades(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username, rawGrades string) error {
+func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string) error {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawGrades))
 	if err != nil {
 		return err
@@ -85,16 +84,12 @@ func parseGrades(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username, rawG
 						})
 
 					// once we have a single grade with all required fields, send it through the channel
-					m, ok := msgPool.Get().(*msgtypes.Message)
-					if !ok {
-						logrus.Warn("Unable to get sync.Pool entry, trying to continue")
-						m = new(msgtypes.Message)
+					ch <- msgtypes.Message{
+						Username:     username,
+						Subject:      subject,
+						Descriptions: descriptions,
+						Fields:       spans,
 					}
-					m.Username = username
-					m.Subject = subject
-					m.Descriptions = append(m.Descriptions, descriptions...)
-					m.Fields = append(m.Fields, spans...)
-					ch <- m
 					parsedGrades++
 				})
 		})
@@ -117,7 +112,7 @@ func cleanEventDescription(summary string) string {
 
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
-func parseEvents(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username string, events fetch.Events) error {
+func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events) error {
 	if len(events) == 0 {
 		logrus.Debugf("No scheduled exams for user %v", username)
 	}
@@ -128,25 +123,21 @@ func parseEvents(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username strin
 		timestamp := ev.Start.Format(TimeFormat)
 
 		// send each event through channel
-		m, ok := msgPool.Get().(*msgtypes.Message)
-		if !ok {
-			logrus.Warn("Unable to get sync.Pool entry, trying to continue")
-			m = new(msgtypes.Message)
+		ch <- msgtypes.Message{
+			IsExam:   true,
+			Username: username,
+			Subject:  subject,
+			Descriptions: []string{
+				EventSummary,
+				DateDescription,
+				EventDescription,
+			},
+			Fields: []string{
+				subject,
+				timestamp,
+				description,
+			},
 		}
-		m.IsExam = true
-		m.Username = username
-		m.Subject = subject
-		m.Descriptions = append(m.Descriptions, []string{
-			EventSummary,
-			DateDescription,
-			EventDescription,
-		}...)
-		m.Fields = append(m.Fields, []string{
-			subject,
-			timestamp,
-			description,
-		}...)
-		ch <- m
 	}
 
 	return nil
