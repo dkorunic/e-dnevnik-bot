@@ -45,7 +45,7 @@ func (m *Message) Reset() {
 func NewPool() *sync.Pool {
 	return &sync.Pool{
 		New: func() interface{} {
-			return new(*Message)
+			return new(Message)
 		},
 	}
 }
