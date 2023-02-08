@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -46,7 +47,7 @@ var (
 
 // Slack messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
 // returning an error.
-func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []string, retries uint) error {
+func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []string, retries uint, msgPool *sync.Pool) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
@@ -67,7 +68,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
+			g, ok := o.(*msgtypes.Message)
 			if !ok {
 				continue
 			}
@@ -100,6 +101,9 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 
 				time.Sleep(slackSendDelay)
 			}
+
+			g.Reset()
+			msgPool.Put(g)
 		}
 	}
 

@@ -24,7 +24,6 @@ package main
 import (
 	"log"
 	"math/rand"
-	"time"
 
 	"github.com/dgraph-io/badger/v3"
 )
@@ -60,7 +59,7 @@ func main() {
 		log.Fatalf("Could not list keys: %v\n", err)
 	}
 
-	rand.Seed(time.Now().UTC().UnixNano())
+	// rand.Seed(time.Now().UTC().UnixNano())
 
 	// delete two random keys
 	for i := 0; i < 2; i++ {

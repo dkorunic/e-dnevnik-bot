@@ -23,6 +23,7 @@ package scrape
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 
@@ -42,7 +43,7 @@ const (
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
-func parseGrades(username, rawGrades string, ch chan<- msgtypes.Message) error {
+func parseGrades(username, rawGrades string, ch chan<- *msgtypes.Message, msgPool *sync.Pool) error {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawGrades))
 	if err != nil {
 		return err
@@ -84,12 +85,12 @@ func parseGrades(username, rawGrades string, ch chan<- msgtypes.Message) error {
 						})
 
 					// once we have a single grade with all required fields, send it through the channel
-					ch <- msgtypes.Message{
-						Username:     username,
-						Subject:      subject,
-						Descriptions: descriptions,
-						Fields:       spans,
-					}
+					m := msgPool.Get().(*msgtypes.Message) //nolint:forcetypeassert
+					m.Username = username
+					m.Subject = subject
+					m.Descriptions = descriptions
+					m.Fields = spans
+					ch <- m
 					parsedGrades++
 				})
 		})
@@ -112,7 +113,7 @@ func cleanEventDescription(summary string) string {
 
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
-func parseEvents(username string, events fetch.Events, ch chan<- msgtypes.Message) error {
+func parseEvents(username string, events fetch.Events, ch chan<- *msgtypes.Message, msgPool *sync.Pool) error {
 	if len(events) == 0 {
 		logrus.Debugf("No scheduled exams for user %v", username)
 	}
@@ -122,21 +123,21 @@ func parseEvents(username string, events fetch.Events, ch chan<- msgtypes.Messag
 		description := cleanEventDescription(ev.Description)
 		timestamp := ev.Start.Format(TimeFormat)
 
-		ch <- msgtypes.Message{
-			IsExam:   true,
-			Username: username,
-			Subject:  subject,
-			Descriptions: []string{
-				EventSummary,
-				DateDescription,
-				EventDescription,
-			},
-			Fields: []string{
-				subject,
-				timestamp,
-				description,
-			},
+		m := msgPool.Get().(*msgtypes.Message) //nolint:forcetypeassert
+		m.IsExam = true
+		m.Username = username
+		m.Subject = subject
+		m.Descriptions = []string{
+			EventSummary,
+			DateDescription,
+			EventDescription,
 		}
+		m.Fields = []string{
+			subject,
+			timestamp,
+			description,
+		}
+		ch <- m
 	}
 
 	return nil

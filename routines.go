@@ -53,7 +53,9 @@ var (
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
 // to a channel.
-func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, config tomlConfig) {
+func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- *msgtypes.Message, config tomlConfig,
+	msgPool *sync.Pool,
+) {
 	logrus.Debug("Starting scrapers")
 	for _, i := range config.User {
 		wgScrape.Add(1)
@@ -61,7 +63,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 		go func() {
 			defer wgScrape.Done()
 
-			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
+			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries, msgPool)
 			if err != nil {
 				logrus.Warnf("%v %v: %v", ErrScrapingUser, i.Username, err)
 				exitWithError.Store(true)
@@ -71,7 +73,9 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 }
 
 // msgSend will process grades/exams messages and broadcast to one or more message services.
-func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, config tomlConfig) {
+func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan *msgtypes.Message, config tomlConfig,
+	msgPool *sync.Pool,
+) {
 	wgMsg.Add(1)
 	go func() {
 		defer wgMsg.Done()
@@ -89,7 +93,8 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			go func() {
 				defer wgMsg.Done()
 				logrus.Debug("Discord messenger started")
-				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs, *retries); err != nil {
+				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs, *retries,
+					msgPool); err != nil {
 					logrus.Warnf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
 				}
@@ -107,7 +112,8 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			go func() {
 				defer wgMsg.Done()
 				logrus.Debug("Telegram messenger started")
-				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries); err != nil {
+				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries,
+					msgPool); err != nil {
 					logrus.Warnf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
 				}
@@ -125,7 +131,8 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			go func() {
 				defer wgMsg.Done()
 				logrus.Debug("Slack messenger started")
-				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs, *retries); err != nil {
+				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs, *retries,
+					msgPool); err != nil {
 					logrus.Warnf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
 				}
@@ -144,7 +151,8 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 				defer wgMsg.Done()
 				logrus.Debug("Mail messenger started")
 				if err := messenger.Mail(ctx, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username,
-					config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
+					config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries,
+					msgPool); err != nil {
 					logrus.Warnf("%v: %v", ErrMail, err)
 					exitWithError.Store(true)
 				}
@@ -165,8 +173,8 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 
 // msgDedup acts like a filter: processes all incoming messages, calls in to database check and if it hasn't been found
 // and if it is not an initial run, it will pass through to messengers for further alerting.
-func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message,
-	gradesMsg chan<- msgtypes.Message,
+func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-chan *msgtypes.Message,
+	gradesMsg chan<- *msgtypes.Message,
 ) {
 	wgFilter.Add(1)
 	go func() {

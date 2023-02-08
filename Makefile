@@ -5,7 +5,7 @@ all: update build
 
 update:
 	go get -u
-	go mod tidy -compat=1.19
+	go mod tidy
 
 check:
 	gomajor list

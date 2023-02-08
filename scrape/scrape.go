@@ -23,6 +23,7 @@ package scrape
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
@@ -33,7 +34,9 @@ import (
 
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
-func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
+func GetGradesAndEvents(ctx context.Context, ch chan<- *msgtypes.Message, username, password string, retries uint,
+	msgPool *sync.Pool,
+) error {
 	err := func() error {
 		ctx, stop := context.WithTimeout(ctx, time.Duration(retries)*fetch.Timeout)
 		defer stop()
@@ -61,13 +64,13 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		}
 
 		// parse all subjects and corresponding grades
-		err = parseGrades(username, rawGrades, ch)
+		err = parseGrades(username, rawGrades, ch, msgPool)
 		if err != nil {
 			return err
 		}
 
 		// parse all exam events
-		err = parseEvents(username, events, ch)
+		err = parseEvents(username, events, ch, msgPool)
 
 		return err
 	}()

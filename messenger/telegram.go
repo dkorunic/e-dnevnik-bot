@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -50,7 +51,7 @@ var (
 
 // Telegram messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
 // returning an error.
-func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs []string, retries uint) error {
+func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs []string, retries uint, msgPool *sync.Pool) error {
 	if apiKey == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
@@ -74,7 +75,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
+			g, ok := o.(*msgtypes.Message)
 			if !ok {
 				continue
 			}
@@ -117,6 +118,9 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 
 				time.Sleep(telegramSendDelay)
 			}
+
+			g.Reset()
+			msgPool.Put(g)
 		}
 	}
 

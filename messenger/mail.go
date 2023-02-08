@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -47,7 +48,7 @@ var (
 // Mail messenger processes events from a channel and attempts to send emails to one or more recipients,
 // optionally returning an error.
 func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, password, from, subject string,
-	to []string, retries uint,
+	to []string, retries uint, msgPool *sync.Pool,
 ) error {
 	logrus.Debug("Sending message through mail service")
 
@@ -63,7 +64,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
+			g, ok := o.(*msgtypes.Message)
 			if !ok {
 				continue
 			}
@@ -105,6 +106,9 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 
 				time.Sleep(MailSendDelay)
 			}
+
+			g.Reset()
+			msgPool.Put(g)
 		}
 	}
 
