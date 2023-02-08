@@ -37,10 +37,10 @@ const (
 )
 
 var (
-	debug, daemon, help, emulation       *bool
-	confFile, dbFile, tickIntervalString *string
-	tickInterval                         time.Duration
-	retries                              *uint
+	debug, daemon, help, emulation                               *bool
+	confFile, dbFile, tickIntervalString, cpuProfile, memProfile *string
+	tickInterval                                                 time.Duration
+	retries                                                      *uint
 )
 
 // init initializes flags configuration.
@@ -54,6 +54,8 @@ func init() {
 	tickIntervalString = getopt.StringLong("interval", 'i', DefaultTickInterval,
 		"interval between polls when in daemon mode")
 	retries = getopt.UintLong("retries", 'r', DefaultRetries, "default retry attempts on error")
+	cpuProfile = getopt.StringLong("cpuprofile", 'c', "", "CPU profile output file")
+	memProfile = getopt.StringLong("memprofile", 'm', "", "memory profile output file")
 }
 
 // parseFlags parses input arguments and flags.

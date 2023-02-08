@@ -60,15 +60,19 @@ Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](https://githu
 ### Usage / Upute za upotrebu
 
 ```shell
-Usage: e-dnevnik-bot [-?dtv] [-b value] [-f value] [-i value] [-r value] [parameters ...]
+Usage: e-dnevnik-bot [-?dtv] [-b value] [-c value] [-f value] [-i value] [-m value] [-r value] [parameters ...]
  -?, --help     display help
  -b, --database=value
                 alert database file [.e-dnevnik.db]
+ -c, --cpuprofile=value
+                CPU profile output file
  -d, --daemon   enable daemon mode (running as a service)
  -f, --conffile=value
                 configuration file (in TOML) [.e-dnevnik.toml]
  -i, --interval=value
                 interval between polls when in daemon mode [1h]
+ -m, --memprofile=value
+                memory profile output file
  -r, --retries=value
                 default retry attempts on error [3]
  -t, --test     send a test event (to check if messaging works)

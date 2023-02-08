@@ -90,6 +90,7 @@ func Discord(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, tok
 			g, ok := o.(*msgtypes.Message)
 			if !ok {
 				logrus.Warn("Received invalid type from channel, trying to continue")
+
 				continue
 			}
 

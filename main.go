@@ -26,6 +26,8 @@ import (
 	"errors"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/pprof"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -58,7 +60,7 @@ var (
 func fatalIfErrors() {
 	if exitWithError.Load() {
 		logrus.Warn("Exiting, during run some errors were encountered.")
-		os.Exit(1) //nolint:gocritic
+		os.Exit(1)
 	}
 	logrus.Info("Exiting with a success.")
 }
@@ -97,6 +99,36 @@ func main() {
 
 	// allocate message pool
 	msgPool := msgtypes.NewPool()
+
+	// enable CPU profiling dump on exit
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			logrus.Fatalf("Error creating CPU profile: %v", err)
+		}
+		defer f.Close()
+
+		if err := pprof.StartCPUProfile(f); err != nil {
+			logrus.Fatalf("Error starting CPU profile: %v", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	// enable memory profile dump on exit
+	if *memProfile != "" {
+		f, err := os.Create(*memProfile)
+		if err != nil {
+			logrus.Fatalf("Error trying to create memory profile: %v", err)
+		}
+		defer f.Close()
+
+		defer func() {
+			runtime.GC()
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				logrus.Fatalf("Error writing memory profile: %v", err)
+			}
+		}()
+	}
 
 	// test mode: send messages and exit
 	if *emulation {
