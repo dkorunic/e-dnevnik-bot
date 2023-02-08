@@ -54,7 +54,9 @@ var (
 
 // Discord messenger processes events from a channel and attempts to communicate to one or more UserIDs, optionally
 // returning an error.
-func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs []string, retries uint, msgPool *sync.Pool) error {
+func Discord(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, token string, userIDs []string,
+	retries uint,
+) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}

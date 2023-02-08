@@ -51,7 +51,9 @@ var (
 
 // Telegram messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
 // returning an error.
-func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs []string, retries uint, msgPool *sync.Pool) error {
+func Telegram(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, apiKey string, chatIDs []string,
+	retries uint,
+) error {
 	if apiKey == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}

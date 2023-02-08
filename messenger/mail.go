@@ -47,8 +47,8 @@ var (
 
 // Mail messenger processes events from a channel and attempts to send emails to one or more recipients,
 // optionally returning an error.
-func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, password, from, subject string,
-	to []string, retries uint, msgPool *sync.Pool,
+func Mail(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, server, port, username, password, from,
+	subject string, to []string, retries uint,
 ) error {
 	logrus.Debug("Sending message through mail service")
 

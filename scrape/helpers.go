@@ -43,7 +43,7 @@ const (
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
-func parseGrades(username, rawGrades string, ch chan<- *msgtypes.Message, msgPool *sync.Pool) error {
+func parseGrades(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username, rawGrades string) error {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawGrades))
 	if err != nil {
 		return err
@@ -113,7 +113,7 @@ func cleanEventDescription(summary string) string {
 
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
-func parseEvents(username string, events fetch.Events, ch chan<- *msgtypes.Message, msgPool *sync.Pool) error {
+func parseEvents(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username string, events fetch.Events) error {
 	if len(events) == 0 {
 		logrus.Debugf("No scheduled exams for user %v", username)
 	}

@@ -34,8 +34,8 @@ import (
 
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
-func GetGradesAndEvents(ctx context.Context, ch chan<- *msgtypes.Message, username, password string, retries uint,
-	msgPool *sync.Pool,
+func GetGradesAndEvents(ctx context.Context, msgPool *sync.Pool, ch chan<- *msgtypes.Message, username, password string,
+	retries uint,
 ) error {
 	err := func() error {
 		ctx, stop := context.WithTimeout(ctx, time.Duration(retries)*fetch.Timeout)
@@ -64,13 +64,13 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- *msgtypes.Message, userna
 		}
 
 		// parse all subjects and corresponding grades
-		err = parseGrades(username, rawGrades, ch, msgPool)
+		err = parseGrades(msgPool, ch, username, rawGrades)
 		if err != nil {
 			return err
 		}
 
 		// parse all exam events
-		err = parseEvents(username, events, ch, msgPool)
+		err = parseEvents(msgPool, ch, username, events)
 
 		return err
 	}()
