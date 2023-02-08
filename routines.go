@@ -193,7 +193,7 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 
 				// check if is the initial run and send only if not
 				if !found && eDB.Existing() {
-					logrus.Debugf("New alert for: %v/%v: %v", g.Username, g.Subject, g)
+					logrus.Debugf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
 					gradesMsg <- g
 				}
 			}
