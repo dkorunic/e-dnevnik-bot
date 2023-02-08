@@ -92,8 +92,8 @@ func parseGrades(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username, rawG
 					}
 					m.Username = username
 					m.Subject = subject
-					m.Descriptions = descriptions
-					m.Fields = spans
+					m.Descriptions = append(m.Descriptions, descriptions...)
+					m.Fields = append(m.Fields, spans...)
 					ch <- m
 					parsedGrades++
 				})
@@ -136,16 +136,16 @@ func parseEvents(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username strin
 		m.IsExam = true
 		m.Username = username
 		m.Subject = subject
-		m.Descriptions = []string{
+		m.Descriptions = append(m.Descriptions, []string{
 			EventSummary,
 			DateDescription,
 			EventDescription,
-		}
-		m.Fields = []string{
+		}...)
+		m.Fields = append(m.Fields, []string{
 			subject,
 			timestamp,
 			description,
-		}
+		}...)
 		ch <- m
 	}
 
