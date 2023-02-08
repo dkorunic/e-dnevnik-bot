@@ -72,6 +72,7 @@ func Slack(ctx context.Context, msgPool *sync.Pool, ch <-chan interface{}, token
 		default:
 			g, ok := o.(*msgtypes.Message)
 			if !ok {
+				logrus.Warn("Received invalid type from channel, trying to continue")
 				continue
 			}
 

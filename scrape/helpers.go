@@ -85,7 +85,11 @@ func parseGrades(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username, rawG
 						})
 
 					// once we have a single grade with all required fields, send it through the channel
-					m := msgPool.Get().(*msgtypes.Message) //nolint:forcetypeassert
+					m, ok := msgPool.Get().(*msgtypes.Message)
+					if !ok {
+						logrus.Warn("Unable to get sync.Pool entry, trying to continue")
+						m = new(msgtypes.Message)
+					}
 					m.Username = username
 					m.Subject = subject
 					m.Descriptions = descriptions
@@ -123,7 +127,12 @@ func parseEvents(msgPool *sync.Pool, ch chan<- *msgtypes.Message, username strin
 		description := cleanEventDescription(ev.Description)
 		timestamp := ev.Start.Format(TimeFormat)
 
-		m := msgPool.Get().(*msgtypes.Message) //nolint:forcetypeassert
+		// send each event through channel
+		m, ok := msgPool.Get().(*msgtypes.Message)
+		if !ok {
+			logrus.Warn("Unable to get sync.Pool entry, trying to continue")
+			m = new(msgtypes.Message)
+		}
 		m.IsExam = true
 		m.Username = username
 		m.Subject = subject
