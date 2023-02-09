@@ -14,6 +14,11 @@ check:
 build:
 	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags="-s -w" -o $(TARGET)
 
+.PHONY: build-pgo
+build-pgo:
+	CGO_ENABLED=$(CGO_ENABLED) go build -pgo=auto -trimpath -ldflags="-s -w" -o $(TARGET)
+
 .PHONY: build-debug
 build-debug:
 	CGO_ENABLED=1 go build -race -o $(TARGET)
+
