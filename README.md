@@ -295,6 +295,7 @@ services:
     container_name: e-dnevnik
     image: dkorunic/e-dnevnik-bot:latest
     command:
+      - "--daemon"
       - "--database=/ednevnik/.e-dnevnik.db"
       - "--conffile=/ednevnik/.e-dnevnik.toml"
     # Volumes store your data between container upgrades
