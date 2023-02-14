@@ -28,6 +28,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -70,10 +71,15 @@ func fatalIfErrors() {
 func main() {
 	parseFlags()
 
-	// default log level
+	// set global log level
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if *debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		logLevel, err := strconv.Atoi(os.Getenv("LOG_LEVEL"))
+		if err != nil {
+			zerolog.SetGlobalLevel(zerolog.Level(logLevel))
+		}
 	}
 
 	// auto-configure GOMAXPROCS
