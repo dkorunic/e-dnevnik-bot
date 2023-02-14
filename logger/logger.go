@@ -26,17 +26,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/rs/zerolog"
 )
 
 // Logger is the global logger.
-var Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).
-	With().
-	Timestamp().
-	Caller().
-	Logger()
+var Logger = zerolog.New(os.Stdout).With().Timestamp().Caller().Logger()
 
 // Output duplicates the global logger and sets w as its output.
 func Output(w io.Writer) zerolog.Logger {

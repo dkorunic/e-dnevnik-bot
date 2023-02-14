@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	debug, daemon, help, emulation                               *bool
+	debug, daemon, help, emulation, colorLogs                    *bool
 	confFile, dbFile, tickIntervalString, cpuProfile, memProfile *string
 	tickInterval                                                 time.Duration
 	retries                                                      *uint
@@ -57,6 +57,7 @@ func init() {
 	retries = getopt.UintLong("retries", 'r', DefaultRetries, "default retry attempts on error")
 	cpuProfile = getopt.StringLong("cpuprofile", 'c', "", "CPU profile output file")
 	memProfile = getopt.StringLong("memprofile", 'm', "", "memory profile output file")
+	colorLogs = getopt.BoolLong("colorlogs", 'l', "enable colorized console logs")
 }
 
 // parseFlags parses input arguments and flags.

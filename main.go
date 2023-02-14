@@ -71,16 +71,26 @@ func fatalIfErrors() {
 func main() {
 	parseFlags()
 
+	// enable slow colored console logging
+	if *colorLogs {
+		logger.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).
+			With().
+			Timestamp().
+			Caller().
+			Logger()
+	}
+
 	// set global log level
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	logLevel := zerolog.InfoLevel
 	if *debug {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		logLevel = zerolog.DebugLevel
 	} else {
-		logLevel, err := strconv.Atoi(os.Getenv("LOG_LEVEL"))
+		l, err := strconv.Atoi(os.Getenv("LOG_LEVEL"))
 		if err != nil {
-			zerolog.SetGlobalLevel(zerolog.Level(logLevel))
+			logLevel = zerolog.Level(l)
 		}
 	}
+	zerolog.SetGlobalLevel(logLevel)
 
 	// auto-configure GOMAXPROCS
 	undo, err := maxprocs.Set()

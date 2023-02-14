@@ -60,23 +60,24 @@ Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](https://githu
 ### Usage / Upute za upotrebu
 
 ```shell
-Usage: e-dnevnik-bot [-?dtv] [-b value] [-c value] [-f value] [-i value] [-m value] [-r value] [parameters ...]
- -?, --help     display help
+Usage: e-dnevnik-bot [-?dltv] [-b value] [-c value] [-f value] [-i value] [-m value] [-r value] [parameters ...]
+ -?, --help       display help
  -b, --database=value
-                alert database file [.e-dnevnik.db]
+                  alert database file [.e-dnevnik.db]
  -c, --cpuprofile=value
-                CPU profile output file
- -d, --daemon   enable daemon mode (running as a service)
+                  CPU profile output file
+ -d, --daemon     enable daemon mode (running as a service)
  -f, --conffile=value
-                configuration file (in TOML) [.e-dnevnik.toml]
+                  configuration file (in TOML) [.e-dnevnik.toml]
  -i, --interval=value
-                interval between polls when in daemon mode [1h]
+                  interval between polls when in daemon mode [1h]
+ -l, --colorlogs  enable colorized console logs
  -m, --memprofile=value
-                memory profile output file
+                  memory profile output file
  -r, --retries=value
-                default retry attempts on error [3]
- -t, --test     send a test event (to check if messaging works)
- -v, --verbose  enable verbose/debug log level
+                  default retry attempts on error [3]
+ -t, --test       send a test event (to check if messaging works)
+ -v, --verbose    enable verbose/debug log level
 ```
 
 Typically bot will run from current working directory and attempt to load [TOML](https://github.com/toml-lang/toml) configuration from `.e-dnevnik.toml` file or the file specified with `-f` flag.
@@ -89,7 +90,8 @@ Other flags are:
 - `-i`: interval between polls when in daemon/service mode (at minimum 1h, default 1h),
 - `-r`: retries between unsuccessful attempts to scrape and/or send alerts (default 3),
 - `-t`: sends a test message to all configured messaging services,
-- `-v`: enables verbose/debug messages for more insight into bot operation and by default this is disabled.
+- `-v`: enables verbose/debug messages for more insight into bot operation and by default this is disabled,
+- `-l`: enables colorized console logging with JSON output disabled.
 
 --
 
@@ -103,7 +105,8 @@ Ostali parametri su:
 - `-i`: interval između buđenja bota (minimalno 1h, standardno 1h),
 - `-r`: broj pokušaja kod neuspjeha prilikom dohvata ocjena i/ili slanja poruka odnosno e-mailova,
 - `-t`: služi za slanje testne poruke na sve konfigurirane servise slanja poruka odnosno e-maila,
-- `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena.
+- `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena,
+- `-l`: omogućuje prikaz na konzolu sa obojenim porukama i gasi JSON oblik ispisa.
 
 ### Configuration / Konfiguracija
 
