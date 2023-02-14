@@ -31,7 +31,11 @@ import (
 )
 
 // Logger is the global logger.
-var Logger = zerolog.New(os.Stdout).With().Timestamp().Caller().Logger()
+var Logger = zerolog.New(os.Stdout).
+	Level(zerolog.InfoLevel).
+	With().
+	Timestamp().
+	Logger()
 
 // Output duplicates the global logger and sets w as its output.
 func Output(w io.Writer) zerolog.Logger {
