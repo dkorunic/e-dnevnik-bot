@@ -27,8 +27,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+
 	"github.com/dgraph-io/badger/v3"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -50,11 +51,11 @@ func New(filePath string) (*Edb, error) {
 	}
 	isExisting := dbExists(filePath)
 
-	logrus.Debugf("Opening database: %v", filePath)
+	logger.Debug().Msgf("Opening database: %v", filePath)
 	opts := badger.DefaultOptions(filePath)
 
 	if strconv.IntSize == 32 {
-		logrus.Info("Detected 32-bit environment, tuning DB for lower memory usage")
+		logger.Info().Msg("Detected 32-bit environment, tuning DB for lower memory usage")
 		opts.ValueLogFileSize = 1 << 20
 	}
 
@@ -73,14 +74,14 @@ func New(filePath string) (*Edb, error) {
 
 // Close closes database, optionally running GC (removing state data from value log file).
 func (db *Edb) Close() error {
-	logrus.Debug("Running database GC")
+	logger.Debug().Msg("Running database GC")
 again:
 	err := db.db.RunValueLogGC(DefaultDiscardRatio)
 	if err == nil {
 		goto again
 	}
 
-	logrus.Debug("Closing database")
+	logger.Debug().Msg("Closing database")
 
 	return db.db.Close()
 }

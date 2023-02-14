@@ -16,11 +16,11 @@ require (
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
 	github.com/mattn/go-isatty v0.0.17
 	github.com/pborman/getopt/v2 v2.1.0
-	github.com/sirupsen/logrus v1.9.0
+	github.com/rs/zerolog v1.29.0
 	github.com/slack-go/slack v0.12.1
 	github.com/tj/go-spin v1.1.0
 	go.uber.org/automaxprocs v1.5.1
-	go.uber.org/goleak v1.2.0
+	go.uber.org/goleak v1.2.1
 	gopkg.in/mail.v2 v2.3.1
 )
 
@@ -43,8 +43,10 @@ require (
 	github.com/google/flatbuffers/go v0.0.0-20230110200425-62e4d2e5b215 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/klauspost/compress v1.15.15 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/opencontainers/runtime-spec v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/sirupsen/logrus v1.9.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.6.0 // indirect
 	golang.org/x/net v0.6.0 // indirect

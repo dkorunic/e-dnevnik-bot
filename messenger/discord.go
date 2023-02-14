@@ -35,7 +35,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/sirupsen/logrus"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 )
 
 const (
@@ -64,7 +64,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 	// create a Discord session
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
-		logrus.Errorf("%v: %v", ErrDiscordCreatingSession, err)
+		logger.Error().Msgf("%v: %v", ErrDiscordCreatingSession, err)
 
 		return err
 	}
@@ -76,7 +76,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 	}
 	defer dg.Close()
 
-	logrus.Debug("Sending a message through Discord")
+	logger.Debug().Msg("Sending a message through Discord")
 
 	// process all messages
 	for o := range ch {
@@ -86,7 +86,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 		default:
 			g, ok := o.(msgtypes.Message)
 			if !ok {
-				logrus.Warn("Received invalid type from channel, trying to continue")
+				logger.Warn().Msg("Received invalid type from channel, trying to continue")
 
 				continue
 			}
@@ -114,7 +114,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 				// create a new user/private channel if needed
 				c, err := dg.UserChannelCreate(u)
 				if err != nil {
-					logrus.Errorf("%v: %v", ErrDiscordCreatingChannel, err)
+					logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
 
 					break
 				}
@@ -130,7 +130,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf("%v: %v", ErrDiscordSendingMessage, err)
+					logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
 					break
 				}

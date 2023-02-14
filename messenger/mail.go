@@ -27,10 +27,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+
 	"github.com/avast/retry-go/v4"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/mail.v2"
 )
 
@@ -47,11 +48,11 @@ var (
 // Mail messenger processes events from a channel and attempts to send emails to one or more recipients,
 // optionally returning an error.
 func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, password, from, subject string, to []string, retries uint) error {
-	logrus.Debug("Sending message through mail service")
+	logger.Debug().Msg("Sending message through mail service")
 
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
-		logrus.Warnf("%v: %v", ErrMailInvalidPort, port)
+		logger.Warn().Msgf("%v: %v", ErrMailInvalidPort, port)
 		portInt = 465
 	}
 
@@ -63,7 +64,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 		default:
 			g, ok := o.(msgtypes.Message)
 			if !ok {
-				logrus.Warn("Received invalid type from channel, trying to continue")
+				logger.Warn().Msg("Received invalid type from channel, trying to continue")
 
 				continue
 			}
@@ -98,7 +99,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf("%v: %v", ErrMailSendingMessage, err)
+					logger.Error().Msgf("%v: %v", ErrMailSendingMessage, err)
 
 					break
 				}

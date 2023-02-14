@@ -23,7 +23,7 @@ package main
 
 import (
 	"github.com/BurntSushi/toml"
-	"github.com/sirupsen/logrus"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 )
 
 // user struct holds a single AAI/SSO username.
@@ -83,22 +83,22 @@ func loadConfig() (tomlConfig, error) {
 	}
 
 	if config.Discord.Token != "" && len(config.Discord.UserIDs) > 0 {
-		logrus.Info("Configuration: Discord messenger enabled")
+		logger.Info().Msg("Configuration: Discord messenger enabled")
 		config.discordEnabled = true
 	}
 
 	if config.Telegram.Token != "" && len(config.Telegram.ChatIDs) > 0 {
-		logrus.Info("Configuration: Telegram messenger enabled")
+		logger.Info().Msg("Configuration: Telegram messenger enabled")
 		config.telegramEnabled = true
 	}
 
 	if config.Slack.Token != "" && len(config.Slack.ChatIDs) > 0 {
-		logrus.Info("Configuration: Slack messenger enabled")
+		logger.Info().Msg("Configuration: Slack messenger enabled")
 		config.slackEnabled = true
 	}
 
 	if config.Mail.Server != "" && config.Mail.From != "" && len(config.Mail.To) > 0 {
-		logrus.Info("Configuration: e-mail messenger enabled")
+		logger.Info().Msg("Configuration: e-mail messenger enabled")
 		config.mailEnabled = true
 	}
 

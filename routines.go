@@ -28,6 +28,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+
 	"github.com/tj/go-spin"
 
 	"github.com/dkorunic/e-dnevnik-bot/db"
@@ -35,7 +37,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/scrape"
 	"github.com/dustin/go-broadcast"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -54,7 +55,7 @@ var (
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
 // to a channel.
 func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, config tomlConfig) {
-	logrus.Debug("Starting scrapers")
+	logger.Debug().Msg("Starting scrapers")
 	for _, i := range config.User {
 		wgScrape.Add(1)
 		i := i
@@ -63,7 +64,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 
 			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
 			if err != nil {
-				logrus.Warnf("%v %v: %v", ErrScrapingUser, i.Username, err)
+				logger.Warn().Msgf("%v %v: %v", ErrScrapingUser, i.Username, err)
 				exitWithError.Store(true)
 			}
 		}()
@@ -88,9 +89,9 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			wgMsg.Add(1)
 			go func() {
 				defer wgMsg.Done()
-				logrus.Debug("Discord messenger started")
+				logger.Debug().Msg("Discord messenger started")
 				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs, *retries); err != nil {
-					logrus.Warnf("%v: %v", ErrDiscord, err)
+					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
 				}
 			}()
@@ -106,9 +107,9 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			wgMsg.Add(1)
 			go func() {
 				defer wgMsg.Done()
-				logrus.Debug("Telegram messenger started")
+				logger.Debug().Msg("Telegram messenger started")
 				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries); err != nil {
-					logrus.Warnf("%v: %v", ErrTelegram, err)
+					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
 				}
 			}()
@@ -124,9 +125,9 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			wgMsg.Add(1)
 			go func() {
 				defer wgMsg.Done()
-				logrus.Debug("Slack messenger started")
+				logger.Debug().Msg("Slack messenger started")
 				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs, *retries); err != nil {
-					logrus.Warnf("%v: %v", ErrSlack, err)
+					logger.Warn().Msgf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
 				}
 			}()
@@ -142,9 +143,9 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			wgMsg.Add(1)
 			go func() {
 				defer wgMsg.Done()
-				logrus.Debug("Mail messenger started")
+				logger.Debug().Msg("Mail messenger started")
 				if err := messenger.Mail(ctx, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username, config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
-					logrus.Warnf("%v: %v", ErrMail, err)
+					logger.Warn().Msgf("%v: %v", ErrMail, err)
 					exitWithError.Store(true)
 				}
 			}()
@@ -172,12 +173,12 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 		// open KV store
 		eDB, err := db.New(*dbFile)
 		if err != nil {
-			logrus.Fatalf("Unable to open database: %v", err)
+			logger.Fatal().Msgf("Unable to open database: %v", err)
 		}
 		defer eDB.Close()
 
 		if !eDB.Existing() {
-			logrus.Info("Newly initialized database, won't sent alerts in this run")
+			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")
 		}
 
 		for g := range gradesScraped {
@@ -188,12 +189,12 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 				// check if it is an already known alert
 				found, err := eDB.CheckAndFlag(g.Username, g.Subject, g.Fields)
 				if err != nil {
-					logrus.Fatalf("Problem with database, cannot continue: %v", err)
+					logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
 				}
 
 				// check if is the initial run and send only if not
 				if !found && eDB.Existing() {
-					logrus.Debugf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
+					logger.Debug().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
 					gradesMsg <- g
 				}
 			}

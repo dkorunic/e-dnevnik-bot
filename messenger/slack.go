@@ -27,10 +27,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+
 	"github.com/avast/retry-go/v4"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
 )
 
@@ -57,7 +58,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 	// new full Slack client
 	api := slack.New(token)
 
-	logrus.Debug("Sending message through Slack")
+	logger.Debug().Msg("Sending message through Slack")
 
 	var err error
 
@@ -69,7 +70,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 		default:
 			g, ok := o.(msgtypes.Message)
 			if !ok {
-				logrus.Warn("Received invalid type from channel, trying to continue")
+				logger.Warn().Msg("Received invalid type from channel, trying to continue")
 
 				continue
 			}
@@ -95,7 +96,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf("%v: %v", ErrSlackSendingMessage, err)
+					logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
 					break
 				}

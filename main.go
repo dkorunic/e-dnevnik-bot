@@ -33,9 +33,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mattn/go-isatty"
 
-	"github.com/sirupsen/logrus"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 
 	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -59,32 +61,26 @@ var (
 
 func fatalIfErrors() {
 	if exitWithError.Load() {
-		logrus.Warn("Exiting, during run some errors were encountered.")
+		logger.Warn().Msg("Exiting, during run some errors were encountered.")
 		os.Exit(1)
 	}
-	logrus.Info("Exiting with a success.")
+	logger.Info().Msg("Exiting with a success.")
 }
 
 func main() {
 	parseFlags()
 
-	// TODO: Better systemd formatter integration
-	formatter := &logrus.TextFormatter{
-		TimestampFormat:  logTimestampFormat,
-		FullTimestamp:    true,
-		DisableTimestamp: false,
-	}
-	logrus.SetFormatter(formatter)
-	logrus.SetOutput(os.Stdout)
+	// default log level
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if *debug {
-		logrus.SetLevel(logrus.DebugLevel)
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
 	// auto-configure GOMAXPROCS
 	undo, err := maxprocs.Set()
 	defer undo()
 	if err != nil {
-		logrus.Warnf("%v: %v", ErrMaxProc, err)
+		logger.Warn().Msgf("%v: %v", ErrMaxProc, err)
 	}
 
 	// context with signal integration
@@ -94,19 +90,19 @@ func main() {
 	// load TOML config
 	config, err := loadConfig()
 	if err != nil {
-		logrus.Fatalf("Error loading configuration: %v", err)
+		logger.Fatal().Msgf("Error loading configuration: %v", err)
 	}
 
 	// enable CPU profiling dump on exit
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
 		if err != nil {
-			logrus.Fatalf("Error creating CPU profile: %v", err)
+			logger.Fatal().Msgf("Error creating CPU profile: %v", err)
 		}
 		defer f.Close()
 
 		if err := pprof.StartCPUProfile(f); err != nil {
-			logrus.Fatalf("Error starting CPU profile: %v", err)
+			logger.Fatal().Msgf("Error starting CPU profile: %v", err)
 		}
 		defer pprof.StopCPUProfile()
 	}
@@ -115,21 +111,21 @@ func main() {
 	if *memProfile != "" {
 		f, err := os.Create(*memProfile)
 		if err != nil {
-			logrus.Fatalf("Error trying to create memory profile: %v", err)
+			logger.Fatal().Msgf("Error trying to create memory profile: %v", err)
 		}
 		defer f.Close()
 
 		defer func() {
 			runtime.GC()
 			if err := pprof.WriteHeapProfile(f); err != nil {
-				logrus.Fatalf("Error writing memory profile: %v", err)
+				logger.Fatal().Msgf("Error writing memory profile: %v", err)
 			}
 		}()
 	}
 
 	// test mode: send messages and exit
 	if *emulation {
-		logrus.Info("Emulation/testing mode enabled, will try to send a test message")
+		logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
 		signal.Reset()
 
 		gradesMsg := make(chan msgtypes.Message, chanBufLen)
@@ -149,7 +145,7 @@ func main() {
 		msgSend(ctx, &wgMsg, gradesMsg, config)
 		wgMsg.Wait()
 
-		logrus.Info("Exiting with a success from the emulation.")
+		logger.Info().Msg("Exiting with a success from the emulation.")
 
 		return
 	}
@@ -159,16 +155,16 @@ func main() {
 	defer ticker.Stop()
 
 	if *daemon {
-		logrus.Infof("Service started, will collect information every %v", tickInterval)
+		logger.Info().Msgf("Service started, will collect information every %v", tickInterval)
 	} else {
-		logrus.Info("Service is not enabled, doing just a single run")
+		logger.Info().Msg("Service is not enabled, doing just a single run")
 	}
 
 	for {
 		select {
 		// in case of context cancellation, try to propagate and exit
 		case <-ctx.Done():
-			logrus.Info("Received stop signal, asking all routines to stop")
+			logger.Info().Msg("Received stop signal, asking all routines to stop")
 			ticker.Stop()
 			go stop()
 			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
@@ -179,7 +175,7 @@ func main() {
 
 			return
 		case <-ticker.C:
-			logrus.Info("Scheduled run in progress")
+			logger.Info().Msg("Scheduled run in progress")
 			ticker.Reset(tickInterval)
 
 			// reset exit error status
@@ -210,7 +206,7 @@ func main() {
 
 				return
 			}
-			logrus.Info("Scheduled run completed, will sleep now")
+			logger.Info().Msg("Scheduled run completed, will sleep now")
 		}
 	}
 }

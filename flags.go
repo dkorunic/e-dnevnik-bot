@@ -25,9 +25,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/pborman/getopt/v2"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -70,11 +71,11 @@ func parseFlags() {
 	var err error
 	tickInterval, err = time.ParseDuration(*tickIntervalString)
 	if err != nil {
-		logrus.Fatalf("Unable to parse the poll interval %v: %v", tickIntervalString, err)
+		logger.Fatal().Msgf("Unable to parse the poll interval %v: %v", tickIntervalString, err)
 	}
 
 	if tickInterval < time.Hour {
-		logrus.Info("Poll interval is below 1h, so I will default to 1h")
+		logger.Info().Msg("Poll interval is below 1h, so I will default to 1h")
 		tickInterval = time.Hour
 	}
 }

@@ -28,13 +28,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+
 	"github.com/avast/retry-go/v4"
 
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -61,12 +62,12 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 	// new Telegram client
 	bot, err := tgbotapi.NewBotAPI(apiKey)
 	if err != nil {
-		logrus.Errorf("Error creating Telegram session: %v", err)
+		logger.Error().Msgf("Error creating Telegram session: %v", err)
 
 		return err
 	}
 
-	logrus.Debug("Sending message through Telegram")
+	logger.Debug().Msg("Sending message through Telegram")
 
 	// process all messages
 	for o := range ch {
@@ -76,7 +77,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 		default:
 			g, ok := o.(msgtypes.Message)
 			if !ok {
-				logrus.Warn("Received invalid type from channel, trying to continue")
+				logger.Warn().Msg("Received invalid type from channel, trying to continue")
 
 				continue
 			}
@@ -88,7 +89,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 			for _, u := range chatIDs {
 				uu, err := strconv.ParseInt(u, 10, 64)
 				if err != nil {
-					logrus.Errorf("%v: %v", ErrTelegramInvalidChatID, err)
+					logger.Error().Msgf("%v: %v", ErrTelegramInvalidChatID, err)
 
 					return err
 				}
@@ -112,7 +113,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 					retry.Context(ctx),
 				)
 				if err != nil {
-					logrus.Errorf("%v: %v", ErrTelegramSendingMessage, err)
+					logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
 					break
 				}

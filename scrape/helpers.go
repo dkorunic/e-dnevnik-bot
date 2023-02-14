@@ -24,7 +24,7 @@ package scrape
 import (
 	"strings"
 
-	"github.com/sirupsen/logrus"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 
@@ -95,7 +95,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string) error {
 		})
 
 	if parsedGrades == 0 {
-		logrus.Debugf("No grades found in the scraped content for user %v", username)
+		logger.Debug().Msgf("No grades found in the scraped content for user %v", username)
 	}
 
 	return nil
@@ -114,7 +114,7 @@ func cleanEventDescription(summary string) string {
 // error.
 func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events) error {
 	if len(events) == 0 {
-		logrus.Debugf("No scheduled exams for user %v", username)
+		logger.Debug().Msgf("No scheduled exams for user %v", username)
 	}
 
 	for _, ev := range events {
