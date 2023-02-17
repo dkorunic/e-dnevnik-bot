@@ -46,13 +46,12 @@ import (
 )
 
 const (
-	chanBufLen         = 500                   // broadcast channel buffer length
-	exitDelay          = 5 * time.Second       // sleep time before giving up on cancellation
-	logTimestampFormat = "02-01-2006 15:04:05" // logrus timestamp format
-	testUsername       = "korisnik@test.domena"
-	testSubject        = "Ovo je testni predmet"
-	testDescription    = "Testni opis"
-	testField          = "Testna vrijednost"
+	chanBufLen      = 500             // broadcast channel buffer length
+	exitDelay       = 5 * time.Second // sleep time before giving up on cancellation
+	testUsername    = "korisnik@test.domena"
+	testSubject     = "Ovo je testni predmet"
+	testDescription = "Testni opis"
+	testField       = "Testna vrijednost"
 )
 
 var (
