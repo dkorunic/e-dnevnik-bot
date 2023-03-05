@@ -194,7 +194,7 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 
 				// check if is the initial run and send only if not
 				if !found && eDB.Existing() {
-					logger.Debug().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
+					logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
 					gradesMsg <- g
 				}
 			}
