@@ -84,6 +84,8 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		// iterate all active classes
 		for _, c := range classes {
+			c := c
+
 			logger.Debug().Msgf("Fetching grades/calendar for user: %v: class %v", username, c.Name)
 
 			// fetch subjects/grades/exams
