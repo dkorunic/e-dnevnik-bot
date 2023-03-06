@@ -31,10 +31,12 @@ import (
 )
 
 const (
-	LoginURL    = "https://ocjene.skole.hr/login"
-	GradeAllURL = "https://ocjene.skole.hr/grade/all"
-	CalendarURL = "https://ocjene.skole.hr/exam/ical"
-	Timeout     = 60 * time.Second // site can get really slow sometimes
+	LoginURL       = "https://ocjene.skole.hr/login"
+	ClassURL       = "https://ocjene.skole.hr/class"
+	ClassActionURL = "https://ocjene.skole.hr/class_action/%v/course"
+	GradeAllURL    = "https://ocjene.skole.hr/grade/all"
+	CalendarURL    = "https://ocjene.skole.hr/exam/ical"
+	Timeout        = 60 * time.Second // site can get really slow sometimes
 )
 
 // NewClientWithContext creates new *Client, initializing HTTP Cookie Jar, context and username with password.
@@ -58,20 +60,26 @@ func NewClientWithContext(ctx context.Context, username, password string) (*Clie
 	return c, nil
 }
 
-// GetResponse attempts to fetch CSRF Token, do SSO/SAML request to have proper security and authentication cookies
-// populated and then proceeds to fetch all subjects and their grades, as well as all calendar events for exams in ICS
-// format, returning raw grades listing body, parsed exam events and optional error.
-func (c *Client) GetResponse() (string, Events, error) {
+// Login attempts get CSRF Token and do SSO/SAML authentication with random User-Agent per session.
+func (c *Client) Login() error {
 	// generate random User-Agent per fetch dialog
 	c.userAgent = uarand.GetRandom()
 
 	// get secret CSRF Token from /
 	if err := c.getCSRFToken(); err != nil {
-		return "", Events{}, err
+		return err
 	}
 
 	// do SSO/SAML authentication
-	if err := c.doSAMLRequest(); err != nil {
+	return c.doSAMLRequest()
+}
+
+// GetClassEvents attempts to fetch all subjects and their grades, as well as all calendar events for exams in ICS
+// format, returning raw grades listing body, parsed exam events and optional error.
+func (c *Client) GetClassEvents(classID string) (string, Events, error) {
+	// do class action to switch active class
+	err := c.doClassAction(classID)
+	if err != nil {
 		return "", Events{}, err
 	}
 
@@ -87,8 +95,22 @@ func (c *Client) GetResponse() (string, Events, error) {
 		return "", Events{}, err
 	}
 
-	// forse immediate close of idle connections as we are done
-	c.httpClient.CloseIdleConnections()
-
 	return rawGrades, events, nil
+}
+
+// GetClasses attempts to fetch all courses where a student has been previously enlisted or still is (multiple
+// active classes possible).
+func (c *Client) GetClasses() (string, error) {
+	// fetch all classes
+	rawClasses, err := c.getClasses()
+	if err != nil {
+		return "", err
+	}
+
+	return rawClasses, nil
+}
+
+// CloseConnections closes all connections on its transport.
+func (c *Client) CloseConnections() {
+	c.httpClient.CloseIdleConnections()
 }

@@ -25,6 +25,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 
@@ -42,14 +44,26 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		if err != nil {
 			return err
 		}
+		defer client.CloseConnections()
 
-		// attempt to fetch subjects/grades/exams
-		var rawGrades string
-		var events fetch.Events
+		// attempt to login (CSRF, SSO/SAML, etc.)
+		err = retry.Do(
+			func() error {
+				return client.Login()
+			},
+			retry.Attempts(retries),
+			retry.Context(ctx),
+		)
+		if err != nil {
+			return err
+		}
+
+		// fetch classes (multiple classes possible)
+		var rawClasses string
 		err = retry.Do(
 			func() error {
 				var err error
-				rawGrades, events, err = client.GetResponse()
+				rawClasses, err = client.GetClasses()
 
 				return err
 			},
@@ -60,16 +74,49 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
-		// parse all subjects and corresponding grades
-		err = parseGrades(ch, username, rawGrades)
+		// parse active classes
+		classes, err := parseClasses(username, rawClasses)
 		if err != nil {
 			return err
 		}
 
-		// parse all exam events
-		err = parseEvents(ch, username, events)
+		logger.Debug().Msgf("Found active classes for user %v: %+v", username, classes)
 
-		return err
+		// iterate all active classes
+		for _, c := range classes {
+			logger.Debug().Msgf("Fetching grades/calendar for user: %v: class %v", username, c.Name)
+
+			// fetch subjects/grades/exams
+			var rawGrades string
+			var events fetch.Events
+			err = retry.Do(
+				func() error {
+					var err error
+					rawGrades, events, err = client.GetClassEvents(c.ID)
+
+					return err
+				},
+				retry.Attempts(retries),
+				retry.Context(ctx),
+			)
+			if err != nil {
+				return err
+			}
+
+			// parse all subjects and corresponding grades
+			err = parseGrades(ch, username, rawGrades)
+			if err != nil {
+				return err
+			}
+
+			// parse all exam events
+			err = parseEvents(ch, username, events)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}()
 
 	return err

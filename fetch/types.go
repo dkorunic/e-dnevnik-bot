@@ -49,3 +49,14 @@ type Event struct {
 
 // Events is a slice of Event structure.
 type Events []Event
+
+// Class structure holds all active classes.
+type Class struct {
+	ID     string
+	Name   string
+	Year   string
+	School string
+}
+
+// Classes is a slice of Class structure.
+type Classes []Class

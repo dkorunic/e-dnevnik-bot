@@ -75,9 +75,10 @@ func main() {
 	if *debug {
 		logLevel = zerolog.DebugLevel
 	} else {
-		l, err := strconv.Atoi(os.Getenv("LOG_LEVEL"))
-		if err != nil {
-			logLevel = zerolog.Level(l)
+		if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
+			if l, err := strconv.Atoi(v); err != nil {
+				logLevel = zerolog.Level(l)
+			}
 		}
 	}
 	zerolog.SetGlobalLevel(logLevel)

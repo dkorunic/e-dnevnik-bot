@@ -209,3 +209,73 @@ func (c *Client) getCalendar() (Events, error) {
 
 	return evs, nil
 }
+
+// getClasses fetches all old and new classes and returns them as a raw body string.
+func (c *Client) getClasses() (string, error) {
+	u, err := url.Parse(ClassURL)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Referer", LoginURL)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		select {
+		case <-c.ctx.Done():
+			return "", c.ctx.Err()
+		default:
+			return "", err
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
+func (c *Client) doClassAction(classID string) error {
+	u, err := url.Parse(fmt.Sprintf(ClassActionURL, classID))
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Referer", LoginURL)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		select {
+		case <-c.ctx.Done():
+			return c.ctx.Err()
+		default:
+			return err
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
+	}
+
+	_, err = io.Copy(io.Discard, resp.Body)
+
+	return err
+}

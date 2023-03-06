@@ -32,7 +32,6 @@ import (
 
 // Logger is the global logger.
 var Logger = zerolog.New(os.Stdout).
-	Level(zerolog.InfoLevel).
 	With().
 	Timestamp().
 	Logger()
