@@ -77,7 +77,7 @@ func (c *Client) Login() error {
 // GetClassEvents attempts to fetch all subjects and their grades, as well as all calendar events for exams in ICS
 // format, returning raw grades listing body, parsed exam events and optional error.
 func (c *Client) GetClassEvents(classID string) (string, Events, error) {
-	// do class action to switch active class
+	// do class action to switch active class to class ID
 	err := c.doClassAction(classID)
 	if err != nil {
 		return "", Events{}, err
@@ -101,7 +101,7 @@ func (c *Client) GetClassEvents(classID string) (string, Events, error) {
 // GetClasses attempts to fetch all courses where a student has been previously enlisted or still is (multiple
 // active classes possible).
 func (c *Client) GetClasses() (string, error) {
-	// fetch all classes
+	// fetch all active classes
 	rawClasses, err := c.getClasses()
 	if err != nil {
 		return "", err

@@ -47,6 +47,8 @@ func (c *Client) getCSRFToken() error {
 		return err
 	}
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -105,6 +107,8 @@ func (c *Client) doSAMLRequest() error {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)
@@ -141,6 +145,8 @@ func (c *Client) getGrades() (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)
@@ -178,6 +184,8 @@ func (c *Client) getCalendar() (Events, error) {
 		return Events{}, err
 	}
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)
@@ -222,6 +230,8 @@ func (c *Client) getClasses() (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)
@@ -258,6 +268,8 @@ func (c *Client) doClassAction(classID string) error {
 		return err
 	}
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)

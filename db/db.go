@@ -29,7 +29,7 @@ import (
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 
-	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v4"
 )
 
 const (
