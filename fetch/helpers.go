@@ -275,7 +275,8 @@ func (c *Client) doClassAction(classID string) error {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	_, err = io.Copy(io.Discard, resp.Body)
+	// drain rest of the body
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	return err
 }

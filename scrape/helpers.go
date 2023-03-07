@@ -42,7 +42,7 @@ const (
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
-func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string) error {
+func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiClass bool, className string) error {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawGrades))
 	if err != nil {
 		return err
@@ -83,6 +83,11 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string) error {
 							spans = append(spans, txt)
 						})
 
+					// if multiclass, append class name to subject
+					if multiClass {
+						subject = strings.Join([]string{subject, className}, " / ")
+					}
+
 					// once we have a single grade with all required fields, send it through the channel
 					ch <- msgtypes.Message{
 						Username:     username,
@@ -112,7 +117,7 @@ func cleanEventDescription(summary string) string {
 
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
-func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events) error {
+func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events, multiClass bool, className string) error {
 	if len(events) == 0 {
 		logger.Info().Msgf("No scheduled exams for user %v", username)
 	}
@@ -121,6 +126,11 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 		subject := cleanEventDescription(ev.Summary)
 		description := cleanEventDescription(ev.Description)
 		timestamp := ev.Start.Format(TimeFormat)
+
+		// if multiclass, append class name to subject
+		if multiClass {
+			subject = strings.Join([]string{subject, className}, " / ")
+		}
 
 		// send each event through channel
 		ch <- msgtypes.Message{

@@ -80,13 +80,21 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
-		logger.Debug().Msgf("Found active classes for user %v: %+v", username, classes)
+		multiClass := len(classes) > 1
+
+		if multiClass {
+			logger.Debug().Msgf("Found multiple active classes for user %v: %+v", username, classes)
+		} else {
+			logger.Debug().Msgf("Found active class for user %v: %+v", username, classes)
+		}
 
 		// iterate all active classes
 		for _, c := range classes {
-			c := c
+			cID := c.ID
+			cName := c.Name
 
-			logger.Debug().Msgf("Fetching grades/calendar for user: %v: class %v", username, c.Name)
+			logger.Debug().Msgf("Fetching grades and calendar events for user %v, class %v, class ID %v", username,
+				cName, cID)
 
 			// fetch subjects/grades/exams
 			var rawGrades string
@@ -94,7 +102,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			err = retry.Do(
 				func() error {
 					var err error
-					rawGrades, events, err = client.GetClassEvents(c.ID)
+					rawGrades, events, err = client.GetClassEvents(cID)
 
 					return err
 				},
@@ -106,13 +114,13 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			}
 
 			// parse all subjects and corresponding grades
-			err = parseGrades(ch, username, rawGrades)
+			err = parseGrades(ch, username, rawGrades, multiClass, cName)
 			if err != nil {
 				return err
 			}
 
 			// parse all exam events
-			err = parseEvents(ch, username, events)
+			err = parseEvents(ch, username, events, multiClass, cName)
 			if err != nil {
 				return err
 			}
