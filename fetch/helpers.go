@@ -271,7 +271,8 @@ func (c *Client) doClassAction(classID string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	// regular /class_action responses are HTTP 200 or HTTP 302 with redirect to /course
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
