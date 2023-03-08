@@ -27,10 +27,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
 	"github.com/avast/retry-go/v4"
 	"github.com/dkorunic/e-dnevnik-bot/format"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/slack-go/slack"
 )

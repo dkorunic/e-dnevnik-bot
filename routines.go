@@ -28,15 +28,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
-	"github.com/tj/go-spin"
-
 	"github.com/dkorunic/e-dnevnik-bot/db"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/scrape"
 	"github.com/dustin/go-broadcast"
+	"github.com/tj/go-spin"
 )
 
 const (

@@ -34,14 +34,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-
-	"github.com/mattn/go-isatty"
-
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
 	_ "github.com/KimMachineGun/automemlimit"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/mattn/go-isatty"
+	"github.com/rs/zerolog"
 	"go.uber.org/automaxprocs/maxprocs"
 )
 

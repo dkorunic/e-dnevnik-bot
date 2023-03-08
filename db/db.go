@@ -27,9 +27,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
 	"github.com/dgraph-io/badger/v4"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 )
 
 const (

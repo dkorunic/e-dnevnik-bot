@@ -25,12 +25,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
-	"github.com/dkorunic/e-dnevnik-bot/fetch"
-	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/fetch"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends

@@ -24,13 +24,10 @@ package scrape
 import (
 	"strings"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
-	"github.com/dkorunic/e-dnevnik-bot/fetch"
-
-	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-
 	"github.com/PuerkitoBio/goquery"
+	"github.com/dkorunic/e-dnevnik-bot/fetch"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 const (

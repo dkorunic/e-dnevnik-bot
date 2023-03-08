@@ -25,9 +25,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
 	"github.com/dkorunic/e-dnevnik-bot/db"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/pborman/getopt/v2"
 )
 

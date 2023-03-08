@@ -27,7 +27,6 @@ import (
 	"math/rand"
 
 	"filippo.io/mostly-harmless/cryptosource"
-
 	"github.com/dgraph-io/badger/v4"
 )
 

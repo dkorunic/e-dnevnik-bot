@@ -29,9 +29,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/jordic/goics"
-
 	"github.com/PuerkitoBio/goquery"
+	"github.com/jordic/goics"
 )
 
 var (
