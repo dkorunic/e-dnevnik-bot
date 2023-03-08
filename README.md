@@ -3,6 +3,8 @@
 [![GitHub license](https://img.shields.io/github/license/dkorunic/e-dnevnik-bot)](https://github.com/dkorunic/e-dnevnik-bot/blob/master/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/dkorunic/e-dnevnik-bot)](https://github.com/dkorunic/e-dnevnik-bot/releases/latest)
 
+![](gopher.png)
+
 ## About / Opće informacije
 
 e-Dnevnik bot is a self-hosting alerting system which reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) which regularly polls for new information (ie. new grades for all lecture subjects, new scheduled exams, etc).
