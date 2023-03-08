@@ -49,13 +49,16 @@ func New(filePath string) (*Edb, error) {
 	if filePath == "" {
 		filePath = DefaultDBPath
 	}
+
 	isExisting := dbExists(filePath)
 
 	logger.Debug().Msgf("Opening database: %v", filePath)
 	opts := badger.DefaultOptions(filePath)
 
+	// adapt for low memory environment
 	if strconv.IntSize == 32 {
 		logger.Info().Msg("Detected 32-bit environment, tuning DB for lower memory usage")
+
 		opts.ValueLogFileSize = 1 << 20
 	}
 
@@ -67,6 +70,7 @@ func New(filePath string) (*Edb, error) {
 
 		return nil, fmt.Errorf("could not create database: %w", err)
 	}
+
 	edb := &Edb{db: db, isExisting: isExisting}
 
 	return edb, nil
@@ -77,6 +81,7 @@ func (db *Edb) Close() error {
 	logger.Debug().Msg("Running database GC")
 again:
 	err := db.db.RunValueLogGC(DefaultDiscardRatio)
+
 	if err == nil {
 		goto again
 	}
@@ -92,8 +97,9 @@ func (db *Edb) CheckAndFlag(bucket, subBucket string, target []string) (bool, er
 	// SHA256 hash of (bucket, subBucket, []target)
 	key := hashContent(bucket, subBucket, target)
 
-	// check if key exists
 	var found bool
+
+	// check if key exists
 	err := db.db.View(func(txn *badger.Txn) error {
 		_, err := txn.Get(key)
 		switch {
@@ -110,6 +116,7 @@ func (db *Edb) CheckAndFlag(bucket, subBucket string, target []string) (bool, er
 		// all other errors (found=false)
 		return err
 	})
+
 	if err != nil {
 		// return quickly: (fatal) error + found=false
 		return false, err

@@ -58,6 +58,7 @@ func PlainFormatSubject(sb *strings.Builder, user, subject string, isExam bool) 
 	} else {
 		sb.WriteString(GradePrefix)
 	}
+
 	sb.WriteString(user)
 	sb.WriteString(" / ")
 	sb.WriteString(subject)

@@ -40,6 +40,7 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 	sb := &strings.Builder{}
 	sb.WriteString(bucket)
 	sb.WriteString(subBucket)
+
 	for i := range target {
 		sb.WriteString(target[i])
 	}

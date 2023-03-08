@@ -51,6 +51,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 	if token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
+
 	if len(chatIDs) == 0 {
 		return fmt.Errorf("%w", ErrSlackEmptyUserIds)
 	}

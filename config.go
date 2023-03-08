@@ -84,21 +84,25 @@ func loadConfig() (tomlConfig, error) {
 
 	if config.Discord.Token != "" && len(config.Discord.UserIDs) > 0 {
 		logger.Info().Msg("Configuration: Discord messenger enabled")
+
 		config.discordEnabled = true
 	}
 
 	if config.Telegram.Token != "" && len(config.Telegram.ChatIDs) > 0 {
 		logger.Info().Msg("Configuration: Telegram messenger enabled")
+
 		config.telegramEnabled = true
 	}
 
 	if config.Slack.Token != "" && len(config.Slack.ChatIDs) > 0 {
 		logger.Info().Msg("Configuration: Slack messenger enabled")
+
 		config.slackEnabled = true
 	}
 
 	if config.Mail.Server != "" && config.Mail.From != "" && len(config.Mail.To) > 0 {
 		logger.Info().Msg("Configuration: e-mail messenger enabled")
+
 		config.mailEnabled = true
 	}
 

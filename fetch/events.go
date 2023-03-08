@@ -41,6 +41,7 @@ func (e *Events) ConsumeICal(c *goics.Calendar, err error) error {
 		if err != nil {
 			return err
 		}
+
 		d := Event{
 			Start:       dtstart,
 			Description: node[EventDescription].Val,

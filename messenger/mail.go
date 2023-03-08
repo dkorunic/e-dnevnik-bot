@@ -53,6 +53,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
 		logger.Warn().Msgf("%v: %v", ErrMailInvalidPort, port)
+
 		portInt = 465
 	}
 
@@ -82,11 +83,13 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 				m := mail.NewMessage()
 				m.SetHeader("From", from)
 				m.SetHeader("To", u)
+
 				if subject != "" {
 					m.SetHeader("Subject", subject)
 				} else {
 					m.SetHeader("Subject", MailSubject)
 				}
+
 				m.SetBody("text/plain", plainContent)
 				m.AddAlternative("text/html", htmlContent)
 

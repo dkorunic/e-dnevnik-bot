@@ -56,9 +56,12 @@ var (
 // to a channel.
 func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, config tomlConfig) {
 	logger.Debug().Msg("Starting scrapers")
+
 	for _, i := range config.User {
 		wgScrape.Add(1)
+
 		i := i
+
 		go func() {
 			defer wgScrape.Done()
 
@@ -74,8 +77,10 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 // msgSend will process grades/exams messages and broadcast to one or more message services.
 func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, config tomlConfig) {
 	wgMsg.Add(1)
+
 	go func() {
 		defer wgMsg.Done()
+
 		bcast := broadcast.NewBroadcaster(broadcastBufLen)
 		defer bcast.Close()
 
@@ -83,13 +88,16 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 		if config.discordEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
+
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
 			wgMsg.Add(1)
+
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Discord messenger started")
+
 				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
@@ -101,13 +109,16 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 		if config.telegramEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
+
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
 			wgMsg.Add(1)
+
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Telegram messenger started")
+
 				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
@@ -119,13 +130,16 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 		if config.slackEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
+
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
 			wgMsg.Add(1)
+
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Slack messenger started")
+
 				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
@@ -137,13 +151,16 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 		if config.mailEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
+
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
 			wgMsg.Add(1)
+
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Mail messenger started")
+
 				if err := messenger.Mail(ctx, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username, config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrMail, err)
 					exitWithError.Store(true)
@@ -167,6 +184,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 // and if it is not an initial run, it will pass through to messengers for further alerting.
 func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Add(1)
+
 	go func() {
 		defer wgFilter.Done()
 
@@ -207,6 +225,7 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 // spinner shows a spiffy terminal spinner while waiting endlessly.
 func spinner() {
 	s := spin.New()
+
 	for {
 		fmt.Printf("\rWaiting... %v", s.Next())
 		time.Sleep(spinnerRotateDelay)

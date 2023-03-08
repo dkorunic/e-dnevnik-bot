@@ -46,6 +46,7 @@ func (c *Client) getCSRFToken() error {
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
@@ -70,8 +71,9 @@ func (c *Client) getCSRFToken() error {
 		return err
 	}
 
-	// csrf_token is hidden in the input form
 	var csrfTokenExists bool
+
+	// csrf_token is hidden in the input form
 	doc.Find(`form > input[name="csrf_token"]`).
 		Each(func(i int, s *goquery.Selection) {
 			c.csrfToken, csrfTokenExists = s.Attr("value")
@@ -101,10 +103,12 @@ func (c *Client) doSAMLRequest() error {
 		"password":   {c.password},
 		"csrf_token": {c.csrfToken},
 	}
+
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, u.String(), strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
@@ -144,6 +148,7 @@ func (c *Client) getGrades() (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
@@ -183,6 +188,7 @@ func (c *Client) getCalendar() (Events, error) {
 	if err != nil {
 		return Events{}, err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
@@ -211,6 +217,7 @@ func (c *Client) getCalendar() (Events, error) {
 	// decode ICS events
 	d := goics.NewDecoder(strings.NewReader(string(body)))
 	evs := Events{}
+
 	if err = d.Decode(&evs); err != nil {
 		return Events{}, err
 	}
@@ -229,6 +236,7 @@ func (c *Client) getClasses() (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
@@ -267,6 +275,7 @@ func (c *Client) doClassAction(classID string) error {
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")

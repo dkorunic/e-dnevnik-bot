@@ -57,6 +57,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
+
 	if len(userIDs) == 0 {
 		return fmt.Errorf("%w", ErrDiscordEmptyUserIds)
 	}

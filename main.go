@@ -64,6 +64,7 @@ func fatalIfErrors() {
 		logger.Warn().Msg("Exiting, during run some errors were encountered.")
 		os.Exit(1)
 	}
+
 	logger.Info().Msg("Exiting with a success.")
 }
 
@@ -81,6 +82,7 @@ func main() {
 			}
 		}
 	}
+
 	zerolog.SetGlobalLevel(logLevel)
 
 	// enable slow colored console logging
@@ -96,6 +98,7 @@ func main() {
 	// auto-configure GOMAXPROCS
 	undo, err := maxprocs.Set()
 	defer undo()
+
 	if err != nil {
 		logger.Warn().Msgf("%v: %v", ErrMaxProc, err)
 	}
@@ -134,6 +137,7 @@ func main() {
 
 		defer func() {
 			runtime.GC()
+
 			if err := pprof.WriteHeapProfile(f); err != nil {
 				logger.Fatal().Msgf("Error writing memory profile: %v", err)
 			}
@@ -159,6 +163,7 @@ func main() {
 		close(gradesMsg)
 
 		var wgMsg sync.WaitGroup
+
 		msgSend(ctx, &wgMsg, gradesMsg, config)
 		wgMsg.Wait()
 
@@ -183,10 +188,13 @@ func main() {
 		case <-ctx.Done():
 			logger.Info().Msg("Received stop signal, asking all routines to stop")
 			ticker.Stop()
+
 			go stop()
+
 			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
 				go spinner()
 			}
+
 			time.Sleep(exitDelay)
 			fatalIfErrors()
 
@@ -198,18 +206,18 @@ func main() {
 			// reset exit error status
 			exitWithError.Store(false)
 
-			// subjects/grades/exams scraper routines
 			gradesScraped := make(chan msgtypes.Message, chanBufLen)
-			var wgScrape sync.WaitGroup
+			gradesMsg := make(chan msgtypes.Message, chanBufLen)
+
+			var wgScrape, wgFilter, wgMsg sync.WaitGroup
+
+			// subjects/grades/exams scraper routines
 			scrapers(ctx, &wgScrape, gradesScraped, config)
 
 			// message/alert database checking routine
-			gradesMsg := make(chan msgtypes.Message, chanBufLen)
-			var wgFilter sync.WaitGroup
 			msgDedup(ctx, &wgFilter, gradesScraped, gradesMsg)
 
 			// messenger routines
-			var wgMsg sync.WaitGroup
 			msgSend(ctx, &wgMsg, gradesMsg, config)
 
 			wgScrape.Wait()
@@ -223,6 +231,7 @@ func main() {
 
 				return
 			}
+
 			logger.Info().Msg("Scheduled run completed, will sleep now")
 		}
 	}

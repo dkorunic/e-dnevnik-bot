@@ -47,6 +47,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 	if err != nil {
 		return err
 	}
+
 	var parsedGrades int
 
 	// each subject has a div with class "table-container new-grades-table"
@@ -160,7 +161,9 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 	if err != nil {
 		return fetch.Classes{}, err
 	}
+
 	var parsedClasses int
+
 	var classes fetch.Classes
 
 	// fetch all active classes

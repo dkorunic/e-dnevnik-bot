@@ -55,6 +55,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 	if apiKey == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
+
 	if len(chatIDs) == 0 {
 		return fmt.Errorf("%w", ErrTelegramEmptyUserIds)
 	}
