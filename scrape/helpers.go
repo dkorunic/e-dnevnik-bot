@@ -56,6 +56,11 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 				return
 			}
 
+			// if multiclass, append class name to subject
+			if multiClass {
+				subject = strings.Join([]string{subject, className}, " / ")
+			}
+
 			var descriptions []string
 			// row descriptions are in div with class "flex-table header" in each span
 			table.Find("div.flex-table.header > div.flex-row > span").
@@ -80,11 +85,6 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 							}
 							spans = append(spans, txt)
 						})
-
-					// if multiclass, append class name to subject
-					if multiClass {
-						subject = strings.Join([]string{subject, className}, " / ")
-					}
 
 					// once we have a single grade with all required fields, send it through the channel
 					ch <- msgtypes.Message{
