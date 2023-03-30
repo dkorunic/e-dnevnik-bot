@@ -49,6 +49,7 @@ const (
 	testSubject     = "Ovo je testni predmet"
 	testDescription = "Testni opis"
 	testField       = "Testna vrijednost"
+	envGOMEMLIMIT   = "GOMEMLIMIT"
 )
 
 var (
@@ -98,6 +99,12 @@ func main() {
 
 	if err != nil {
 		logger.Warn().Msgf("%v: %v", ErrMaxProc, err)
+	}
+
+	logger.Debug().Msgf("GOMAXPROCS limit is set to: %v", runtime.GOMAXPROCS(0))
+
+	if v, ok := os.LookupEnv(envGOMEMLIMIT); ok {
+		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", v)
 	}
 
 	// context with signal integration
