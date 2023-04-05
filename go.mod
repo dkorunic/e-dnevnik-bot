@@ -10,7 +10,7 @@ require (
 	github.com/avast/retry-go/v4 v4.3.3
 	github.com/bwmarrin/discordgo v0.27.1
 	github.com/corpix/uarand v0.2.0
-	github.com/dgraph-io/badger/v4 v4.0.1
+	github.com/dgraph-io/badger/v4 v4.1.0
 	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
@@ -26,7 +26,6 @@ require (
 
 require (
 	github.com/andybalholm/cascadia v1.3.1 // indirect
-	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cilium/ebpf v0.10.0 // indirect
 	github.com/containerd/cgroups/v3 v3.0.1 // indirect
@@ -50,7 +49,7 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.7.0 // indirect
 	golang.org/x/net v0.8.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
+	golang.org/x/sys v0.7.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 )
