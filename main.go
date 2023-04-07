@@ -55,6 +55,10 @@ const (
 var (
 	exitWithError atomic.Bool
 	ErrMaxProc    = errors.New("failed to set GOMAXPROCS")
+	GitTag        = ""
+	GitCommit     = ""
+	GitDirty      = ""
+	BuildTime     = ""
 )
 
 func fatalIfErrors() {
@@ -92,6 +96,8 @@ func main() {
 			Caller().
 			Logger()
 	}
+
+	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on: %v", GitTag, GitCommit, GitDirty, BuildTime)
 
 	// auto-configure GOMAXPROCS
 	undo, err := maxprocs.Set()
