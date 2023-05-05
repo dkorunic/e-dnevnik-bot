@@ -20,6 +20,8 @@ Bot is able to login as multiple AAI/AOSI users from skole.hr and check for new 
 
 Each alert can be broadcasted through multiple services and each of those services can have multiple recipients. All and any authentication information remains on your PC and/or server alone.
 
+**Important update on May 2023: e-Dnevnik bot will most likely not be able to pull information if it is not being hosted inside Croatia as CARNet has implemented firewall denying access outside HR IP space.** This will cause total lack of connectivity when trying to setup bot to run on various popular VM and VPS providers such as Oracle Cloud, Contabo, AWS, Azure, GitHub Actions etc. We strongly suggest DIY self hosting at home and/or your office.
+
 --
 
 e-Dnevnik je bot i obavjesni sustav koji se izvršava u potpunosti kod krajnjeg korisnika, a zamišljen je kao nadogradnja na [CARNet e-Dnevnik](https://ocjene.skole.hr/). Korisnik pri tome više ne mora redovno otvarati e-Dnevnik u potrazi za novim informacijama. Bot može jednokratno ili u redovnim intervalima dohvaćati nove informacije o predmetima (nove ocjene i novi zakazani ispiti).
@@ -32,6 +34,8 @@ Bot se može autenticirati kao različiti AAI/AOSI korisnici iz skole.hr domene,
 - standardni e-mail (npr. Gmail SMTP)
 
 Svaka ta poruka će se proslijediti kroz jedan ili više servisa i svaki navedeni servis može imati konfiguranog jednog ili više primatelja. Autentikacijski podaci za sve navedeno ostaju isključivo lokalno i ne napuštaju vaše računalo i/ili server.
+
+**Važna napomena, svibanj 2023: e-Dnevnik bot najvjerojatnije neće moći dohvaćati informacije ako je smješten izvan Hrvatske, s obzirom da je CARNet uveo blokiranje pristupa izvan HR IP prostora.** Ovo će uzrokovati prestanak rada bota sa popularnih VM i VPS providera kao što su Oracle Cloud, Contabo, AWS, Azure, GitHub Actions itd. Preporuka je i dalje DIY vlastiti hosting kod kuće i/ili vlastitom uredu.
 
 ## Requirements / Zahtjevi za rad
 
