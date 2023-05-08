@@ -59,8 +59,8 @@ dockers:
     image_templates:
       - "dkorunic/{{.ProjectName}}:{{ .Version }}-amd64"
       - "dkorunic/{{.ProjectName}}:latest-amd64"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-amd64"
-      - "ghcr.io/${{ github.repository }}:latest-amd64"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-amd64"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-amd64"
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -73,8 +73,8 @@ dockers:
     image_templates:
       - "dkorunic/{{.ProjectName}}:{{ .Version }}-arm64v8"
       - "dkorunic/{{.ProjectName}}:latest-arm64v8"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-arm64v8"
-      - "ghcr.io/${{ github.repository }}:latest-arm64v8"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-arm64v8"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-arm64v8"
     build_flag_templates:
       - "--platform=linux/arm64/v8"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -88,8 +88,8 @@ dockers:
     image_templates:
       - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv6"
       - "dkorunic/{{.ProjectName}}:latest-armv6"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-armv6"
-      - "ghcr.io/${{ github.repository }}:latest-armv6"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-armv6"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-armv6"
     build_flag_templates:
       - "--platform=linux/arm/v6"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -103,8 +103,8 @@ dockers:
     image_templates:
       - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv7"
       - "dkorunic/{{.ProjectName}}:latest-armv7"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-armv7"
-      - "ghcr.io/${{ github.repository }}:latest-armv7"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-armv7"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-armv7"
     build_flag_templates:
       - "--platform=linux/arm/v7"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -118,17 +118,17 @@ docker_manifests:
       - "dkorunic/{{.ProjectName}}:{{ .Version }}-arm64v8"
       - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv6"
       - "dkorunic/{{.ProjectName}}:{{ .Version }}-armv7"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-amd64"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-arm64v8"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-armv6"
-      - "ghcr.io/${{ github.repository }}:{{ .Version }}-armv7"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-amd64"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-arm64v8"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-armv6"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:{{ .Version }}-armv7"
   - name_template: "dkorunic/{{ .ProjectName }}:latest"
     image_templates:
       - "dkorunic/{{.ProjectName}}:latest-amd64"
       - "dkorunic/{{.ProjectName}}:latest-arm64v8"
       - "dkorunic/{{.ProjectName}}:latest-armv6"
       - "dkorunic/{{.ProjectName}}:latest-armv7"
-      - "ghcr.io/${{ github.repository }}:latest-amd64"
-      - "ghcr.io/${{ github.repository }}:latest-arm64v8"
-      - "ghcr.io/${{ github.repository }}:latest-armv6"
-      - "ghcr.io/${{ github.repository }}:latest-armv7"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-amd64"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-arm64v8"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-armv6"
+      - "ghcr.io/dkorunic/e-dnevnik-bot:latest-armv7"
