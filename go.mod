@@ -3,7 +3,7 @@ module github.com/dkorunic/e-dnevnik-bot
 go 1.20
 
 require (
-	github.com/BurntSushi/toml v1.2.1
+	github.com/BurntSushi/toml v1.3.1
 	github.com/KimMachineGun/automemlimit v0.2.6
 	github.com/PuerkitoBio/goquery v1.8.1
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
@@ -14,7 +14,7 @@ require (
 	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
-	github.com/mattn/go-isatty v0.0.18
+	github.com/mattn/go-isatty v0.0.19
 	github.com/pborman/getopt/v2 v2.1.0
 	github.com/rs/zerolog v1.29.1
 	github.com/slack-go/slack v0.12.2
@@ -45,10 +45,10 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/opencontainers/runtime-spec v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/sirupsen/logrus v1.9.0 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/crypto v0.8.0 // indirect
-	golang.org/x/net v0.9.0 // indirect
+	golang.org/x/crypto v0.9.0 // indirect
+	golang.org/x/net v0.10.0 // indirect
 	golang.org/x/sys v0.8.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
