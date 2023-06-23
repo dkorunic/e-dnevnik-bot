@@ -20,7 +20,7 @@ check:
 
 .PHONY: build
 build:
-	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags="-s -w -extldflags '-static' -X main.GitTag=${GIT_LAST_TAG} -X main.GitCommit=${GIT_HEAD_COMMIT} -X main.GitDirty=${GIT_MODIFIED} -X main.BuildTime=${BUILD_DATE}" -o $(TARGET)
+	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -pgo=auto -ldflags="-s -w -extldflags '-static' -X main.GitTag=${GIT_LAST_TAG} -X main.GitCommit=${GIT_HEAD_COMMIT} -X main.GitDirty=${GIT_MODIFIED} -X main.BuildTime=${BUILD_DATE}" -o $(TARGET)
 
 .PHONY: build-debug
 build-debug:
