@@ -28,6 +28,8 @@ builds:
         goarch: arm
 universal_binaries:
   - replace: true
+changelog:
+  sort: asc
 archives:
   - replacements:
       linux: Linux
@@ -43,16 +45,13 @@ archives:
       - README.md
       - LICENSE
       - .e-dnevnik.toml.example
+      - src: dist/CHANGELOG.md
+        dst: ""
+        strip_parent: true
 checksum:
   name_template: "checksums.txt"
 snapshot:
   name_template: "{{ .Tag }}-next"
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
 dockers:
   - use: buildx
     goos: linux
