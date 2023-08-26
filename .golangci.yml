@@ -12,3 +12,4 @@ linters:
     - exhaustivestruct
     - exhaustruct
     - lll
+    - depguard
