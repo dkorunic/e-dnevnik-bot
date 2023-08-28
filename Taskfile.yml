@@ -58,7 +58,6 @@ tasks:
     cmds:
       - go build -ldflags="-X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -race -o {{.TARGET}}
 
-
   lint:
     deps:
       - fmt
