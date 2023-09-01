@@ -18,8 +18,6 @@ vars:
     sh: date -u '+%Y-%m-%dT%H:%M:%SZ'
 
 env:
-  GOOS: linux
-  GOARCH: amd64
   CGO_ENABLED: 0
 
 tasks:
@@ -41,6 +39,7 @@ tasks:
     cmds:
       - gci write .
       - gofumpt -l -w .
+      - betteralign -apply ./...
 
   build:
     deps:
@@ -64,6 +63,33 @@ tasks:
     cmds:
       - golangci-lint run --timeout 5m
 
+  tools:
+    cmds:
+      - task: gofumpt
+      - task: gci
+      - task: betteralign
+
   release:
     cmds:
       - echo "Uses Github Actions"
+
+  gci:
+    internal: true
+    status:
+      - which gci
+    cmds:
+      - go install github.com/daixiang0/gci@latest
+
+  gofumpt:
+    internal: true
+    status:
+      - which gofumpt
+    cmds:
+      - go install mvdan.cc/gofumpt@latest
+
+  betteralign:
+    internal: true
+    status:
+      - which betteralign
+    cmds:
+      - go install github.com/dkorunic/betteralign/cmd/betteralign@latest
