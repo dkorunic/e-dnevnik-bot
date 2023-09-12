@@ -42,25 +42,22 @@ tasks:
       - betteralign -apply ./...
 
   build:
-    deps:
-      - update
-      - fmt
     cmds:
+      - task: update
+      - task: fmt
       - go build -trimpath -pgo=auto -ldflags="-s -w -extldflags '-static' -X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -o {{.TARGET}}
 
   build-debug:
-    deps:
-      - update
-      - fmt
     env:
       CGO_ENABLED: 1
     cmds:
+      - task: update
+      - task: fmt
       - go build -ldflags="-X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -race -o {{.TARGET}}
 
   lint:
-    deps:
-      - fmt
     cmds:
+      - task: fmt
       - golangci-lint run --timeout 5m
 
   tools:
