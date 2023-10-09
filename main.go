@@ -24,6 +24,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/signal"
 	"runtime"
@@ -121,6 +122,22 @@ func main() {
 	config, err := loadConfig()
 	if err != nil {
 		logger.Fatal().Msgf("Error loading configuration: %v", err)
+	}
+
+	// check Google Calendar setup
+	if config.calendarEnabled {
+		if _, err := os.Stat(*calCredFile); errors.Is(err, fs.ErrNotExist) {
+			logger.Error().Msgf("Google Calendar API credentials file not found. Disabling calendar integration.")
+
+			config.calendarEnabled = false
+		} else if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
+			fd := os.Stdout.Fd()
+			if os.Getenv("TERM") == "dumb" || (!isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd)) {
+				logger.Error().Msgf("Google Calendar token file not found and first run requires running under a terminal. Disabling calendar integration.")
+
+				config.calendarEnabled = false
+			}
+		}
 	}
 
 	// enable CPU profiling dump on exit

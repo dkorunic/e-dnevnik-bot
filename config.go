@@ -61,17 +61,24 @@ type mail struct {
 	To       []string `toml:"to"`
 }
 
+// calendar struct hold Google Calendar configuration.
+type calendar struct {
+	Name string `toml:"name"`
+}
+
 // tomlConfig struct holds all other configuration structures.
 type tomlConfig struct {
-	User            []user   `toml:"user"`
+	Calendar        calendar `toml:"calendar"`
+	Mail            mail     `toml:"mail"`
 	Telegram        telegram `toml:"telegram"`
 	Discord         discord  `toml:"discord"`
 	Slack           slack    `toml:"slack"`
-	Mail            mail     `toml:"mail"`
+	User            []user   `toml:"user"`
 	telegramEnabled bool     `toml:"telegram_enabled"`
 	discordEnabled  bool     `toml:"discord_enabled"`
 	slackEnabled    bool     `toml:"slack_enabled"`
 	mailEnabled     bool     `toml:"mail_enabled"`
+	calendarEnabled bool     `toml:"calendar_enabled"`
 }
 
 // loadConfig attempts to load and decode configuration file in TOML format, doing a minimal sanity checking and
@@ -104,6 +111,10 @@ func loadConfig() (tomlConfig, error) {
 		logger.Info().Msg("Configuration: e-mail messenger enabled")
 
 		config.mailEnabled = true
+	}
+
+	if config.Calendar.Name != "" {
+		config.calendarEnabled = true
 	}
 
 	return config, nil

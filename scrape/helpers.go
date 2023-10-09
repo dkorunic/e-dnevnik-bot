@@ -145,6 +145,7 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 				timestamp,
 				description,
 			},
+			Timestamp: ev.Start,
 		}
 	}
 

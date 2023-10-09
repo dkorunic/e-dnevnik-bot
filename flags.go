@@ -31,16 +31,18 @@ import (
 )
 
 const (
-	DefaultConfFile     = ".e-dnevnik.toml" // default configuration filename
-	DefaultTickInterval = "1h"              // default (and minimal permitted value) is 1 tick per 1h
-	DefaultRetries      = 3                 // default retry attempts
+	DefaultConfFile            = ".e-dnevnik.toml"           // default configuration filename
+	DefaultCalendarToken       = "calendar_token.json"       // default Google Calendar token file
+	DefaultCalendarCredentials = "calendar_credentials.json" // default Google Calendar credentials file
+	DefaultTickInterval        = "1h"                        // default (and minimal permitted value) is 1 tick per 1h
+	DefaultRetries             = 3                           // default retry attempts
 )
 
 var (
-	debug, daemon, help, emulation, colorLogs                    *bool
-	confFile, dbFile, tickIntervalString, cpuProfile, memProfile *string
-	tickInterval                                                 time.Duration
-	retries                                                      *uint
+	debug, daemon, help, emulation, colorLogs                                             *bool
+	confFile, dbFile, tickIntervalString, cpuProfile, memProfile, calTokFile, calCredFile *string
+	tickInterval                                                                          time.Duration
+	retries                                                                               *uint
 )
 
 // init initializes flags configuration.
@@ -51,6 +53,10 @@ func init() {
 	emulation = getopt.BoolLong("test", 't', "send a test event (to check if messaging works)")
 	confFile = getopt.StringLong("conffile", 'f', DefaultConfFile, "configuration file (in TOML)")
 	dbFile = getopt.StringLong("database", 'b', db.DefaultDBPath, "alert database file")
+	calTokFile = getopt.StringLong("calendartoken", 'g', DefaultCalendarToken,
+		"Google Calendar token file")
+	calCredFile = getopt.StringLong("calendarcred", 'x', DefaultCalendarCredentials,
+		"Google Calendar credentials file")
 	tickIntervalString = getopt.StringLong("interval", 'i', DefaultTickInterval,
 		"interval between polls when in daemon mode")
 	retries = getopt.UintLong("retries", 'r', DefaultRetries, "default retry attempts on error")

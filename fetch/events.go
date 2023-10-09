@@ -34,7 +34,7 @@ const (
 
 // ConsumeICal is a ICS data decoder that extracts DTSTART, DESCRIPTION and SUMMARY values, parsing timestamp with
 // maximum flexibility and in local timezone, returning optional error.
-func (e *Events) ConsumeICal(c *goics.Calendar, err error) error {
+func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 	for _, el := range c.Events {
 		node := el.Data
 

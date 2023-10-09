@@ -48,6 +48,7 @@ var (
 	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:stylecheck
 	ErrSlack        = errors.New("Slack messenger issue")    //nolint:stylecheck
 	ErrMail         = errors.New("Mail messenger issue")     //nolint:stylecheck
+	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:stylecheck
 )
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
@@ -161,6 +162,27 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 
 				if err := messenger.Mail(ctx, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username, config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrMail, err)
+					exitWithError.Store(true)
+				}
+			}()
+		}
+
+		// Google Calendar Sender
+		if config.calendarEnabled {
+			ch := make(chan interface{}) // broadcast listener
+			defer close(ch)
+
+			bcast.Register(ch) // broadcast registration
+			defer bcast.Unregister(ch)
+
+			wgMsg.Add(1)
+
+			go func() {
+				defer wgMsg.Done()
+				logger.Debug().Msgf("Calendar messenger started")
+
+				if err := messenger.Calendar(ctx, ch, config.Calendar.Name, *calTokFile, *calCredFile, *retries); err != nil {
+					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
 					exitWithError.Store(true)
 				}
 			}()
