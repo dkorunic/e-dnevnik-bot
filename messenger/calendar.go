@@ -1,5 +1,5 @@
 // @license
-// Copyright (C) 2022  Dinko Korunic
+// Copyright (C) 2023  Dinko Korunic
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -83,6 +83,8 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 
 	logger.Debug().Msg("Creating exams with Google Calendar API")
 
+	now := time.Now()
+
 	// process all messages
 	for o := range ch {
 		select {
@@ -96,11 +98,12 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 				continue
 			}
 
-			if !g.IsExam {
+			// skip non-exam events and events in the past
+			if !g.IsExam || g.Timestamp.Before(now) {
 				continue
 			}
 
-			// all day event
+			// create an all day event
 			newEvent := &calendar.Event{
 				Summary: strings.Join([]string{g.Username, g.Subject}, " - Ispit iz: "),
 				Start: &calendar.EventDateTime{
@@ -112,7 +115,7 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 				Description: g.Fields[len(g.Fields)-1],
 			}
 
-			// retryable and cancellable attempt to send a message
+			// retryable and cancellable attempt
 			err = retry.Do(
 				func() error {
 					_, err := srv.Events.Insert(calID, newEvent).Do()
@@ -153,7 +156,7 @@ func initCalendar(ctx context.Context, credFile string, tokFile string, name str
 
 	var config *oauth2.Config
 
-	config, err = google.ConfigFromJSON(b, calendar.CalendarScope)
+	config, err = google.ConfigFromJSON(b, calendar.CalendarReadonlyScope, calendar.CalendarEventsScope)
 	if err != nil {
 		logger.Error().Msgf("Unable to parse credentials file %s: %v", credFile, err)
 

@@ -22,12 +22,16 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
-	"github.com/pborman/getopt/v2"
+	"github.com/peterbourgon/ff/v4"
+	"github.com/peterbourgon/ff/v4/ffhelp"
+	"github.com/peterbourgon/ff/v4/fftoml"
+	"github.com/peterbourgon/ff/v4/ffyaml"
 )
 
 const (
@@ -45,36 +49,43 @@ var (
 	retries                                                                               *uint
 )
 
-// init initializes flags configuration.
-func init() {
-	debug = getopt.BoolLong("verbose", 'v', "enable verbose/debug log level")
-	daemon = getopt.BoolLong("daemon", 'd', "enable daemon mode (running as a service)")
-	help = getopt.BoolLong("help", '?', "display help")
-	emulation = getopt.BoolLong("test", 't', "send a test event (to check if messaging works)")
-	confFile = getopt.StringLong("conffile", 'f', DefaultConfFile, "configuration file (in TOML)")
-	dbFile = getopt.StringLong("database", 'b', db.DefaultDBPath, "alert database file")
-	calTokFile = getopt.StringLong("calendartoken", 'g', DefaultCalendarToken,
-		"Google Calendar token file")
-	calCredFile = getopt.StringLong("calendarcred", 'x', DefaultCalendarCredentials,
-		"Google Calendar credentials file")
-	tickIntervalString = getopt.StringLong("interval", 'i', DefaultTickInterval,
-		"interval between polls when in daemon mode")
-	retries = getopt.UintLong("retries", 'r', DefaultRetries, "default retry attempts on error")
-	cpuProfile = getopt.StringLong("cpuprofile", 'c', "", "CPU profile output file")
-	memProfile = getopt.StringLong("memprofile", 'm', "", "memory profile output file")
-	colorLogs = getopt.BoolLong("colorlogs", 'l', "enable colorized console logs")
-}
-
-// parseFlags parses input arguments and flags.
+// parseFlags parses the command line flags and sets the corresponding variables.
 func parseFlags() {
-	getopt.Parse()
+	fs := ff.NewFlagSet("e-dnevnik-bot")
 
-	if *help {
-		getopt.PrintUsage(os.Stderr)
-		os.Exit(0)
-	}
+	debug = fs.Bool('v', "verbose", "verbose/debug log level")
+	daemon = fs.Bool('d', "daemon", "enable daemon mode (running as a service)")
+	help = fs.Bool('?', "help", "display help")
+	emulation = fs.Bool('t', "test", "send a test event (to check if messaging works)")
+	colorLogs = fs.Bool('l', "colorlogs", "enable colorized console logs")
+
+	confFile = fs.String('f', "conffile", DefaultConfFile, "configuration file (in TOML)")
+	dbFile = fs.String('b', "database", db.DefaultDBPath, "alert database file")
+	calTokFile = fs.String('g', "calendartoken", DefaultCalendarToken, "Google Calendar token file")
+	calCredFile = fs.String('x', "calendarcred", DefaultCalendarCredentials, "Google Calendar credentials file")
+	tickIntervalString = fs.String('i', "interval", DefaultTickInterval, "interval between polls when in daemon mode")
+	cpuProfile = fs.String('c', "cpuprofile", "", "CPU profile output file")
+	memProfile = fs.String('m', "memprofile", "", "memory profile output file")
+
+	retries = fs.Uint('r', "retries", DefaultRetries, "number of retry attempts on error")
 
 	var err error
+
+	if err = ff.Parse(fs, os.Args[1:],
+		ff.WithConfigFileParser(ffyaml.Parser{}.Parse),
+		ff.WithConfigFileParser(fftoml.Parser{}.Parse),
+	); err != nil {
+		fmt.Printf("%s\n", ffhelp.Flags(fs))
+		fmt.Printf("Error: %v\n", err)
+
+		os.Exit(1)
+	}
+
+	if *help {
+		fmt.Printf("%s\n", ffhelp.Flags(fs))
+
+		os.Exit(0)
+	}
 
 	tickInterval, err = time.ParseDuration(*tickIntervalString)
 	if err != nil {

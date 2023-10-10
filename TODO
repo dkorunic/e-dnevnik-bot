@@ -1,2 +1,1 @@
 - don't acknowledge alert that didn't go through with at least one consumer
-- automatically add events to Google Calendar
