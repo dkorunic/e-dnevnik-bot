@@ -30,8 +30,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
-	"github.com/peterbourgon/ff/v4/fftoml"
-	"github.com/peterbourgon/ff/v4/ffyaml"
 )
 
 const (
@@ -71,10 +69,7 @@ func parseFlags() {
 
 	var err error
 
-	if err = ff.Parse(fs, os.Args[1:],
-		ff.WithConfigFileParser(ffyaml.Parser{}.Parse),
-		ff.WithConfigFileParser(fftoml.Parser{}.Parse),
-	); err != nil {
+	if err = ff.Parse(fs, os.Args[1:]); err != nil {
 		fmt.Printf("%s\n", ffhelp.Flags(fs))
 		fmt.Printf("Error: %v\n", err)
 
