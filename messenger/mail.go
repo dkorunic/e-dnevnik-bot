@@ -44,8 +44,21 @@ var (
 	ErrMailInvalidPort    = errors.New("invalid or missing SMTP port, will try with default 465/tcp")
 )
 
-// Mail messenger processes events from a channel and attempts to send emails to one or more recipients,
-// optionally returning an error.
+// Mail sends a message through the mail service.
+//
+// The function takes the following parameters:
+// - ctx: the context.Context object for cancellation and timeouts.
+// - ch: a channel from which messages are received.
+// - server: the address of the mail server.
+// - port: the port number for the mail server.
+// - username: the username for authentication.
+// - password: the password for authentication.
+// - from: the email address of the sender.
+// - subject: the subject of the email.
+// - to: a slice of email addresses of the recipients.
+// - retries: the number of retry attempts to send the message.
+//
+// The function returns an error.
 func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, password, from, subject string, to []string, retries uint) error {
 	logger.Debug().Msg("Sending message through mail service")
 

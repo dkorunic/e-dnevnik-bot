@@ -46,8 +46,16 @@ var (
 	ErrTelegramSendingMessage = errors.New("error sending Telegram message")
 )
 
-// Telegram messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
-// returning an error.
+// Telegram sends messages through the Telegram API.
+//
+// It takes the following parameters:
+// - ctx: the context.Context object for handling deadlines and cancellations.
+// - ch: a channel for receiving messages to be sent.
+// - apiKey: the API key for accessing the Telegram API.
+// - chatIDs: a slice of strings containing the IDs of the chat recipients.
+// - retries: the number of times to retry sending a message in case of failure.
+//
+// It returns an error indicating any failures that occurred during the process.
 func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs []string, retries uint) error {
 	if apiKey == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)

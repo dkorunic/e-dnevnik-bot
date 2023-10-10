@@ -48,8 +48,14 @@ var (
 	ErrDiscordSendingMessage  = errors.New("error sending Discord message")
 )
 
-// Discord messenger processes events from a channel and attempts to communicate to one or more UserIDs, optionally
-// returning an error.
+// Discord sends messages through the Discord API to the specified user IDs.
+//
+// ctx: The context.Context that can be used to cancel the operation.
+// ch: The channel from which to receive messages.
+// token: The Discord API token.
+// userIDs: The list of user IDs to send the messages to.
+// retries: The number of attempts to send the message before giving up.
+// Returns an error if there was a problem sending the message.
 func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)

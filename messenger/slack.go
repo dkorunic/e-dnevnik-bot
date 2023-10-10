@@ -44,8 +44,14 @@ var (
 	ErrSlackSendingMessage = errors.New("error sending Slack message")
 )
 
-// Slack messenger processes events from a channel and attempts to communicate to one or more ChatIDs, optionally
-// returning an error.
+// Slack sends messages through the Slack API.
+//
+// ctx: the context in which the function is executed.
+// ch: the channel from which messages are received.
+// token: the Slack API key.
+// chatIDs: the IDs of the recipients.
+// retries: the number of retries in case of failure.
+// error: an error if there was a problem sending the message.
 func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)

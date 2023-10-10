@@ -51,30 +51,17 @@ var (
 	ErrCalendarNotFound     = errors.New("unable to find Google Calendar ID")
 )
 
-// Calendar is a function that processes events from a channel and inserts them into a Google Calendar.
+// Calendar is a function that processes messages from a channel and creates events in Google Calendar.
 //
-// It takes in the following parameters:
-//   - ctx: the context.Context object for handling timeouts and cancellations.
-//   - ch: a channel of interface{} that contains the events to be processed.
-//   - name: the name of the Google Calendar.
-//   - tokFile: the path to the token file.
-//   - credFile: the path to the credentials file.
-//   - retries: the number of retry attempts for inserting a Google Calendar event.
+// It takes the following parameters:
+// - ctx: the context.Context object for managing the execution of the function
+// - ch: a channel for receiving messages
+// - name: the name of the calendar
+// - tokFile: the path to the token file
+// - credFile: the path to the credential file
+// - retries: the number of retry attempts for inserting a Google Calendar event
 //
-// It returns an error if any of the following occurs:
-//   - Unable to read the credentials file.
-//   - Unable to parse the credentials file.
-//   - Unable to initialize Google Calendar OAuth.
-//   - Unable to initialize Google Calendar client.
-//   - Unable to find the Google Calendar ID for the specified calendar.
-//   - Unable to insert the Google Calendar event.
-//
-// The function reads the credentials file and configures the Google API client using the credentials.
-// It then initializes the Google Calendar client and retrieves the Google Calendar ID for the specified calendar.
-// Next, it processes the events received from the channel, formats the event description, and creates a new all-day event in the Google Calendar.
-// Finally, it retries and attempts to insert the event into the Google Calendar, with a delay between each attempt.
-//
-// The function returns nil if all events are successfully processed and inserted into the Google Calendar.
+// It returns an error indicating any issues encountered during the execution of the function.
 func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFile string, retries uint) error {
 	srv, calID, err := initCalendar(ctx, credFile, tokFile, name)
 	if err != nil {
@@ -133,7 +120,7 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 		}
 	}
 
-	return nil
+	return err
 }
 
 // initCalendar initializes a Google Calendar service and retrieves the calendar ID.
