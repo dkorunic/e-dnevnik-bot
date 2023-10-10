@@ -37,6 +37,22 @@ Svaka ta poruka će se proslijediti kroz jedan ili više servisa i svaki naveden
 
 **Važna napomena, svibanj 2023: e-Dnevnik bot najvjerojatnije neće moći dohvaćati informacije ako je smješten izvan Hrvatske, s obzirom da je CARNet uveo blokiranje pristupa izvan HR IP prostora.** Ovo će uzrokovati prestanak rada bota sa popularnih VM i VPS providera kao što su Oracle Cloud, Contabo, AWS, Azure, GitHub Actions itd. Preporuka je i dalje DIY vlastiti hosting kod kuće i/ili vlastitom uredu.
 
+## Privacy policy
+
+Bot uses Google's Application Programming Interface (API) Services to enable adding School Exam events to your Google Calendar.
+
+Use of information received from Google APIs will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the [Limited Use requirements](https://support.google.com/cloud/answer/9110914#explain-types&zippy=%2Ccould-you-explain-the-limited-use-requirements-from-the-google-api-services-user-data-policy).
+
+Your Google information is used by the application to provide or improve user-facing features that are prominent to your user experience. We do not collect or store any of your data, nor we track your usage in any way. All of your authorization data (ie. Google API token) is stored locally with the application and does not leave your premises.
+
+## Politika privatnosti
+
+Bot koristi Googleove usluge aplikacijskog programskog sučelja (API) kako bi omogućio dodavanje događaja školskih ispita u vaš Google Calendar.
+
+Upotreba informacija dobivenih iz Google API-ja biti će u skladu sa [Pravilima o korisničkim podacima](https://developers.google.com/terms/api-services-user-data-policy), uključujući i [Zahtjeve ograničene upotrebe](https://support.google.com/cloud/answer/9110914#explain-types&zippy=%2Ccould-you-explain-the-limited-use-requirements-from-the-google-api-services-user-data-policy).
+
+Aplikacija koristi vaše Google podatke za pružanje ili poboljšanje korisničkih značajki koje su istankute za vaše korisničko iskustvo. Ne prikupljamo niti pohranjujemo vaše podatke, niti na bilo koji način pratimo vašu upotrebu. Svi vaši podaci (npr. Google API token) se pohranjuju lokalno s aplikacijom i ne napuštaju vaše računalo.
+
 ## Requirements / Zahtjevi za rad
 
 Bot needs:
