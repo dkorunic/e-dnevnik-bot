@@ -228,7 +228,7 @@ func main() {
 			return
 		case <-ticker.C:
 			logger.Info().Msg("Scheduled run in progress")
-			ticker.Reset(tickInterval)
+			ticker.Reset(*tickInterval)
 
 			// reset exit error status
 			exitWithError.Store(false)
