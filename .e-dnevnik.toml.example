@@ -54,3 +54,11 @@ chatids = [ "chat_id", "chat_id2" ]
 #from = "user.name@gmail.com"
 #subject = "Nova ocjena iz e-Dnevnika"
 #to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
+
+# Google Calendar block
+##################################################
+# Configuration for Calendar API: https://developers.google.com/calendar/api/quickstart/go#set_up_your_environment
+# First run needs to be done in terminal on a regular Windows/Mac/Linux system
+#
+#[calendar]
+#name = "Djeca ispiti"
