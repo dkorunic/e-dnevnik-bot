@@ -84,24 +84,23 @@ Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](https://githu
 ### Usage / Upute za upotrebu
 
 ```shell
-Usage: e-dnevnik-bot [-?dltv] [-b value] [-c value] [-f value] [-i value] [-m value] [-r value] [parameters ...]
- -?, --help       display help
- -b, --database=value
-                  alert database file [.e-dnevnik.db]
- -c, --cpuprofile=value
-                  CPU profile output file
- -d, --daemon     enable daemon mode (running as a service)
- -f, --conffile=value
-                  configuration file (in TOML) [.e-dnevnik.toml]
- -i, --interval=value
-                  interval between polls when in daemon mode [1h]
- -l, --colorlogs  enable colorized console logs
- -m, --memprofile=value
-                  memory profile output file
- -r, --retries=value
-                  default retry attempts on error [3]
- -t, --test       send a test event (to check if messaging works)
- -v, --verbose    enable verbose/debug log level
+NAME
+  e-dnevnik-bot
+
+FLAGS
+  -v, --verbose                verbose/debug log level
+  -d, --daemon                 enable daemon mode (running as a service)
+  -?, --help                   display help
+  -t, --test                   send a test event (to check if messaging works)
+  -l, --colorlogs              enable colorized console logs
+  -f, --conffile STRING        configuration file (in TOML) (default: .e-dnevnik.toml)
+  -b, --database STRING        alert database file (default: .e-dnevnik.db)
+  -g, --calendartoken STRING   Google Calendar token file (default: calendar_token.json)
+  -x, --calendarcred STRING    Google Calendar credentials file (default: calendar_credentials.json)
+  -c, --cpuprofile STRING      CPU profile output file
+  -m, --memprofile STRING      memory profile output file
+  -i, --interval DURATION      interval between polls when in daemon mode (default: 1h0m0s)
+  -r, --retries UINT           number of retry attempts on error (default: 3)
 ```
 
 Typically bot will run from current working directory and attempt to load [TOML](https://github.com/toml-lang/toml) configuration from `.e-dnevnik.toml` file or the file specified with `-f` flag.
@@ -115,7 +114,9 @@ Other flags are:
 - `-r`: retries between unsuccessful attempts to scrape and/or send alerts (default 3),
 - `-t`: sends a test message to all configured messaging services,
 - `-v`: enables verbose/debug messages for more insight into bot operation and by default this is disabled,
-- `-l`: enables colorized console logging with JSON output disabled.
+- `-l`: enables colorized console logging with JSON output disabled,
+- `-g`: Google Calendar API token file path to read from and store OAuth2 token to,
+- `-x`: Google Calendar [API key credentials](https://developers.google.com/workspace/guides/create-credentials#choose_the_access_credential_that_is_right_for_you) file path.
 
 --
 
@@ -130,7 +131,9 @@ Ostali parametri su:
 - `-r`: broj pokušaja kod neuspjeha prilikom dohvata ocjena i/ili slanja poruka odnosno e-mailova,
 - `-t`: služi za slanje testne poruke na sve konfigurirane servise slanja poruka odnosno e-maila,
 - `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena,
-- `-l`: omogućuje prikaz na konzolu sa obojenim porukama i gasi JSON oblik ispisa.
+- `-l`: omogućuje prikaz na konzolu sa obojenim porukama i gasi JSON oblik ispisa,
+- `-g`: staza do Google Calendar [API tokena](https://developers.google.com/workspace/guides/auth-overview) gdje se sprema korisnički OAuth2 token,
+- `-x`: staza do Google Calendar [API identifikatora](https://developers.google.com/workspace/guides/create-credentials#choose_the_access_credential_that_is_right_for_you).
 
 ### Configuration / Konfiguracija
 
