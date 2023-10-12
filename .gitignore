@@ -8,7 +8,7 @@
 dist/
 vendor/
 e-dnevnik-bot
-contrib/random_delete_test/e-dnevnik-bot-test
+contrib/random_delete_test/random_delete_test
 .e-dnevnik.toml
 .e-dnevnik.db
 

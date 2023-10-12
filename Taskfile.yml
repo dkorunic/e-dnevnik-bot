@@ -2,6 +2,7 @@ version: "3"
 
 vars:
   TARGET: e-dnevnik-bot
+  TARGET_contrib: random_delete_test
   GIT_LAST_TAG:
     sh: git describe --abbrev=0 --tags 2>/dev/null || echo latest
   GIT_HEAD_COMMIT:
@@ -31,6 +32,12 @@ tasks:
       - go get -u
       - go mod tidy
 
+  update-contrib:
+    dir: contrib/random_delete_test
+    cmds:
+      - go get -u
+      - go mod tidy
+
   check:
     cmds:
       - gomajor list
@@ -41,11 +48,25 @@ tasks:
       - gofumpt -l -w .
       - betteralign -apply ./...
 
+  fmt-contrib:
+    dir: contrib/random_delete_test
+    cmds:
+      - gci write .
+      - gofumpt -l -w .
+      - betteralign -apply ./...
+
   build:
     cmds:
       - task: update
       - task: fmt
       - go build -trimpath -pgo=auto -ldflags="-s -w -extldflags '-static' -X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -o {{.TARGET}}
+
+  build-contrib:
+    dir: contrib/random_delete_test
+    cmds:
+      - task: update-contrib
+      - task: fmt-contrib
+      - go build -trimpath -pgo=auto -ldflags="-s -w -extldflags '-static'" -o {{.TARGET_contrib}}
 
   build-debug:
     env:
