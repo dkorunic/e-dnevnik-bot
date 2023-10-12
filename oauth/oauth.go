@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -127,7 +128,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 		tokChan <- r.URL.Query().Get("code")
 		close(tokChan)
-		_, _ = w.Write([]byte("Authentication complete, you can close this window."))
+		_, _ = io.WriteString(w, "Authentication complete, you can close this window.\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
