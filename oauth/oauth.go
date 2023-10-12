@@ -22,6 +22,7 @@
 package oauth
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ import (
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/gofrs/uuid"
+	"github.com/google/renameio/v2/maybe"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/phayes/freeport"
 	"github.com/pkg/browser"
@@ -168,54 +170,45 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	return tok, nil
 }
 
-// tokenFromFile retrieves an OAuth2 token from a file.
+// tokenFromFile reads a token from a file and returns it.
 //
-// It takes a string parameter `tokenPath` which represents the path to the token file.
-// It returns a pointer to `oauth2.Token` and an error.
+// It takes a string parameter `tokenPath` which specifies the path of the file to read the token from.
+// It returns a `*oauth2.Token` and an `error`. The `*oauth2.Token` represents the token read from the file,
+// and the `error` represents any error that occurred while reading the file or decoding the token.
 func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
-	f, err := os.Open(tokenPath)
+	b, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return nil, err
 	}
 
-	defer func() {
-		cerr := f.Close()
-		if err == nil {
-			err = cerr
-		}
-	}()
-
 	tok := &oauth2.Token{}
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	err = json.NewDecoder(f).Decode(tok)
+
+	err = json.NewDecoder(bytes.NewBuffer(b)).Decode(tok)
 
 	return tok, err
 }
 
-// saveToken saves the OAuth2 token to the specified path.
+// saveToken saves the provided OAuth token to the specified token path.
 //
-// It takes the token path as a string and the token as a pointer to oauth2.Token.
-// It returns an error if there was an issue saving the token.
-func saveToken(tokenPath string, token *oauth2.Token) (err error) {
-	var f *os.File
-
-	f, err = os.OpenFile(tokenPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrOAuthTokenSave, err)
-	}
-
-	defer func() {
-		cerr := f.Close()
-		if err == nil && cerr != nil {
-			err = fmt.Errorf("%w: %w", ErrOAuthTokenSave, cerr)
-		}
-	}()
+// Parameters:
+// - tokenPath: a string representing the path to save the token.
+// - token: a pointer to the OAuth token to be saved.
+//
+// Returns:
+// - error: an error indicating any issues encountered during the saving process.
+func saveToken(tokenPath string, token *oauth2.Token) error {
+	buf := new(bytes.Buffer)
 
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
 
-	err = json.NewEncoder(f).Encode(token)
+	err := json.NewEncoder(buf).Encode(token)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrOAuthTokenEncode, err)
+	}
+
+	if err = maybe.WriteFile(tokenPath, buf.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("%w: %w", ErrOAuthTokenSave, err)
 	}
 
 	return nil
