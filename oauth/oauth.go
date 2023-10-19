@@ -141,7 +141,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		}
 	}()
 
-	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline)
+	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	logger.Info().Msgf("Opening auth URL through system browser: %v", authCodeURL)
 
 	// oauth dialog through system browser
