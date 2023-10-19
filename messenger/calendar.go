@@ -24,7 +24,6 @@ package messenger
 import (
 	"context"
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -195,7 +194,9 @@ func getCalendarID(srv *calendar.Service, calendarName string) string {
 
 		listCal, err := calendarsCall.Do()
 		if err != nil {
-			log.Fatalf("Unable to retrieve user's calendar: %v", err)
+			logger.Error().Msgf("Unable to retrieve user's calendar: %v", err)
+
+			return ""
 		}
 
 		// Match calendar name
