@@ -46,6 +46,7 @@ const (
 	AuthTimeout    = 90 * time.Second
 	AuthListenAddr = "127.0.0.1"
 	AuthScheme     = "http://"
+	DefaultPerms   = 0o600
 )
 
 var (
@@ -208,7 +209,7 @@ func saveToken(tokenPath string, token *oauth2.Token) error {
 		return fmt.Errorf("%w: %w", ErrOAuthTokenEncode, err)
 	}
 
-	if err = maybe.WriteFile(tokenPath, buf.Bytes(), 0o600); err != nil {
+	if err = maybe.WriteFile(tokenPath, buf.Bytes(), DefaultPerms); err != nil {
 		return fmt.Errorf("%w: %w", ErrOAuthTokenSave, err)
 	}
 

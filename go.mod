@@ -27,7 +27,7 @@ require (
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/goleak v1.2.1
 	golang.org/x/oauth2 v0.13.0
-	google.golang.org/api v0.147.0
+	google.golang.org/api v0.148.0
 	gopkg.in/mail.v2 v2.3.1
 )
 
@@ -36,7 +36,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
-	github.com/cilium/ebpf v0.12.0 // indirect
+	github.com/cilium/ebpf v0.12.1 // indirect
 	github.com/containerd/cgroups/v3 v3.0.2 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect

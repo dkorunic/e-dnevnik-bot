@@ -13,3 +13,12 @@ linters:
     - exhaustruct
     - lll
     - depguard
+    - deadcode
+    - nosnakecase
+    - scopelint
+    - golint
+    - interfacer
+    - maligned
+    - varcheck
+    - structcheck
+    - ifshort
