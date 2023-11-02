@@ -224,6 +224,11 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 			case <-ctx.Done():
 				return
 			default:
+				// log all events
+				if *debugEvents {
+					logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
+				}
+
 				// check if it is an already known alert
 				found, err := eDB.CheckAndFlag(g.Username, g.Subject, g.Fields)
 				if err != nil {

@@ -41,7 +41,7 @@ const (
 )
 
 var (
-	debug, daemon, help, emulation, colorLogs                         *bool
+	debug, debugEvents, daemon, help, emulation, colorLogs            *bool
 	confFile, dbFile, cpuProfile, memProfile, calTokFile, calCredFile *string
 	tickInterval                                                      *time.Duration
 	retries                                                           *uint
@@ -52,6 +52,7 @@ func parseFlags() {
 	fs := ff.NewFlagSet("e-dnevnik-bot")
 
 	debug = fs.Bool('v', "verbose", "verbose/debug log level")
+	debugEvents = fs.Bool('0', "fulldebug", "log every scraped event (only with verbose mode)")
 	daemon = fs.Bool('d', "daemon", "enable daemon mode (running as a service)")
 	help = fs.Bool('?', "help", "display help")
 	emulation = fs.Bool('t', "test", "send a test event (to check if messaging works)")

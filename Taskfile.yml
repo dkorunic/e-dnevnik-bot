@@ -38,7 +38,7 @@ tasks:
       - go get -u
       - go mod tidy
 
-  check:
+  update-major:
     cmds:
       - gomajor list
 
