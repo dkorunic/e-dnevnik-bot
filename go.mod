@@ -27,7 +27,7 @@ require (
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/goleak v1.3.0
 	golang.org/x/oauth2 v0.14.0
-	google.golang.org/api v0.150.0
+	google.golang.org/api v0.151.0
 	gopkg.in/mail.v2 v2.3.1
 )
 
