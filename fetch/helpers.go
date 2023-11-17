@@ -36,6 +36,7 @@ import (
 var (
 	ErrUnexpectedStatus = errors.New("unexpected status code")
 	ErrCSRFToken        = errors.New("could not find CSRF token")
+	ErrNilBody          = errors.New("client body is nil")
 )
 
 // getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
@@ -58,6 +59,10 @@ func (c *Client) getCSRFToken() error {
 		default:
 			return err
 		}
+	}
+
+	if resp == nil || resp.Body == nil {
+		return fmt.Errorf("%w", ErrNilBody)
 	}
 	defer resp.Body.Close()
 
@@ -123,6 +128,10 @@ func (c *Client) doSAMLRequest() error {
 			return err
 		}
 	}
+
+	if resp == nil || resp.Body == nil {
+		return fmt.Errorf("%w", ErrNilBody)
+	}
 	defer resp.Body.Close()
 
 	// drain rest of the body
@@ -161,6 +170,10 @@ func (c *Client) getGrades() (string, error) {
 		default:
 			return "", err
 		}
+	}
+
+	if resp == nil || resp.Body == nil {
+		return "", fmt.Errorf("%w", ErrNilBody)
 	}
 	defer resp.Body.Close()
 
@@ -201,6 +214,10 @@ func (c *Client) getCalendar() (Events, error) {
 		default:
 			return Events{}, err
 		}
+	}
+
+	if resp == nil || resp.Body == nil {
+		return Events{}, fmt.Errorf("%w", ErrNilBody)
 	}
 	defer resp.Body.Close()
 
@@ -250,6 +267,10 @@ func (c *Client) getClasses() (string, error) {
 			return "", err
 		}
 	}
+
+	if resp == nil || resp.Body == nil {
+		return "", fmt.Errorf("%w", ErrNilBody)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -288,6 +309,10 @@ func (c *Client) doClassAction(classID string) error {
 		default:
 			return err
 		}
+	}
+
+	if resp == nil || resp.Body == nil {
+		return fmt.Errorf("%w", ErrNilBody)
 	}
 	defer resp.Body.Close()
 

@@ -7,7 +7,7 @@ require (
 	github.com/KimMachineGun/automemlimit v0.3.0
 	github.com/PuerkitoBio/goquery v1.8.1
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
-	github.com/avast/retry-go/v4 v4.5.0
+	github.com/avast/retry-go/v4 v4.5.1
 	github.com/bwmarrin/discordgo v0.27.1
 	github.com/corpix/uarand v0.2.0
 	github.com/dgraph-io/badger/v4 v4.2.0
@@ -54,7 +54,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
-	github.com/klauspost/compress v1.17.2 // indirect
+	github.com/klauspost/compress v1.17.3 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -62,10 +62,9 @@ require (
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/stretchr/testify v1.8.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.15.0 // indirect
-	golang.org/x/exp v0.0.0-20231108232855-2478ac86f678 // indirect
+	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/net v0.18.0 // indirect
 	golang.org/x/sys v0.14.1-0.20231108175955-e4099bfacb8c // indirect
 	golang.org/x/text v0.14.0 // indirect

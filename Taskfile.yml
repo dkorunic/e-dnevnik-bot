@@ -81,6 +81,11 @@ tasks:
       - task: fmt
       - golangci-lint run --timeout 5m
 
+  lint-nil:
+    cmds:
+      - task: fmt
+      - nilaway ./...
+
   tools:
     cmds:
       - task: gofumpt
