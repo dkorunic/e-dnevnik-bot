@@ -86,6 +86,8 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 
 			// skip non-exam events and events in the past
 			if !g.IsExam || g.Timestamp.Before(now) {
+				logger.Debug().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)
+
 				continue
 			}
 
