@@ -23,6 +23,7 @@ package fetch
 
 import (
 	"github.com/araddon/dateparse"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/jordic/goics"
 )
 
@@ -39,11 +40,15 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 		node := el.Data
 
 		if node == nil || node[EventDateStart] == nil || node[EventDescription] == nil || node[EventSummary] == nil {
+			logger.Debug().Msgf("invalid ICAL data for event: %v", el)
+
 			continue
 		}
 
 		dtstart, err := dateparse.ParseLocal(node[EventDateStart].Val)
 		if err != nil {
+			logger.Debug().Msgf("failed to parse event date %v: %v", node[EventDateStart].Val, err)
+
 			continue
 		}
 
