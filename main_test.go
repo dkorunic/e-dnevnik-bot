@@ -33,8 +33,8 @@ const (
 	defaultDrainTime = 91 * time.Second
 )
 
-func TestMain(t *testing.T) {
-	defer goleak.VerifyNone(t)
+func TestMain(m *testing.M) {
+	defer goleak.VerifyTestMain(m)
 
 	os.Args = []string{"cmd"}
 

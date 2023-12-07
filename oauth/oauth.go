@@ -43,10 +43,14 @@ import (
 )
 
 const (
-	AuthTimeout    = 90 * time.Second
-	AuthListenAddr = "127.0.0.1"
-	AuthScheme     = "http://"
-	DefaultPerms   = 0o600
+	AuthTimeout       = 90 * time.Second
+	AuthListenAddr    = "127.0.0.1"
+	AuthScheme        = "http://"
+	DefaultPerms      = 0o600
+	ReadTimeout       = 5 * time.Second
+	WriteTimeout      = 5 * time.Second
+	IdleTimeout       = 60 * time.Second
+	ReadHeaderTimeout = 10 * time.Second
 )
 
 var (
@@ -111,10 +115,10 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	config.RedirectURL = AuthScheme + authListenHost
 
 	s := http.Server{
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      5 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       ReadTimeout,
+		WriteTimeout:      WriteTimeout,
+		IdleTimeout:       IdleTimeout,
+		ReadHeaderTimeout: ReadHeaderTimeout,
 		Addr:              authListenHost,
 	}
 	defer s.Close()
