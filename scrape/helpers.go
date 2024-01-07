@@ -47,8 +47,8 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 
 	var parsedGrades int
 
-	// each subject has a div with class "table-container new-grades-table"
-	doc.Find("div.content > div.table-container.new-grades-table").
+	// each subject has a div with class "flex-table new-grades-table"
+	doc.Find("div.content > div.flex-table.new-grades-table").
 		Each(func(i int, table *goquery.Selection) {
 			// subject name is in data-action-id attribute
 			subject, subjectOK := table.Attr("data-action-id")
@@ -62,20 +62,20 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 			}
 
 			var descriptions []string
-			// row descriptions are in div with class "flex-table header" in each span
-			table.Find("div.flex-table.header > div.flex-row > span").
+			// row descriptions are in div with class "row header" in each div with class "cell" in a span
+			table.Find("div.row.header div.cell > span").
 				Each(func(j int, column *goquery.Selection) {
 					txt := strings.TrimSpace(column.Text())
 					descriptions = append(descriptions, txt)
 				})
 
-			// grades are in each div with class "flex-table row" ...
-			table.Find("div.flex-table.row").
+			// grades are in each div with class "row" (header rows excluded) ...
+			table.Find("div.row:not(.header)").
 				Each(func(j int, row *goquery.Selection) {
 					var spans []string
 
-					// ... and in each span
-					row.Find("div.flex-row > span").
+					// ... and in each div with class "cell" in a span
+					row.Find("div.cell > span").
 						Each(func(k int, column *goquery.Selection) {
 							// clean excess whitespace and newlines
 							txt := strings.TrimSpace(column.Text())
