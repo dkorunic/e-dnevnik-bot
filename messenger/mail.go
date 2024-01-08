@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	MailSendDelay = 50 * time.Millisecond
+	MailSendDelay = 300 * time.Millisecond
 	MailSubject   = "Nova ocjena iz e-Dnevnika"
 )
 

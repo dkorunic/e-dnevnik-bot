@@ -40,8 +40,8 @@ import (
 )
 
 const (
-	CalendarSendDelay  = 200 * time.Millisecond // recommended delay between Calendar API calls
-	CalendarMaxResults = 200
+	CalendarSendDelay  = 300 * time.Millisecond // recommended delay between Calendar API calls
+	CalendarMaxResults = 100
 )
 
 var (

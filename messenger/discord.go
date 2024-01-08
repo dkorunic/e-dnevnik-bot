@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	DiscordSendDelay = 50 * time.Millisecond // recommended delay between messages
+	DiscordSendDelay = 150 * time.Millisecond // recommended delay between messages
 
 )
 

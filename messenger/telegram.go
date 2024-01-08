@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	telegramSendDelay = 50 * time.Millisecond
+	telegramSendDelay = 150 * time.Millisecond
 )
 
 var (
