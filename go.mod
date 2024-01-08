@@ -8,12 +8,14 @@ require (
 	github.com/PuerkitoBio/goquery v1.8.1
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.5.1
+	github.com/blang/semver/v4 v4.0.0
 	github.com/bwmarrin/discordgo v0.27.1
 	github.com/corpix/uarand v0.2.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/gofrs/uuid v4.4.0+incompatible
+	github.com/google/go-github/v57 v57.0.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
 	github.com/json-iterator/go v1.1.12
@@ -52,6 +54,7 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers/go v0.0.0-20230110200425-62e4d2e5b215 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/google/uuid v1.5.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect

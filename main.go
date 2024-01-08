@@ -236,7 +236,10 @@ func main() {
 			gradesScraped := make(chan msgtypes.Message, chanBufLen)
 			gradesMsg := make(chan msgtypes.Message, chanBufLen)
 
-			var wgScrape, wgFilter, wgMsg sync.WaitGroup
+			var wgVersion, wgScrape, wgFilter, wgMsg sync.WaitGroup
+
+			// self-check
+			versionCheck(ctx, &wgVersion)
 
 			// subjects/grades/exams scraper routines
 			scrapers(ctx, &wgScrape, gradesScraped, config)
@@ -252,6 +255,7 @@ func main() {
 
 			wgFilter.Wait()
 			wgMsg.Wait()
+			wgVersion.Wait()
 
 			if !*daemon {
 				fatalIfErrors()

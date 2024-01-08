@@ -44,6 +44,7 @@ tasks:
 
   fmt:
     cmds:
+      - go mod tidy
       - gci write .
       - gofumpt -l -w .
       - betteralign -apply ./...

@@ -28,18 +28,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blang/semver/v4"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/scrape"
 	"github.com/dustin/go-broadcast"
+	"github.com/google/go-github/v57/github"
 	"github.com/tj/go-spin"
 )
 
 const (
 	broadcastBufLen    = 10                     // events to broadcast for sending at once
 	spinnerRotateDelay = 100 * time.Millisecond // spinner delay
+	githubOrg          = "dkorunic"
+	githubRepo         = "e-dnevnik-bot"
 )
 
 var (
@@ -255,4 +259,62 @@ func spinner() {
 		fmt.Printf("\rWaiting... %v", s.Next())
 		time.Sleep(spinnerRotateDelay)
 	}
+}
+
+func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
+	wgVersion.Add(1)
+
+	go func() {
+		defer wgVersion.Done()
+
+		if GitTag == "" {
+			return
+		}
+
+		var currentTag, latestTag semver.Version
+
+		var err error
+
+		// semver-parse current version
+		if GitTag[0] == 'v' {
+			currentTag, err = semver.Parse(GitTag[1:])
+		} else {
+			currentTag, err = semver.Parse(GitTag)
+		}
+
+		if err != nil {
+			logger.Error().Msgf("Unable to parse current version of e-dnevnik-bot: %v", err)
+
+			return
+		}
+
+		client := github.NewClient(nil)
+
+		// get latest release from GitHub
+		latestRelease, _, err := client.Repositories.GetLatestRelease(ctx, githubOrg, githubRepo)
+		if err != nil {
+			logger.Error().Msgf("Unable to check latest version of e-dnevnik-bot: %v", err)
+
+			return
+		}
+
+		// semver-parse latest version
+		tagName := *latestRelease.TagName
+		if tagName[0] == 'v' {
+			latestTag, err = semver.Parse(tagName[1:])
+		} else {
+			latestTag, err = semver.Parse(tagName)
+		}
+
+		if err != nil {
+			logger.Error().Msgf("Unable to parse latest version of e-dnevnik-bot: %v", err)
+
+			return
+		}
+
+		// alert there is a newer version
+		if latestTag.Compare(currentTag) == 1 {
+			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v", latestTag)
+		}
+	}()
 }
