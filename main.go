@@ -39,6 +39,8 @@ import (
 	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	sysdnotify "github.com/iguanesolutions/go-systemd/v5/notify"
+	sysdwatchdog "github.com/iguanesolutions/go-systemd/v5/notify/watchdog"
 	"github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
 	"go.uber.org/automaxprocs/maxprocs"
@@ -52,6 +54,8 @@ const (
 	testDescription = "Testni opis"
 	testField       = "Testna vrijednost"
 	envGOMEMLIMIT   = "GOMEMLIMIT"
+	scheduledActive = "Scheduled run in progress"
+	scheduledSleep  = "Scheduled run completed, will sleep now"
 )
 
 var (
@@ -137,6 +141,10 @@ func main() {
 
 	if v, ok := os.LookupEnv(envGOMEMLIMIT); ok {
 		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", v)
+	}
+
+	if sysdnotify.IsEnabled() {
+		logger.Debug().Msg("Detected and enabled systemd notify support")
 	}
 
 	// context with signal integration
@@ -234,12 +242,36 @@ func main() {
 		logger.Info().Msg("Service is not enabled, doing just a single run")
 	}
 
+	_ = sysdnotify.Ready()
+
+	// systemd watchdog
+	watchdog, _ := sysdwatchdog.New()
+	if watchdog != nil {
+		logger.Debug().Msg("Detected and enabled systemd watchdog support")
+
+		go func() {
+			ticker := watchdog.NewTicker()
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					_ = watchdog.SendHeartbeat()
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
 	for {
 		select {
 		// in case of context cancellation, try to propagate and exit
 		case <-ctx.Done():
 			logger.Info().Msg("Received stop signal, asking all routines to stop")
 			ticker.Stop()
+
+			_ = sysdnotify.Stopping()
 
 			go stop()
 
@@ -252,8 +284,10 @@ func main() {
 
 			return
 		case <-ticker.C:
-			logger.Info().Msg("Scheduled run in progress")
+			logger.Info().Msg(scheduledActive)
 			ticker.Reset(*tickInterval)
+
+			_ = sysdnotify.Status(scheduledActive)
 
 			// reset exit error status
 			exitWithError.Store(false)
@@ -288,7 +322,9 @@ func main() {
 				return
 			}
 
-			logger.Info().Msg("Scheduled run completed, will sleep now")
+			logger.Info().Msg(scheduledSleep)
+
+			_ = sysdnotify.Status(scheduledSleep)
 		}
 	}
 }

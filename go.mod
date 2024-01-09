@@ -17,6 +17,7 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-github/v57 v57.0.0
 	github.com/google/renameio/v2 v2.0.0
+	github.com/iguanesolutions/go-systemd/v5 v5.1.1
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
 	github.com/json-iterator/go v1.1.12
 	github.com/mattn/go-isatty v0.0.20

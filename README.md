@@ -260,6 +260,8 @@ Description=e-Dnevnik daemon
 After=network-online.target
 
 [Service]
+Type=notify
+WatchdogSec=30s
 WorkingDirectory=/home/ubuntu/e-dnevnik
 ExecStart=/home/ubuntu/e-dnevnik/e-dnevnik-bot --daemon --verbose
 
@@ -279,6 +281,8 @@ systemctl daemon-reload
 systemctl enable --now e-dnevnik
 systemctl status e-dnevnik
 ```
+
+Note that e-dnevnik-bot supports Systemd [sd_notify](https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html), `Type=notify` and `WatchdogSec=` features from version **0.13.0** onwards, prior versions are only compatible with `Type=simple`.
 
 ### Running as a Docker container
 
