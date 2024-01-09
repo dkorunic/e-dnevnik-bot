@@ -36,12 +36,12 @@ const (
 	DefaultConfFile            = ".e-dnevnik.toml"           // default configuration filename
 	DefaultCalendarToken       = "calendar_token.json"       // default Google Calendar token file
 	DefaultCalendarCredentials = "calendar_credentials.json" // default Google Calendar credentials file
-	DefaultTickInterval        = time.Hour                   // default (and minimal permitted value) is 1 tick per 1h
+	DefaultTickInterval        = 1 * time.Hour               // default (and minimal permitted value) is 1 tick per 1h
 	DefaultRetries             = 3                           // default retry attempts
 )
 
 var (
-	debug, debugEvents, daemon, help, emulation, colorLogs            *bool
+	debug, debugEvents, daemon, help, emulation, colorLogs, version   *bool
 	confFile, dbFile, cpuProfile, memProfile, calTokFile, calCredFile *string
 	tickInterval                                                      *time.Duration
 	retries                                                           *uint
@@ -57,6 +57,7 @@ func parseFlags() {
 	help = fs.Bool('?', "help", "display help")
 	emulation = fs.Bool('t', "test", "send a test event (to check if messaging works)")
 	colorLogs = fs.Bool('l', "colorlogs", "enable colorized console logs")
+	version = fs.BoolLong("version", "display program version")
 
 	confFile = fs.String('f', "conffile", DefaultConfFile, "configuration file (in TOML)")
 	dbFile = fs.String('b', "database", db.DefaultDBPath, "alert database file")
@@ -84,8 +85,14 @@ func parseFlags() {
 		os.Exit(0)
 	}
 
-	if *tickInterval < time.Hour {
-		logger.Info().Msg("Poll interval is below 1h, so I will default to 1h")
+	if *version {
+		fmt.Printf("e-dnevnik-bot %v %v%v, built on: %v\n", GitTag, GitCommit, GitDirty, BuildTime)
+
+		os.Exit(0)
+	}
+
+	if *tickInterval < DefaultTickInterval {
+		logger.Info().Msgf("Poll interval is below %v, so I will default to %v", DefaultTickInterval, DefaultTickInterval)
 
 		*tickInterval = time.Hour
 	}

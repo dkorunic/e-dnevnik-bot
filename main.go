@@ -30,6 +30,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -62,6 +63,24 @@ var (
 	BuildTime     = ""
 )
 
+// init initializes the GitTag, GitCommit, GitDirty, and BuildTime variables.
+//
+// It trims leading and trailing white spaces from the values of GitTag, GitCommit,
+// GitDirty, and BuildTime.
+//
+//nolint:gochecknoinits
+func init() {
+	GitTag = strings.TrimSpace(GitTag)
+	GitCommit = strings.TrimSpace(GitCommit)
+	GitDirty = strings.TrimSpace(GitDirty)
+	BuildTime = strings.TrimSpace(BuildTime)
+}
+
+// fatalIfErrors is a Go function that checks if any errors were encountered during runtime.
+//
+// It checks the value of the exitWithError variable and if it is true, it logs a warning message
+// and exits the program with an exit code of 1. If the exitWithError variable is false, it logs
+// an info message and exits the program with an exit code of 0 (success).
 func fatalIfErrors() {
 	if exitWithError.Load() {
 		logger.Warn().Msg("Exiting, during run some errors were encountered.")
@@ -71,6 +90,12 @@ func fatalIfErrors() {
 	logger.Info().Msg("Exiting with a success.")
 }
 
+// main is the entry point of the application.
+//
+// It parses flags, sets the global log level, enables slow colored console logging,
+// configures GOMAXPROCS, sets up a context with signal integration, loads the TOML config,
+// checks Google Calendar setup, enables CPU profiling dump on exit, enables memory profile dump on exit,
+// enters test mode if enabled, starts the service if in daemon mode, and runs scheduled tasks.
 func main() {
 	parseFlags()
 

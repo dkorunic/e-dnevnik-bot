@@ -267,7 +267,8 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	go func() {
 		defer wgVersion.Done()
 
-		if GitTag == "" {
+		// if we don't have a tag or if it is a local source-build, we don't need to check for updates
+		if GitTag == "" || GitDirty != "" {
 			return
 		}
 
@@ -312,7 +313,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		// alert there is a newer version
+		// alert if there is a newer version
 		if latestTag.Compare(currentTag) == 1 {
 			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v", latestTag)
 		}
