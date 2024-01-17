@@ -173,6 +173,7 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 					var c fetch.Class
 					var idOK bool
 
+					// class ID
 					c.ID, idOK = column.Attr("data-action-id")
 					if !idOK {
 						return
@@ -191,7 +192,7 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 						})
 
 					// class school
-					column.Find("div.school-name").
+					column.Find("div.school > div > span.school-name").
 						Each(func(k int, span *goquery.Selection) {
 							c.School = strings.TrimSpace(span.Text())
 						})
