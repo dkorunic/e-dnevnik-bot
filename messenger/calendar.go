@@ -180,7 +180,7 @@ func initCalendar(ctx context.Context, credFile string, tokFile string, name str
 
 	calID := getCalendarID(srv, name)
 	if calID == "" {
-		logger.Error().Msgf("Unable to find Google Calendar ID for calendar %s", name)
+		logger.Error().Msgf("Unable to find Google Calendar ID for calendar: %v", name)
 
 		return nil, "", ErrCalendarNotFound
 	}

@@ -26,7 +26,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -34,18 +33,20 @@ import (
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 	"github.com/google/renameio/v2/maybe"
 	jsoniter "github.com/json-iterator/go"
-	"github.com/phayes/freeport"
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
 )
 
 const (
-	AuthTimeout       = 90 * time.Second
-	AuthListenAddr    = "127.0.0.1"
+	AuthTimeout       = 300 * time.Second
+	AuthListenAddr    = "localhost"
+	AuthListenPort    = 9080
 	AuthScheme        = "http://"
+	CallBackURL       = "/callback"
 	DefaultPerms      = 0o600
 	ReadTimeout       = 5 * time.Second
 	WriteTimeout      = 5 * time.Second
@@ -54,32 +55,58 @@ const (
 )
 
 var (
-	ErrOAuthUUID        = errors.New("unable to generate UUID")
-	ErrOAuthFreePort    = errors.New("unable to get a free port")
-	ErrOAuthHTTPServer  = errors.New("unable to start HTTP server")
-	ErrOAuthBrowser     = errors.New("unable to open system browser")
-	ErrOAuthTimeout     = errors.New("timeout while waiting for authentication to finish")
-	ErrOAuthTokenFetch  = errors.New("unable to retrieve token from Google API")
-	ErrOAuthTokenSave   = errors.New("unable to save token to file")
-	ErrOAuthTokenEncode = errors.New("unable to encode OAuth token to JSON")
+	ErrOAuthUUID            = errors.New("unable to generate UUID")
+	ErrOAuthHTTPServer      = errors.New("unable to start HTTP server")
+	ErrOAuthBrowser         = errors.New("unable to open system browser")
+	ErrOAuthTimeout         = errors.New("timeout while waiting for authentication to finish")
+	ErrOAuthTokenFetch      = errors.New("unable to retrieve token from Google API")
+	ErrOAuthTokenSave       = errors.New("unable to save token to file")
+	ErrOAuthTokenEncode     = errors.New("unable to encode OAuth token to JSON")
+	ErrInvalidCallbackState = errors.New("invalid OAuth callback state")
 )
 
-// GetClient retrieves an HTTP client with OAuth2 authentication.
+// GetClient retrieves an HTTP client with the given context, OAuth2 configuration, and token path.
 //
-// It takes the following parameters:
-// - ctx: the context.Context to use for the HTTP client.
-// - config: the *oauth2.Config object containing the OAuth2 configuration.
-// - tokenPath: the path to the token file.
+// The function takes in the following parameters:
+// - ctx: the context.Context for the HTTP client.
+// - config: the *oauth2.Config for OAuth2 configuration.
+// - tokenPath: the string representing the path to the token file.
 //
-// It returns a *http.Client and an error.
+// The function returns the following:
+// - *http.Client: the HTTP client.
+// - error: an error if any occurred during the execution of the function.
 func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*http.Client, error) {
 	tok, err := tokenFromFile(tokenPath)
-	if err != nil {
+	saveToFile := false
+
+	if err == nil {
+		// we have a token, but it has expired so attempt to refresh it
+		if tok.Expiry.Before(time.Now()) {
+			src := config.TokenSource(ctx, tok)
+
+			// refresh token
+			newTok, err := src.Token()
+			if err != nil {
+				return nil, err
+			}
+
+			// token has been refreshed, and we will try to save it
+			if newTok.AccessToken != tok.AccessToken {
+				saveToFile = true
+				tok = newTok
+			}
+		}
+	} else {
+		// we don't have a token, so we will obtain interactively
 		tok, err = getTokenFromWeb(ctx, config)
 		if err != nil {
 			return nil, err
 		}
 
+		saveToFile = true
+	}
+
+	if saveToFile {
 		if err = saveToken(tokenPath, tok); err != nil {
 			return nil, err
 		}
@@ -102,17 +129,16 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	tokChan := make(chan string, 1)
 
-	// get a free random port
-	authListenPort, err := freeport.GetFreePort()
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrOAuthFreePort, err)
-	}
-
 	// redirect uri listener for auth callback
-	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(authListenPort))
+	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
+	authURL := AuthScheme + authListenHost
 
-	// oauth config auth redirect uri
-	config.RedirectURL = AuthScheme + authListenHost
+	// oauth config auth callback uri
+	config.RedirectURL = authURL + CallBackURL
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.LoadHTMLGlob("templates/*")
 
 	s := http.Server{
 		ReadTimeout:       ReadTimeout,
@@ -120,37 +146,45 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		IdleTimeout:       IdleTimeout,
 		ReadHeaderTimeout: ReadHeaderTimeout,
 		Addr:              authListenHost,
+		Handler:           r,
 	}
 	defer s.Close()
 
-	// oauth callback handler
-	s.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if actualState := r.URL.Query().Get("state"); actualState != authReqState.String() {
-			http.Error(w, "Invalid authentication state", http.StatusUnauthorized)
+	// callback handler
+	r.GET(CallBackURL, func(c *gin.Context) {
+		if receivedState := c.Query("state"); receivedState != authReqState.String() {
+			c.AbortWithError(http.StatusBadRequest, ErrInvalidCallbackState)
 
 			return
 		}
 
-		tokChan <- r.URL.Query().Get("code")
+		tokChan <- c.Query("code")
 		close(tokChan)
-		_, _ = io.WriteString(w, "Authentication complete, you can close this window.\n")
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
+
+		c.String(http.StatusOK, "Authentication complete, you can close this window.")
 	})
 
-	// oauth callback server
+	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+
+	// root handler
+	r.GET("/", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "index.html", gin.H{
+			"authURL": authCodeURL,
+		})
+	})
+
 	go func() {
+		logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
+
 		if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal().Msgf("%v: %v", ErrOAuthHTTPServer, err)
 		}
 	}()
 
-	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
-	logger.Info().Msgf("Opening auth URL through system browser: %v", authCodeURL)
+	logger.Info().Msgf("Opening local Web server through system browser: %v", authURL)
 
 	// oauth dialog through system browser
-	if err := browser.OpenURL(authCodeURL); err != nil {
+	if err := browser.OpenURL(authURL); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOAuthBrowser, err)
 	}
 
