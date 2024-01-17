@@ -33,11 +33,12 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"go.uber.org/ratelimit"
 )
 
 const (
-	DiscordSendDelay = 150 * time.Millisecond // recommended delay between messages
-
+	DiscordAPILimit = 50 // 50 API req/s per user/IP
+	DiscordMinDelay = 1 * time.Second / DiscordAPILimit
 )
 
 var (
@@ -82,6 +83,8 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 
 	logger.Debug().Msg("Sending a message through Discord")
 
+	rl := ratelimit.New(DiscordAPILimit)
+
 	// process all messages
 	for o := range ch {
 		select {
@@ -115,6 +118,10 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 
 			// send to all recipients
 			for _, u := range userIDs {
+				u := u
+
+				rl.Take()
+
 				// create a new user/private channel if needed
 				c, err := dg.UserChannelCreate(u)
 				if err != nil {
@@ -132,14 +139,13 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 					},
 					retry.Attempts(retries),
 					retry.Context(ctx),
+					retry.Delay(DiscordMinDelay),
 				)
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
 					break
 				}
-
-				time.Sleep(DiscordSendDelay)
 			}
 		}
 	}

@@ -32,10 +32,12 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/slack-go/slack"
+	"go.uber.org/ratelimit"
 )
 
 const (
-	slackSendDelay = 1000 * time.Millisecond
+	SlackAPILImit = 1 // typically 1 req/s per user
+	SlackMinDelay = 1 * time.Second / SlackAPILImit
 )
 
 var (
@@ -66,6 +68,8 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 
 	logger.Debug().Msg("Sending message through Slack")
 
+	rl := ratelimit.New(SlackAPILImit)
+
 	var err error
 
 	// process all messages
@@ -88,6 +92,8 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 			for _, u := range chatIDs {
 				u := u
 
+				rl.Take()
+
 				// retryable and cancellable attempt to send a message
 				err = retry.Do(
 					func() error {
@@ -100,14 +106,13 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 					},
 					retry.Attempts(retries),
 					retry.Context(ctx),
+					retry.Delay(SlackMinDelay),
 				)
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
 					break
 				}
-
-				time.Sleep(slackSendDelay)
 			}
 		}
 	}

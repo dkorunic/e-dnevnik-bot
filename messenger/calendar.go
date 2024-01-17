@@ -33,6 +33,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/oauth"
+	"go.uber.org/ratelimit"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
@@ -40,7 +41,8 @@ import (
 )
 
 const (
-	CalendarSendDelay  = 300 * time.Millisecond // recommended delay between Calendar API calls
+	CalendarAPILimit   = 5 // 5 req/s per user
+	CalendarMinDelay   = 1 * time.Second / CalendarAPILimit
 	CalendarMaxResults = 100
 )
 
@@ -70,6 +72,7 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 	logger.Debug().Msg("Creating exams with Google Calendar API")
 
 	now := time.Now()
+	rl := ratelimit.New(CalendarAPILimit)
 
 	// process all messages
 	for o := range ch {
@@ -108,6 +111,8 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 				Description: g.Fields[len(g.Fields)-1],
 			}
 
+			rl.Take()
+
 			// retryable and cancellable attempt
 			err = retry.Do(
 				func() error {
@@ -117,12 +122,11 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 				},
 				retry.Attempts(retries),
 				retry.Context(ctx),
+				retry.Delay(CalendarMinDelay),
 			)
 			if err != nil {
 				logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 			}
-
-			time.Sleep(CalendarSendDelay)
 		}
 	}
 

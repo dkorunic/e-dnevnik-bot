@@ -33,10 +33,12 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"go.uber.org/ratelimit"
 )
 
 const (
-	telegramSendDelay = 150 * time.Millisecond
+	TelegramAPILimit = 30 // 30 API req/s per user
+	TelegramMinDelay = 1 * time.Second / TelegramAPILimit
 )
 
 var (
@@ -75,6 +77,8 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 
 	logger.Debug().Msg("Sending message through Telegram")
 
+	rl := ratelimit.New(TelegramAPILimit)
+
 	// process all messages
 	for o := range ch {
 		select {
@@ -93,6 +97,8 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 
 			// send to all recipients
 			for _, u := range chatIDs {
+				u := u
+
 				uu, err := strconv.ParseInt(u, 10, 64)
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrTelegramInvalidChatID, err)
@@ -108,6 +114,8 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 					ParseMode: tgbotapi.ModeHTML,
 				}
 
+				rl.Take()
+
 				// retryable and cancellable attempt to send a message
 				err = retry.Do(
 					func() error {
@@ -117,14 +125,13 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 					},
 					retry.Attempts(retries),
 					retry.Context(ctx),
+					retry.Delay(TelegramMinDelay),
 				)
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
 					break
 				}
-
-				time.Sleep(telegramSendDelay)
 			}
 		}
 	}

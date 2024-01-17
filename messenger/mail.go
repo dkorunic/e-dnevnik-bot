@@ -31,11 +31,13 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"go.uber.org/ratelimit"
 	"gopkg.in/mail.v2"
 )
 
 const (
-	MailSendDelay = 300 * time.Millisecond
+	MailSendLimit = 50 // 50 emails per second
+	MailMinDelay  = 1 * time.Second / MailSendLimit
 	MailSubject   = "Nova ocjena iz e-Dnevnika"
 )
 
@@ -69,6 +71,8 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 		portInt = 465
 	}
 
+	rl := ratelimit.New(MailSendLimit)
+
 	// process all messages
 	for o := range ch {
 		select {
@@ -92,6 +96,8 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 
 			// send to all recipients
 			for _, u := range to {
+				u := u
+
 				m := mail.NewMessage()
 				m.SetHeader("From", from)
 				m.SetHeader("To", u)
@@ -105,6 +111,8 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 				m.SetBody("text/plain", plainContent)
 				m.AddAlternative("text/html", htmlContent)
 
+				rl.Take()
+
 				// retryable and cancellable attempt to send a message
 				err = retry.Do(
 					func() error {
@@ -112,14 +120,13 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 					},
 					retry.Attempts(retries),
 					retry.Context(ctx),
+					retry.Delay(MailMinDelay),
 				)
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrMailSendingMessage, err)
 
 					break
 				}
-
-				time.Sleep(MailSendDelay)
 			}
 		}
 	}
