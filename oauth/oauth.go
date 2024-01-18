@@ -172,8 +172,8 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	r.GET(CallBackURL, func(c *gin.Context) {
 		if receivedState := c.Query("state"); receivedState != authReqState.String() {
 			c.HTML(http.StatusBadRequest, "failure.html", gin.H{"error": ErrInvalidCallbackState})
-
 			close(tokChan)
+
 			return
 		}
 
@@ -190,6 +190,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 			if err != nil {
 				return http.FS(nil)
 			}
+
 			return http.FS(sub)
 		}())
 	})

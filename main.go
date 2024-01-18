@@ -325,6 +325,10 @@ func main() {
 // - config: a pointer to the tomlConfig struct containing the configuration settings.
 // - ctx: the context object for cancellation and timeout.
 func checkCalendar(ctx context.Context, config *tomlConfig) {
+	if config == nil {
+		return
+	}
+
 	if _, err := os.Stat(*calCredFile); errors.Is(err, fs.ErrNotExist) {
 		logger.Error().Msgf("Google Calendar API credentials file not found. Disabling calendar integration.")
 
