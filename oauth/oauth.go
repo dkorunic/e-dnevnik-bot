@@ -159,7 +159,16 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	}
 	defer s.Close()
 
-	// callback handler
+	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+
+	// root handler: /
+	r.GET("/", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "index.html", gin.H{
+			"authURL": authCodeURL,
+		})
+	})
+
+	// callback handler: /callback
 	r.GET(CallBackURL, func(c *gin.Context) {
 		if receivedState := c.Query("state"); receivedState != authReqState.String() {
 			c.HTML(http.StatusBadRequest, "failure.html", gin.H{"error": ErrInvalidCallbackState})
@@ -174,16 +183,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		c.HTML(http.StatusOK, "success.html", gin.H{})
 	})
 
-	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
-
-	// root handler
-	r.GET("/", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index.html", gin.H{
-			"authURL": authCodeURL,
-		})
-	})
-
-	// favicon handler
+	// favicon handler: /favicon.ico
 	r.GET("/favicon.ico", func(c *gin.Context) {
 		c.FileFromFS(".", func() http.FileSystem {
 			sub, err := fs.Sub(contentFS, "templates/favicon.ico")
