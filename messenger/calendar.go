@@ -64,7 +64,7 @@ var (
 //
 // It returns an error indicating any issues encountered during the execution of the function.
 func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFile string, retries uint) error {
-	srv, calID, err := initCalendar(ctx, credFile, tokFile, name)
+	srv, calID, err := InitCalendar(ctx, credFile, tokFile, name)
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 	return err
 }
 
-// initCalendar initializes a Google Calendar service and retrieves the calendar ID.
+// InitCalendar initializes a Google Calendar service and retrieves the calendar ID.
 //
 // ctx: The context.Context for the function.
 // credFile: The path to the credentials file.
@@ -143,7 +143,7 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 // - *calendar.Service: A pointer to the calendar.Service.
 // - string: The calendar ID.
 // - error: Any error that occurred during initialization.
-func initCalendar(ctx context.Context, credFile string, tokFile string, name string) (*calendar.Service, string, error) {
+func InitCalendar(ctx context.Context, credFile string, tokFile string, name string) (*calendar.Service, string, error) {
 	b, err := os.ReadFile(credFile)
 	if err != nil {
 		logger.Error().Msgf("Unable to read credentials file %s: %v", credFile, err)

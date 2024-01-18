@@ -38,6 +38,7 @@ import (
 
 	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v5/notify"
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v5/notify/watchdog"
@@ -157,22 +158,6 @@ func main() {
 		logger.Fatal().Msgf("Error loading configuration: %v", err)
 	}
 
-	// check Google Calendar setup
-	if config.calendarEnabled {
-		if _, err := os.Stat(*calCredFile); errors.Is(err, fs.ErrNotExist) {
-			logger.Error().Msgf("Google Calendar API credentials file not found. Disabling calendar integration.")
-
-			config.calendarEnabled = false
-		} else if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
-			fd := os.Stdout.Fd()
-			if os.Getenv("TERM") == "dumb" || (!isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd)) {
-				logger.Error().Msgf("Google Calendar token file not found and first run requires running under a terminal. Disabling calendar integration.")
-
-				config.calendarEnabled = false
-			}
-		}
-	}
-
 	// enable CPU profiling dump on exit
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
@@ -202,6 +187,11 @@ func main() {
 				logger.Fatal().Msgf("Error writing memory profile: %v", err)
 			}
 		}()
+	}
+
+	// Google Calendar API initial setup
+	if config.calendarEnabled {
+		checkCalendar(ctx, &config)
 	}
 
 	// test mode: send messages and exit
@@ -325,6 +315,35 @@ func main() {
 			logger.Info().Msg(scheduledSleep)
 
 			_ = sysdnotify.Status(scheduledSleep)
+		}
+	}
+}
+
+// checkCalendar checks the calendar configuration and enables or disables the calendar integration based on the existence of the Google Calendar API credentials file and token file.
+//
+// Parameters:
+// - config: a pointer to the tomlConfig struct containing the configuration settings.
+// - ctx: the context object for cancellation and timeout.
+func checkCalendar(ctx context.Context, config *tomlConfig) {
+	if _, err := os.Stat(*calCredFile); errors.Is(err, fs.ErrNotExist) {
+		logger.Error().Msgf("Google Calendar API credentials file not found. Disabling calendar integration.")
+
+		config.calendarEnabled = false
+	} else if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
+		// check if we are running under a terminal
+		fd := os.Stdout.Fd()
+		if os.Getenv("TERM") == "dumb" || (!isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd)) {
+			logger.Error().Msgf("Google Calendar API token file not found and first run requires running under a terminal. Disabling calendar integration.")
+
+			config.calendarEnabled = false
+		} else {
+			// early Google Calendar API initialization and token refresh
+			_, _, err := messenger.InitCalendar(ctx, *calCredFile, *calTokFile, config.Calendar.Name)
+			if err != nil {
+				logger.Error().Msgf("Error initializing Google Calendar API: %v. Disabling calendar integration.", err)
+
+				config.calendarEnabled = false
+			}
 		}
 	}
 }

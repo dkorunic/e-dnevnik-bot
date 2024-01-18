@@ -24,8 +24,11 @@ package oauth
 import (
 	"bytes"
 	"context"
+	"embed"
 	"errors"
 	"fmt"
+	"html/template"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -64,6 +67,9 @@ var (
 	ErrOAuthTokenEncode     = errors.New("unable to encode OAuth token to JSON")
 	ErrInvalidCallbackState = errors.New("invalid OAuth callback state")
 )
+
+//go:embed templates/*html templates/*ico
+var contentFS embed.FS
 
 // GetClient retrieves an HTTP client with the given context, OAuth2 configuration, and token path.
 //
@@ -136,10 +142,13 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	// oauth config auth callback uri
 	config.RedirectURL = authURL + CallBackURL
 
+	// gin router setup
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.LoadHTMLGlob("templates/*")
+	t := template.Must(template.ParseFS(contentFS, "templates/*html"))
+	r.SetHTMLTemplate(t)
 
+	// HTTP server setup
 	s := http.Server{
 		ReadTimeout:       ReadTimeout,
 		WriteTimeout:      WriteTimeout,
@@ -153,15 +162,16 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	// callback handler
 	r.GET(CallBackURL, func(c *gin.Context) {
 		if receivedState := c.Query("state"); receivedState != authReqState.String() {
-			c.AbortWithError(http.StatusBadRequest, ErrInvalidCallbackState)
+			c.HTML(http.StatusBadRequest, "failure.html", gin.H{"error": ErrInvalidCallbackState})
 
+			close(tokChan)
 			return
 		}
 
 		tokChan <- c.Query("code")
 		close(tokChan)
 
-		c.String(http.StatusOK, "Authentication complete, you can close this window.")
+		c.HTML(http.StatusOK, "success.html", gin.H{})
 	})
 
 	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
@@ -171,6 +181,17 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		c.HTML(http.StatusOK, "index.html", gin.H{
 			"authURL": authCodeURL,
 		})
+	})
+
+	// favicon handler
+	r.GET("/favicon.ico", func(c *gin.Context) {
+		c.FileFromFS(".", func() http.FileSystem {
+			sub, err := fs.Sub(contentFS, "templates/favicon.ico")
+			if err != nil {
+				return http.FS(nil)
+			}
+			return http.FS(sub)
+		}())
 	})
 
 	go func() {
@@ -200,6 +221,11 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		break
 	case <-ticker.C:
 		return nil, ErrOAuthTimeout
+	}
+
+	// short-circuit on callback error (empty state)
+	if authCode == "" {
+		return nil, ErrInvalidCallbackState
 	}
 
 	tok, err := config.Exchange(ctx, authCode)

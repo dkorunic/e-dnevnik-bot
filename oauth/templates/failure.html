@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Google Account Sign In</title>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="//fonts.googleapis.com/css?family=Open+Sans"
+    />
+    <link rel='shortcut icon' type='image/x-icon' href='/favicon.ico' />
+    <style>
+      .container {
+        font-size: 14px;
+        font-weight: 500;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue",
+        sans-serif;
+      }
+
+      .login-with-google-btn {
+        transition:
+          background-color 0.3s,
+          box-shadow 0.3s;
+
+        padding: 12px 16px 12px 42px;
+        border: none;
+        border-radius: 3px;
+        box-shadow:
+          0 -1px 0 rgba(0, 0, 0, 0.04),
+          0 1px 1px rgba(0, 0, 0, 0.25);
+
+        color: #757575;
+        font-size: 14px;
+        font-weight: 500;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue",
+          sans-serif;
+
+        background-image: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPCEtLSBHZW5lcmF0b3I6IEFkb2JlIElsbHVzdHJhdG9yIDIzLjAuMSwgU1ZHIEV4cG9ydCBQbHVnLUluIC4gU1ZHIFZlcnNpb246IDYuMDAgQnVpbGQgMCkgIC0tPgo8c3ZnIHZlcnNpb249IjEuMSIgaWQ9IkxpdmVsbG9fMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgeD0iMHB4IiB5PSIwcHgiCgkgdmlld0JveD0iMCAwIDIwMCAyMDAiIGVuYWJsZS1iYWNrZ3JvdW5kPSJuZXcgMCAwIDIwMCAyMDAiIHhtbDpzcGFjZT0icHJlc2VydmUiPgo8Zz4KCTxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDMuNzUgMy43NSkiPgoJCTxwYXRoIGZpbGw9IiNGRkZGRkYiIGQ9Ik0xNDguODgyLDQzLjYxOGwtNDcuMzY4LTUuMjYzbC01Ny44OTUsNS4yNjNMMzguMzU1LDk2LjI1bDUuMjYzLDUyLjYzMmw1Mi42MzIsNi41NzlsNTIuNjMyLTYuNTc5CgkJCWw1LjI2My01My45NDdMMTQ4Ljg4Miw0My42MTh6Ii8+CgkJPHBhdGggZmlsbD0iIzFBNzNFOCIgZD0iTTY1LjIxMSwxMjUuMjc2Yy0zLjkzNC0yLjY1OC02LjY1OC02LjUzOS04LjE0NS0xMS42NzFsOS4xMzItMy43NjNjMC44MjksMy4xNTgsMi4yNzYsNS42MDUsNC4zNDIsNy4zNDIKCQkJYzIuMDUzLDEuNzM3LDQuNTUzLDIuNTkyLDcuNDc0LDIuNTkyYzIuOTg3LDAsNS41NTMtMC45MDgsNy42OTctMi43MjRzMy4yMjQtNC4xMzIsMy4yMjQtNi45MzRjMC0yLjg2OC0xLjEzMi01LjIxMS0zLjM5NS03LjAyNgoJCQlzLTUuMTA1LTIuNzI0LTguNS0yLjcyNGgtNS4yNzZ2LTkuMDM5SDc2LjVjMi45MjEsMCw1LjM4Mi0wLjc4OSw3LjM4Mi0yLjM2OGMyLTEuNTc5LDMtMy43MzcsMy02LjQ4NwoJCQljMC0yLjQ0Ny0wLjg5NS00LjM5NS0yLjY4NC01Ljg1NXMtNC4wNTMtMi4xOTctNi44MDMtMi4xOTdjLTIuNjg0LDAtNC44MTYsMC43MTEtNi4zOTUsMi4xNDVzLTIuNzI0LDMuMTk3LTMuNDQ3LDUuMjc2CgkJCWwtOS4wMzktMy43NjNjMS4xOTctMy4zOTUsMy4zOTUtNi4zOTUsNi42MTgtOC45ODdjMy4yMjQtMi41OTIsNy4zNDItMy44OTUsMTIuMzQyLTMuODk1YzMuNjk3LDAsNy4wMjYsMC43MTEsOS45NzQsMi4xNDUKCQkJYzIuOTQ3LDEuNDM0LDUuMjYzLDMuNDIxLDYuOTM0LDUuOTQ3YzEuNjcxLDIuNTM5LDIuNSw1LjM4MiwyLjUsOC41MzljMCwzLjIyNC0wLjc3Niw1Ljk0Ny0yLjMyOSw4LjE4NAoJCQljLTEuNTUzLDIuMjM3LTMuNDYxLDMuOTQ3LTUuNzI0LDUuMTQ1djAuNTM5YzIuOTg3LDEuMjUsNS40MjEsMy4xNTgsNy4zNDIsNS43MjRjMS45MDgsMi41NjYsMi44NjgsNS42MzIsMi44NjgsOS4yMTEKCQkJcy0wLjkwOCw2Ljc3Ni0yLjcyNCw5LjU3OWMtMS44MTYsMi44MDMtNC4zMjksNS4wMTMtNy41MTMsNi42MThjLTMuMTk3LDEuNjA1LTYuNzg5LDIuNDIxLTEwLjc3NiwyLjQyMQoJCQlDNzMuNDA4LDEyOS4yNjMsNjkuMTQ1LDEyNy45MzQsNjUuMjExLDEyNS4yNzZ6Ii8+CgkJPHBhdGggZmlsbD0iIzFBNzNFOCIgZD0iTTEyMS4yNSw3OS45NjFsLTkuOTc0LDcuMjVsLTUuMDEzLTcuNjA1bDE3Ljk4Ny0xMi45NzRoNi44OTV2NjEuMTk3aC05Ljg5NUwxMjEuMjUsNzkuOTYxeiIvPgoJCTxwYXRoIGZpbGw9IiNFQTQzMzUiIGQ9Ik0xNDguODgyLDE5Ni4yNWw0Ny4zNjgtNDcuMzY4bC0yMy42ODQtMTAuNTI2bC0yMy42ODQsMTAuNTI2bC0xMC41MjYsMjMuNjg0TDE0OC44ODIsMTk2LjI1eiIvPgoJCTxwYXRoIGZpbGw9IiMzNEE4NTMiIGQ9Ik0zMy4wOTIsMTcyLjU2NmwxMC41MjYsMjMuNjg0aDEwNS4yNjN2LTQ3LjM2OEg0My42MThMMzMuMDkyLDE3Mi41NjZ6Ii8+CgkJPHBhdGggZmlsbD0iIzQyODVGNCIgZD0iTTEyLjAzOS0zLjc1QzMuMzE2LTMuNzUtMy43NSwzLjMxNi0zLjc1LDEyLjAzOXYxMzYuODQybDIzLjY4NCwxMC41MjZsMjMuNjg0LTEwLjUyNlY0My42MThoMTA1LjI2MwoJCQlsMTAuNTI2LTIzLjY4NEwxNDguODgyLTMuNzVIMTIuMDM5eiIvPgoJCTxwYXRoIGZpbGw9IiMxODgwMzgiIGQ9Ik0tMy43NSwxNDguODgydjMxLjU3OWMwLDguNzI0LDcuMDY2LDE1Ljc4OSwxNS43ODksMTUuNzg5aDMxLjU3OXYtNDcuMzY4SC0zLjc1eiIvPgoJCTxwYXRoIGZpbGw9IiNGQkJDMDQiIGQ9Ik0xNDguODgyLDQzLjYxOHYxMDUuMjYzaDQ3LjM2OFY0My42MThsLTIzLjY4NC0xMC41MjZMMTQ4Ljg4Miw0My42MTh6Ii8+CgkJPHBhdGggZmlsbD0iIzE5NjdEMiIgZD0iTTE5Ni4yNSw0My42MThWMTIuMDM5YzAtOC43MjQtNy4wNjYtMTUuNzg5LTE1Ljc4OS0xNS43ODloLTMxLjU3OXY0Ny4zNjhIMTk2LjI1eiIvPgoJPC9nPgo8L2c+Cjwvc3ZnPgo=);
+        background-color: white;
+        background-repeat: no-repeat;
+        background-position: 5px 5px;
+        background-size: 30px 30px;
+
+        &:hover {
+          box-shadow:
+            0 -1px 0 rgba(0, 0, 0, 0.04),
+            0 2px 4px rgba(0, 0, 0, 0.25);
+        }
+
+        &:active {
+          background-color: #eeeeee;
+        }
+
+        &:focus {
+          outline: none;
+          box-shadow:
+            0 -1px 0 rgba(0, 0, 0, 0.04),
+            0 2px 4px rgba(0, 0, 0, 0.25),
+            0 0 0 3px #c8dafc;
+        }
+
+        &:disabled {
+          filter: grayscale(100%);
+          background-color: #ebebeb;
+          box-shadow:
+            0 -1px 0 rgba(0, 0, 0, 0.04),
+            0 1px 1px rgba(0, 0, 0, 0.25);
+          cursor: not-allowed;
+        }
+      }
+
+      body {
+        text-align: center;
+        padding-top: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2 style="text-align:center">Login to Google Account</h2>
+
+      </br>
+      <p>
+        Authentication failed with {{ .error }}, please try again.
+      </p>
+      </br>
+
+      <button type="button" class="login-with-google-btn" disabled>
+        Connect Google Calendar
+      </button>
+    </div>
+  </body>
+</html>
