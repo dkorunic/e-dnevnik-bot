@@ -329,11 +329,7 @@ func checkCalendar(ctx context.Context, config *tomlConfig) {
 		return
 	}
 
-	if _, err := os.Stat(*calCredFile); errors.Is(err, fs.ErrNotExist) {
-		logger.Error().Msgf("Google Calendar API credentials file not found. Disabling calendar integration.")
-
-		config.calendarEnabled = false
-	} else if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
 		// check if we are running under a terminal
 		fd := os.Stdout.Fd()
 		if os.Getenv("TERM") == "dumb" || (!isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd)) {
@@ -342,7 +338,7 @@ func checkCalendar(ctx context.Context, config *tomlConfig) {
 			config.calendarEnabled = false
 		} else {
 			// early Google Calendar API initialization and token refresh
-			_, _, err := messenger.InitCalendar(ctx, *calCredFile, *calTokFile, config.Calendar.Name)
+			_, _, err := messenger.InitCalendar(ctx, *calTokFile, config.Calendar.Name)
 			if err != nil {
 				logger.Error().Msgf("Error initializing Google Calendar API: %v. Disabling calendar integration.", err)
 

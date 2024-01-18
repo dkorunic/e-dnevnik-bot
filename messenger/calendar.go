@@ -23,9 +23,9 @@ package messenger
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -41,9 +41,11 @@ import (
 )
 
 const (
-	CalendarAPILimit   = 5 // 5 req/s per user
-	CalendarMinDelay   = 1 * time.Second / CalendarAPILimit
-	CalendarMaxResults = 100
+	CalendarAPILimit           = 5 // 5 req/s per user
+	CalendarMinDelay           = 1 * time.Second / CalendarAPILimit
+	CalendarMaxResults         = 100
+	DefaultCalendarCredentials = "calendar_credentials.json" // default Google Calendar credentials file
+
 )
 
 var (
@@ -52,6 +54,9 @@ var (
 	ErrCalendarNotFound     = errors.New("unable to find Google Calendar ID")
 )
 
+//go:embed assets/calendar_credentials.json
+var credentialFS embed.FS
+
 // Calendar is a function that processes messages from a channel and creates events in Google Calendar.
 //
 // It takes the following parameters:
@@ -59,12 +64,11 @@ var (
 // - ch: a channel for receiving messages
 // - name: the name of the calendar
 // - tokFile: the path to the token file
-// - credFile: the path to the credential file
 // - retries: the number of retry attempts for inserting a Google Calendar event
 //
 // It returns an error indicating any issues encountered during the execution of the function.
-func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFile string, retries uint) error {
-	srv, calID, err := InitCalendar(ctx, credFile, tokFile, name)
+func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile string, retries uint) error {
+	srv, calID, err := InitCalendar(ctx, tokFile, name)
 	if err != nil {
 		return err
 	}
@@ -136,17 +140,16 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile, credFil
 // InitCalendar initializes a Google Calendar service and retrieves the calendar ID.
 //
 // ctx: The context.Context for the function.
-// credFile: The path to the credentials file.
 // tokFile: The path to the token file.
 // name: The name of the calendar.
 // returns:
 // - *calendar.Service: A pointer to the calendar.Service.
 // - string: The calendar ID.
 // - error: Any error that occurred during initialization.
-func InitCalendar(ctx context.Context, credFile string, tokFile string, name string) (*calendar.Service, string, error) {
-	b, err := os.ReadFile(credFile)
+func InitCalendar(ctx context.Context, tokFile string, name string) (*calendar.Service, string, error) {
+	b, err := credentialFS.ReadFile(DefaultCalendarCredentials)
 	if err != nil {
-		logger.Error().Msgf("Unable to read credentials file %s: %v", credFile, err)
+		logger.Error().Msgf("Unable to read credentials file %s: %v", DefaultCalendarCredentials, err)
 
 		return nil, "", ErrCalendarReadingCreds
 	}
@@ -155,7 +158,7 @@ func InitCalendar(ctx context.Context, credFile string, tokFile string, name str
 
 	config, err = google.ConfigFromJSON(b, calendar.CalendarReadonlyScope, calendar.CalendarEventsScope)
 	if err != nil {
-		logger.Error().Msgf("Unable to parse credentials file %s: %v", credFile, err)
+		logger.Error().Msgf("Unable to parse credentials file %s: %v", DefaultCalendarCredentials, err)
 
 		return nil, "", ErrCalendarParsingCreds
 	}

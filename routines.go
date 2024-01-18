@@ -185,7 +185,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 				defer wgMsg.Done()
 				logger.Debug().Msgf("Calendar messenger started")
 
-				if err := messenger.Calendar(ctx, ch, config.Calendar.Name, *calTokFile, *calCredFile, *retries); err != nil {
+				if err := messenger.Calendar(ctx, ch, config.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
 					exitWithError.Store(true)
 				}

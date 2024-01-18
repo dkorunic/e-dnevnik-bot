@@ -33,18 +33,17 @@ import (
 )
 
 const (
-	DefaultConfFile            = ".e-dnevnik.toml"           // default configuration filename
-	DefaultCalendarToken       = "calendar_token.json"       // default Google Calendar token file
-	DefaultCalendarCredentials = "calendar_credentials.json" // default Google Calendar credentials file
-	DefaultTickInterval        = 1 * time.Hour               // default (and minimal permitted value) is 1 tick per 1h
-	DefaultRetries             = 3                           // default retry attempts
+	DefaultConfFile      = ".e-dnevnik.toml"     // default configuration filename
+	DefaultCalendarToken = "calendar_token.json" // default Google Calendar token file
+	DefaultTickInterval  = 1 * time.Hour         // default (and minimal permitted value) is 1 tick per 1h
+	DefaultRetries       = 3                     // default retry attempts
 )
 
 var (
-	debug, debugEvents, daemon, help, emulation, colorLogs, version   *bool
-	confFile, dbFile, cpuProfile, memProfile, calTokFile, calCredFile *string
-	tickInterval                                                      *time.Duration
-	retries                                                           *uint
+	debug, debugEvents, daemon, help, emulation, colorLogs, version *bool
+	confFile, dbFile, cpuProfile, memProfile, calTokFile            *string
+	tickInterval                                                    *time.Duration
+	retries                                                         *uint
 )
 
 // parseFlags parses the command line flags and sets the corresponding variables.
@@ -62,7 +61,6 @@ func parseFlags() {
 	confFile = fs.String('f', "conffile", DefaultConfFile, "configuration file (in TOML)")
 	dbFile = fs.String('b', "database", db.DefaultDBPath, "alert database file")
 	calTokFile = fs.String('g', "calendartoken", DefaultCalendarToken, "Google Calendar token file")
-	calCredFile = fs.String('x', "calendarcred", DefaultCalendarCredentials, "Google Calendar credentials file")
 	cpuProfile = fs.String('c', "cpuprofile", "", "CPU profile output file")
 	memProfile = fs.String('m', "memprofile", "", "memory profile output file")
 

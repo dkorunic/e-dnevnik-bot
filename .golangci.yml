@@ -22,4 +22,3 @@ linters:
     - varcheck
     - structcheck
     - ifshort
-    - nestif
