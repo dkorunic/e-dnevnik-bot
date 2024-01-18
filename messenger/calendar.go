@@ -41,10 +41,10 @@ import (
 )
 
 const (
-	CalendarAPILimit           = 5 // 5 req/s per user
-	CalendarMinDelay           = 1 * time.Second / CalendarAPILimit
-	CalendarMaxResults         = 100
-	DefaultCalendarCredentials = "calendar_credentials.json" // default Google Calendar credentials file
+	CalendarAPILimit    = 5 // 5 req/s per user
+	CalendarMinDelay    = 1 * time.Second / CalendarAPILimit
+	CalendarMaxResults  = 100
+	CalendarCredentials = "assets/calendar_credentials.json" // embedded Google Calendar credentials file
 
 )
 
@@ -147,9 +147,9 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile string, 
 // - string: The calendar ID.
 // - error: Any error that occurred during initialization.
 func InitCalendar(ctx context.Context, tokFile string, name string) (*calendar.Service, string, error) {
-	b, err := credentialFS.ReadFile(DefaultCalendarCredentials)
+	b, err := credentialFS.ReadFile(CalendarCredentials)
 	if err != nil {
-		logger.Error().Msgf("Unable to read credentials file %s: %v", DefaultCalendarCredentials, err)
+		logger.Error().Msgf("Unable to read credentials file %s: %v", CalendarCredentials, err)
 
 		return nil, "", ErrCalendarReadingCreds
 	}
@@ -158,7 +158,7 @@ func InitCalendar(ctx context.Context, tokFile string, name string) (*calendar.S
 
 	config, err = google.ConfigFromJSON(b, calendar.CalendarReadonlyScope, calendar.CalendarEventsScope)
 	if err != nil {
-		logger.Error().Msgf("Unable to parse credentials file %s: %v", DefaultCalendarCredentials, err)
+		logger.Error().Msgf("Unable to parse credentials file %s: %v", CalendarCredentials, err)
 
 		return nil, "", ErrCalendarParsingCreds
 	}
