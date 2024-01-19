@@ -145,6 +145,10 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	// gin router setup
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(LoggingMiddleware())
+
+	// setup template engine
 	t := template.Must(template.ParseFS(contentFS, "templates/*html"))
 	r.SetHTMLTemplate(t)
 
@@ -279,4 +283,21 @@ func saveToken(tokenPath string, token *oauth2.Token) error {
 	}
 
 	return nil
+}
+
+// LoggingMiddleware is a middleware function that logs HTTP server requests.
+//
+// It takes a gin.Context as a parameter and logs the method, URI, status, client IP, and duration of the request.
+// It does not return any values.
+func LoggingMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		startTime := time.Now()
+
+		c.Next()
+
+		reqDuration := time.Since(startTime)
+
+		logger.Debug().Msgf("OAuth HTTP server request: method: %v, uri: %v, status: %v, client ip: %v, duration: %v",
+			c.Request.Method, c.Request.URL, c.Writer.Status(), c.ClientIP(), reqDuration)
+	}
 }
