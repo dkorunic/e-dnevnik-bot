@@ -111,7 +111,7 @@ func main() {
 	} else {
 		if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
 			if l, err := strconv.Atoi(v); err != nil {
-				logLevel = zerolog.Level(l)
+				logLevel = zerolog.Level(int8(l))
 			}
 		}
 	}
