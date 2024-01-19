@@ -68,7 +68,7 @@ var (
 	ErrInvalidCallbackState = errors.New("invalid OAuth callback state")
 )
 
-//go:embed templates/*html templates/*ico
+//go:embed templates/*html assets/*ico
 var contentFS embed.FS
 
 // GetClient retrieves an HTTP client with the given context, OAuth2 configuration, and token path.
@@ -186,7 +186,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	// favicon handler: /favicon.ico
 	r.GET("/favicon.ico", func(c *gin.Context) {
 		c.FileFromFS(".", func() http.FileSystem {
-			sub, err := fs.Sub(contentFS, "templates/favicon.ico")
+			sub, err := fs.Sub(contentFS, "assets/favicon.ico")
 			if err != nil {
 				return http.FS(nil)
 			}
