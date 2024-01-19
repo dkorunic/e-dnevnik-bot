@@ -167,6 +167,10 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	// root handler: /
 	r.GET("/", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
+
 		c.HTML(http.StatusOK, "index.html", gin.H{
 			"authURL": authCodeURL,
 		})
@@ -174,6 +178,10 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	// callback handler: /callback
 	r.GET(CallBackURL, func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
+
 		if receivedState := c.Query("state"); receivedState != authReqState.String() {
 			c.HTML(http.StatusBadRequest, "failure.html", gin.H{"error": ErrInvalidCallbackState})
 			close(tokChan)
