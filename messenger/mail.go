@@ -93,7 +93,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 
 			// establish dialer
 			d := mail.NewDialer(server, portInt, username, password)
-			d.StartTLSPolicy = mail.MandatoryStartTLS
+			d.StartTLSPolicy = mail.OpportunisticStartTLS
 
 			// send to all recipients
 			for _, u := range to {
