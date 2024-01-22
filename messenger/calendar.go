@@ -42,7 +42,8 @@ import (
 
 const (
 	CalendarAPILimit    = 5 // 5 req/s per user
-	CalendarMinDelay    = 1 * time.Second / CalendarAPILimit
+	CalendarWindow      = 1 * time.Second
+	CalendarMinDelay    = CalendarWindow / CalendarAPILimit
 	CalendarMaxResults  = 100
 	CalendarCredentials = "assets/calendar_credentials.json" // embedded Google Calendar credentials file
 
@@ -76,7 +77,7 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile string, 
 	logger.Debug().Msg("Creating exams with Google Calendar API")
 
 	now := time.Now()
-	rl := ratelimit.New(CalendarAPILimit)
+	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
 	// process all messages
 	for o := range ch {

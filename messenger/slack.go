@@ -37,7 +37,8 @@ import (
 
 const (
 	SlackAPILImit = 1 // typically 1 req/s per user
-	SlackMinDelay = 1 * time.Second / SlackAPILImit
+	SlackWindow   = 1 * time.Second
+	SlackMinDelay = SlackWindow / SlackAPILImit
 )
 
 var (
@@ -68,7 +69,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 
 	logger.Debug().Msg("Sending message through Slack")
 
-	rl := ratelimit.New(SlackAPILImit)
+	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
 
 	var err error
 

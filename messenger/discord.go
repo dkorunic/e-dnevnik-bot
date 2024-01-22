@@ -38,7 +38,8 @@ import (
 
 const (
 	DiscordAPILimit = 50 // 50 API req/s per user/IP
-	DiscordMinDelay = 1 * time.Second / DiscordAPILimit
+	DiscordWindow   = 1 * time.Second
+	DiscordMinDelay = DiscordWindow / DiscordAPILimit
 )
 
 var (
@@ -83,7 +84,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 
 	logger.Debug().Msg("Sending a message through Discord")
 
-	rl := ratelimit.New(DiscordAPILimit)
+	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
 	// process all messages
 	for o := range ch {

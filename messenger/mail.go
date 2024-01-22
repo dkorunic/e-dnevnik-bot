@@ -27,17 +27,18 @@ import (
 	"strconv"
 	"time"
 
+	mail "github.com/Shopify/gomail"
 	"github.com/avast/retry-go/v4"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"go.uber.org/ratelimit"
-	"gopkg.in/mail.v2"
 )
 
 const (
-	MailSendLimit = 50 // 50 emails per second
-	MailMinDelay  = 1 * time.Second / MailSendLimit
+	MailSendLimit = 20 // 20 emails per 1 hour
+	MailWindow    = 1 * time.Hour
+	MailMinDelay  = MailWindow / MailSendLimit
 	MailSubject   = "Nova ocjena iz e-Dnevnika"
 )
 
@@ -71,7 +72,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 		portInt = 465
 	}
 
-	rl := ratelimit.New(MailSendLimit)
+	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
 	// process all messages
 	for o := range ch {

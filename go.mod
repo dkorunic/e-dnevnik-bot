@@ -4,8 +4,9 @@ go 1.21.6
 
 require (
 	github.com/BurntSushi/toml v1.3.2
-	github.com/KimMachineGun/automemlimit v0.4.0
+	github.com/KimMachineGun/automemlimit v0.5.0
 	github.com/PuerkitoBio/goquery v1.8.1
+	github.com/Shopify/gomail v0.0.0-20220729171026-0784ece65e69
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.5.1
 	github.com/blang/semver/v4 v4.0.0
@@ -32,7 +33,6 @@ require (
 	go.uber.org/ratelimit v0.3.0
 	golang.org/x/oauth2 v0.16.0
 	google.golang.org/api v0.157.0
-	gopkg.in/mail.v2 v2.3.1
 )
 
 require (
@@ -79,6 +79,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/opencontainers/runtime-spec v1.1.0 // indirect
+	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect

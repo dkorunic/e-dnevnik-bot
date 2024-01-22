@@ -38,7 +38,8 @@ import (
 
 const (
 	TelegramAPILimit = 30 // 30 API req/s per user
-	TelegramMinDelay = 1 * time.Second / TelegramAPILimit
+	TelegramWindow   = 1 * time.Second
+	TelegramMinDelay = TelegramWindow / TelegramAPILimit
 )
 
 var (
@@ -77,7 +78,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 
 	logger.Debug().Msg("Sending message through Telegram")
 
-	rl := ratelimit.New(TelegramAPILimit)
+	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
 	// process all messages
 	for o := range ch {
