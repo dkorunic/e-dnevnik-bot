@@ -44,7 +44,7 @@ const (
 
 var (
 	ErrMailSendingMessage = errors.New("error sending mail message")
-	ErrMailInvalidPort    = errors.New("invalid or missing SMTP port, will try with default 465/tcp")
+	ErrMailInvalidPort    = errors.New("invalid or missing SMTP port, will try with default 587/tcp")
 )
 
 // Mail sends a message through the mail service.
@@ -69,7 +69,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 	if err != nil {
 		logger.Warn().Msgf("%v: %v", ErrMailInvalidPort, port)
 
-		portInt = 465
+		portInt = 587
 	}
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
