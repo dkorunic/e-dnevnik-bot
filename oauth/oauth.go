@@ -37,8 +37,8 @@ import (
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/gofrs/uuid"
 	"github.com/google/renameio/v2/maybe"
+	"github.com/google/uuid"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"

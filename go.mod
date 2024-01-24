@@ -16,9 +16,9 @@ require (
 	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-github/v58 v58.0.0
 	github.com/google/renameio/v2 v2.0.0
+	github.com/google/uuid v1.6.0
 	github.com/iguanesolutions/go-systemd/v5 v5.1.1
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
 	github.com/json-iterator/go v1.1.12
@@ -68,7 +68,6 @@ require (
 	github.com/google/flatbuffers/go v0.0.0-20230110200425-62e4d2e5b215 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
-	github.com/google/uuid v1.5.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
@@ -98,7 +97,7 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240123012728-ef4313101c80 // indirect
-	google.golang.org/grpc v1.60.1 // indirect
+	google.golang.org/grpc v1.61.0 // indirect
 	google.golang.org/protobuf v1.32.0 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
