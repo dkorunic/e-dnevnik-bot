@@ -36,10 +36,11 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/KimMachineGun/automemlimit"
+	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dustin/go-humanize"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v5/notify"
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v5/notify/watchdog"
 	"github.com/mattn/go-isatty"
@@ -54,7 +55,7 @@ const (
 	testSubject     = "Ovo je testni predmet"
 	testDescription = "Testni opis"
 	testField       = "Testna vrijednost"
-	envGOMEMLIMIT   = "GOMEMLIMIT"
+	maxMemRatio     = 0.9
 	scheduledActive = "Scheduled run in progress"
 	scheduledSleep  = "Scheduled run completed, will sleep now"
 )
@@ -130,7 +131,24 @@ func main() {
 
 	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on: %v", GitTag, GitCommit, GitDirty, BuildTime)
 
-	// auto-configure GOMAXPROCS
+	// configure GOMEMLIMIT to 90% of available memory (Cgroups v2/v1 or system)
+	limit, err := memlimit.SetGoMemLimitWithOpts(
+		memlimit.WithRatio(maxMemRatio),
+		memlimit.WithProvider(
+			memlimit.ApplyFallback(
+				memlimit.FromCgroup,
+				memlimit.FromSystem,
+			),
+		),
+	)
+
+	if err != nil {
+		logger.Warn().Msgf("Unable to get/set GOMEMLIMIT: %v", err)
+	} else {
+		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", humanize.Bytes(uint64(limit)))
+	}
+
+	// configure GOMAXPROCS
 	undo, err := maxprocs.Set()
 	defer undo()
 
@@ -139,10 +157,6 @@ func main() {
 	}
 
 	logger.Debug().Msgf("GOMAXPROCS limit is set to: %v", runtime.GOMAXPROCS(0))
-
-	if v, ok := os.LookupEnv(envGOMEMLIMIT); ok {
-		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", v)
-	}
 
 	if sysdnotify.IsEnabled() {
 		logger.Debug().Msg("Detected and enabled systemd notify support")
