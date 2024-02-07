@@ -97,8 +97,6 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 
 			// send to all recipients
 			for _, u := range to {
-				u := u
-
 				m := mail.NewMessage()
 				m.SetHeader("From", from)
 				m.SetHeader("To", u)

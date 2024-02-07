@@ -63,8 +63,6 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 	for _, i := range config.User {
 		wgScrape.Add(1)
 
-		i := i
-
 		go func() {
 			defer wgScrape.Done()
 

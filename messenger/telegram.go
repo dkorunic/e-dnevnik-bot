@@ -98,8 +98,6 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 
 			// send to all recipients
 			for _, u := range chatIDs {
-				u := u
-
 				uu, err := strconv.ParseInt(u, 10, 64)
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrTelegramInvalidChatID, err)

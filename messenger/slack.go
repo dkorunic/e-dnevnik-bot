@@ -91,8 +91,6 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 
 			// send to all recipients: channels and nicknames are permitted
 			for _, u := range chatIDs {
-				u := u
-
 				rl.Take()
 
 				// retryable and cancellable attempt to send a message

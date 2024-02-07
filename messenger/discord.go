@@ -119,8 +119,6 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 
 			// send to all recipients
 			for _, u := range userIDs {
-				u := u
-
 				rl.Take()
 
 				// create a new user/private channel if needed

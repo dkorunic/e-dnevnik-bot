@@ -80,7 +80,6 @@ func main() {
 		err = db.Update(func(txn *badger.Txn) error {
 			return txn.Delete(randKey)
 		})
-
 		if err != nil {
 			log.Fatalf("Unable to delete key: %v", err)
 		}
