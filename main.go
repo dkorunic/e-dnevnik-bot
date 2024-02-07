@@ -129,7 +129,7 @@ func main() {
 			Logger()
 	}
 
-	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on: %v with Go runtime %v", GitTag, GitCommit, GitDirty,
+	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on %v, with %v", GitTag, GitCommit, GitDirty,
 		BuildTime, runtime.Version())
 
 	// configure GOMEMLIMIT to 90% of available memory (Cgroups v2/v1 or system)
