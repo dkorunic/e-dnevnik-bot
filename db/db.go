@@ -102,6 +102,7 @@ func (db *Edb) CheckAndFlag(bucket, subBucket string, target []string) (bool, er
 	// check if key exists
 	err := db.db.View(func(txn *badger.Txn) error {
 		_, err := txn.Get(key)
+
 		switch {
 		// key not found (found=false)
 		case errors.Is(err, badger.ErrKeyNotFound):

@@ -83,6 +83,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 								txt = strings.ReplaceAll(txt, "\n", " ")
 								txt = strings.Join(strings.Fields(txt), " ")
 							}
+
 							spans = append(spans, txt)
 						})
 
@@ -93,6 +94,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 						Descriptions: descriptions,
 						Fields:       spans,
 					}
+
 					parsedGrades++
 				})
 		})
@@ -171,6 +173,7 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 			row.Find("div.class-menu-vertical:not(div.past-schoolyear) > div.class-info").
 				Each(func(j int, column *goquery.Selection) {
 					var c fetch.Class
+
 					var idOK bool
 
 					// class ID
