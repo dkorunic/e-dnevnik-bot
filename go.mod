@@ -36,9 +36,6 @@ require (
 	go.uber.org/ratelimit v0.3.0
 	golang.org/x/oauth2 v0.17.0
 	google.golang.org/api v0.162.0
-)
-
-require (
 	cloud.google.com/go/compute v1.23.4 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
