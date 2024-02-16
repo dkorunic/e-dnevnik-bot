@@ -67,7 +67,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 	// new full Slack client
 	api := slack.New(token)
 
-	logger.Debug().Msg("Sending message through Slack")
+	logger.Debug().Msg("Started Slack messenger")
 
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
 

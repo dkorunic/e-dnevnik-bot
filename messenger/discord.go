@@ -82,7 +82,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 	}
 	defer dg.Close()
 
-	logger.Debug().Msg("Sending a message through Discord")
+	logger.Debug().Msg("Started Discord messenger")
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 

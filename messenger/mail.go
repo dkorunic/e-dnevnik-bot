@@ -63,7 +63,7 @@ var (
 //
 // The function returns an error.
 func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, password, from, subject string, to []string, retries uint) error {
-	logger.Debug().Msg("Sending message through mail service")
+	logger.Debug().Msg("Started e-mail messenger")
 
 	portInt, err := strconv.Atoi(port)
 	if err != nil {

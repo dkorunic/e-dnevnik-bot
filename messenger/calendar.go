@@ -74,7 +74,7 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile string, 
 		return err
 	}
 
-	logger.Debug().Msg("Creating exams with Google Calendar API")
+	logger.Debug().Msg("Started Google Calendar API messenger")
 
 	now := time.Now()
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))

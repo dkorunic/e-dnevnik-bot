@@ -76,7 +76,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 		return err
 	}
 
-	logger.Debug().Msg("Sending message through Telegram")
+	logger.Debug().Msg("Started Telegram messenger")
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
