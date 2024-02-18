@@ -29,7 +29,7 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-alpha.4
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.32.0
-	github.com/slack-go/slack v0.12.3
+	github.com/slack-go/slack v0.12.4
 	github.com/tj/go-spin v1.1.0
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/goleak v1.3.0
