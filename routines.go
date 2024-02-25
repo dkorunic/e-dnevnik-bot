@@ -25,7 +25,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"sync"
 	"time"
 
@@ -55,8 +54,7 @@ var (
 	ErrMail         = errors.New("Mail messenger issue")     //nolint:stylecheck
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:stylecheck
 
-	reHRDateOnly     = regexp.MustCompile(`^\d{1,2}\.\d{1,2}\.\d{4}\.`)
-	formatHRDateOnly = "2.1.2006."
+	formatHRDateOnly = "2.1."
 )
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
@@ -225,6 +223,9 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")
 		}
 
+		// cache current time for later
+		now := time.Now()
+
 		for g := range gradesScraped {
 			select {
 			case <-ctx.Done():
@@ -243,15 +244,20 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 
 				// check if is the initial run and send only if not
 				if !found && eDB.Existing() {
-					// check if it is an old even that should be ignored
-					if *relevancePeriod > 0 && !g.IsExam && len(g.Fields) > 1 {
-						m := reHRDateOnly.FindString(g.Fields[1])
+					// check if it is an old event that should be ignored
+					if *relevancePeriod > 0 && !g.IsExam && len(g.Fields) > 0 {
+						t, err := time.Parse(formatHRDateOnly, g.Fields[0])
+						if err != nil {
+							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
+						} else {
+							// assume current or previous year
+							if t.Month() > now.Month() {
+								t = t.AddDate(now.Year()-1, 0, 0)
+							} else {
+								t = t.AddDate(now.Year(), 0, 0)
+							}
 
-						if m != "" {
-							t, err := time.Parse(formatHRDateOnly, m)
-							if err != nil {
-								logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
-							} else if time.Since(t) > *relevancePeriod {
+							if time.Since(t) > *relevancePeriod {
 								logger.Warn().Msgf("Ignoring changes in an old event: %v/%v: %+v", g.Username, g.Subject, g)
 
 								continue

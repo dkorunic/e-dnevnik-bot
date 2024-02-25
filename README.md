@@ -101,6 +101,7 @@ FLAGS
   -c, --cpuprofile STRING      CPU profile output file
   -m, --memprofile STRING      memory profile output file
   -i, --interval DURATION      interval between polls when in daemon mode (default: 1h0m0s)
+  -p, --relevance DURATION     maximum relevance period for events (0 = unlimited) (default: 0s)
   -r, --retries UINT           number of retry attempts on error (default: 3)
 ```
 
@@ -117,6 +118,7 @@ Other flags are:
 - `-v`: enables verbose/debug messages for more insight into bot operation and by default this is disabled,
 - `-l`: enables colorized console logging with JSON output disabled,
 - `-g`: Google Calendar API token file path to read from and store OAuth2 token to,
+- `-p`: maximum relevance period of events (non-exams) to avoid sending alerts on events being changed retroactively,
 - `--version`: display version of the program.
 
 Bot se koristi iz tekućeg direktorija u kojem se nalazi i izvršna datoteka i pokušati će učitati datoteku `.e-dnevnik.toml` koja je u [TOML](https://github.com/toml-lang/toml) sintaksi, odnosno učitati će datoteku specificiranu kroz `-f` parametar.
@@ -132,6 +134,7 @@ Ostali parametri su:
 - `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena,
 - `-l`: omogućuje prikaz na konzolu sa obojenim porukama i gasi JSON oblik ispisa,
 - `-g`: staza do Google Calendar [API tokena](https://developers.google.com/workspace/guides/auth-overview) gdje se sprema korisnički OAuth2 token,
+- `-p`: maksimalna vrijednost trajanja tijekom kojeg se šalju obavijesti za prošle događaje koje nastavnici retroaktivno editiraju,
 - `--version`: ispis verzije programa.
 
 ### Configuration / Konfiguracija
