@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -53,6 +54,9 @@ var (
 	ErrSlack        = errors.New("Slack messenger issue")    //nolint:stylecheck
 	ErrMail         = errors.New("Mail messenger issue")     //nolint:stylecheck
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:stylecheck
+
+	reHRDateOnly     = regexp.MustCompile(`^\d{1,2}\.\d{1,2}\.\d{4}\.`)
+	formatHRDateOnly = "2.1.2006."
 )
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
@@ -239,6 +243,22 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 
 				// check if is the initial run and send only if not
 				if !found && eDB.Existing() {
+					// check if it is an old even that should be ignored
+					if *relevancePeriod > 0 && !g.IsExam && len(g.Fields) > 1 {
+						m := reHRDateOnly.FindString(g.Fields[1])
+
+						if m != "" {
+							t, err := time.Parse(formatHRDateOnly, m)
+							if err != nil {
+								logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
+							} else if time.Since(t) > *relevancePeriod {
+								logger.Warn().Msgf("Ignoring changes in an old event: %v/%v: %+v", g.Username, g.Subject, g)
+
+								continue
+							}
+						}
+					}
+
 					logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
 					gradesMsg <- g
 				}

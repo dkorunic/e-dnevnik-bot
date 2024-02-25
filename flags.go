@@ -42,7 +42,7 @@ const (
 var (
 	debug, debugEvents, daemon, help, emulation, colorLogs, version *bool
 	confFile, dbFile, cpuProfile, memProfile, calTokFile            *string
-	tickInterval                                                    *time.Duration
+	tickInterval, relevancePeriod                                   *time.Duration
 	retries                                                         *uint
 )
 
@@ -65,6 +65,7 @@ func parseFlags() {
 	memProfile = fs.String('m', "memprofile", "", "memory profile output file")
 
 	tickInterval = fs.Duration('i', "interval", DefaultTickInterval, "interval between polls when in daemon mode")
+	relevancePeriod = fs.Duration('p', "relevance", 0, "maximum relevance period for events (0 = unlimited)")
 
 	retries = fs.Uint('r', "retries", DefaultRetries, "number of retry attempts on error")
 
