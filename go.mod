@@ -19,7 +19,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/google/go-github/v59 v59.0.0
+	github.com/google/go-github/v60 v60.0.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
 	github.com/iguanesolutions/go-systemd/v5 v5.1.1
@@ -59,7 +59,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.18.0 // indirect
+	github.com/go-playground/validator/v10 v10.19.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect

@@ -37,6 +37,7 @@ var (
 	ErrUnexpectedStatus = errors.New("unexpected status code")
 	ErrCSRFToken        = errors.New("could not find CSRF token")
 	ErrNilBody          = errors.New("client body is nil")
+	ErrInvalidLogin     = errors.New("unable to login")
 )
 
 // getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
@@ -133,6 +134,17 @@ func (c *Client) doSAMLRequest() error {
 		return fmt.Errorf("%w", ErrNilBody)
 	}
 	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	// check if this is a login error
+	alertSel := doc.FindMatcher(goquery.Single("#page-wrapper > div.flash-messages > div.alert > p"))
+	if alertSel.Length() > 0 {
+		return fmt.Errorf("%w: %v", ErrInvalidLogin, alertSel.Text())
+	}
 
 	// drain rest of the body
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
