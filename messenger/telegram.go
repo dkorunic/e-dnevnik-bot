@@ -44,7 +44,7 @@ const (
 
 var (
 	ErrTelegramEmptyAPIKey    = errors.New("empty Telegram API key")
-	ErrTelegramEmptyUserIds   = errors.New("empty list of Telegram Chat IDs")
+	ErrTelegramEmptyUserIDs   = errors.New("empty list of Telegram Chat IDs")
 	ErrTelegramInvalidChatID  = errors.New("invalid Telegram Chat ID")
 	ErrTelegramSendingMessage = errors.New("error sending Telegram message")
 )
@@ -65,7 +65,7 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 	}
 
 	if len(chatIDs) == 0 {
-		return fmt.Errorf("%w", ErrTelegramEmptyUserIds)
+		return fmt.Errorf("%w", ErrTelegramEmptyUserIDs)
 	}
 
 	// new Telegram client

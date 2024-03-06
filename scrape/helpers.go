@@ -49,7 +49,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 
 	// each subject has a div with class "flex-table new-grades-table"
 	doc.Find("div.content > div.flex-table.new-grades-table").
-		Each(func(i int, table *goquery.Selection) {
+		Each(func(_ int, table *goquery.Selection) {
 			// subject name is in data-action-id attribute
 			subject, subjectOK := table.Attr("data-action-id")
 			if !subjectOK {
@@ -64,19 +64,19 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 			var descriptions []string
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			table.Find("div.row.header div.cell > span").
-				Each(func(j int, column *goquery.Selection) {
+				Each(func(_ int, column *goquery.Selection) {
 					txt := strings.TrimSpace(column.Text())
 					descriptions = append(descriptions, txt)
 				})
 
 			// grades are in each div with class "row" (header rows excluded) ...
 			table.Find("div.row:not(.header)").
-				Each(func(j int, row *goquery.Selection) {
+				Each(func(_ int, row *goquery.Selection) {
 					var spans []string
 
 					// ... and in each div with class "cell" in a span
 					row.Find("div.cell > span").
-						Each(func(k int, column *goquery.Selection) {
+						Each(func(_ int, column *goquery.Selection) {
 							// clean excess whitespace and newlines
 							txt := strings.TrimSpace(column.Text())
 							if len(txt) > 0 {
@@ -168,10 +168,10 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 
 	// fetch all active classes
 	doc.Find("div.student-list > div.classes").
-		Each(func(i int, row *goquery.Selection) {
+		Each(func(_ int, row *goquery.Selection) {
 			// div active classes are class-menu-vertical and not past-schoolyear
 			row.Find("div.class-menu-vertical:not(div.past-schoolyear) > div.class-info").
-				Each(func(j int, column *goquery.Selection) {
+				Each(func(_ int, column *goquery.Selection) {
 					var c fetch.Class
 
 					var idOK bool
@@ -184,19 +184,19 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 
 					// class name
 					column.Find("div.class > span.bold").
-						Each(func(k int, span *goquery.Selection) {
+						Each(func(_ int, span *goquery.Selection) {
 							c.Name = strings.TrimSpace(span.Text())
 						})
 
 					// class year
 					column.Find("div.class > span.class-schoolyear").
-						Each(func(k int, span *goquery.Selection) {
+						Each(func(_ int, span *goquery.Selection) {
 							c.Year = strings.TrimSpace(span.Text())
 						})
 
 					// class school
 					column.Find("div.school > div > span.school-name").
-						Each(func(k int, span *goquery.Selection) {
+						Each(func(_ int, span *goquery.Selection) {
 							c.School = strings.TrimSpace(span.Text())
 						})
 

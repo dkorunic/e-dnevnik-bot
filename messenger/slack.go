@@ -43,7 +43,7 @@ const (
 
 var (
 	ErrSlackEmptyAPIKey    = errors.New("empty Slack API key")
-	ErrSlackEmptyUserIds   = errors.New("empty list of Slack Chat IDs")
+	ErrSlackEmptyUserIDs   = errors.New("empty list of Slack Chat IDs")
 	ErrSlackSendingMessage = errors.New("error sending Slack message")
 )
 
@@ -61,7 +61,7 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 	}
 
 	if len(chatIDs) == 0 {
-		return fmt.Errorf("%w", ErrSlackEmptyUserIds)
+		return fmt.Errorf("%w", ErrSlackEmptyUserIDs)
 	}
 
 	// new full Slack client

@@ -80,7 +80,7 @@ func (c *Client) getCSRFToken() error {
 
 	// csrf_token is hidden in the input form
 	doc.Find(`form > input[name="csrf_token"]`).
-		Each(func(i int, s *goquery.Selection) {
+		Each(func(_ int, s *goquery.Selection) {
 			c.csrfToken, csrfTokenExists = s.Attr("value")
 		})
 

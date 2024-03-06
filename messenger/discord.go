@@ -44,7 +44,7 @@ const (
 
 var (
 	ErrDiscordEmptyAPIKey     = errors.New("empty Discord API key")
-	ErrDiscordEmptyUserIds    = errors.New("empty list of Discord User IDs")
+	ErrDiscordEmptyUserIDs    = errors.New("empty list of Discord User IDs")
 	ErrDiscordCreatingSession = errors.New("error creating Discord session")
 	ErrDiscordCreatingChannel = errors.New("error creating Discord channel")
 	ErrDiscordSendingMessage  = errors.New("error sending Discord message")
@@ -64,7 +64,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 	}
 
 	if len(userIDs) == 0 {
-		return fmt.Errorf("%w", ErrDiscordEmptyUserIds)
+		return fmt.Errorf("%w", ErrDiscordEmptyUserIDs)
 	}
 
 	// create a Discord session
