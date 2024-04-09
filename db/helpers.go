@@ -22,10 +22,11 @@
 package db
 
 import (
-	"crypto/sha256"
+	"bytes"
 	"errors"
 	"os"
-	"strings"
+
+	"github.com/minio/sha256-simd"
 )
 
 // dbExists checks if the path exists on the filesystem and returns boolean.
@@ -37,7 +38,8 @@ func dbExists(filePath string) bool {
 
 // hashContent creates SHA-256 hash from (bucket, subBucket, []target) concatenated strings and returns []byte result.
 func hashContent(bucket, subBucket string, target []string) []byte {
-	sb := &strings.Builder{}
+	var sb bytes.Buffer
+
 	sb.WriteString(bucket)
 	sb.WriteString(subBucket)
 
@@ -45,7 +47,7 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 		sb.WriteString(target[i])
 	}
 
-	targetHash256 := sha256.Sum256([]byte(sb.String()))
+	targetHash256 := sha256.Sum256(sb.Bytes())
 
 	return targetHash256[:]
 }
