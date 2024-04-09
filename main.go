@@ -89,8 +89,7 @@ func init() {
 // an info message and exits the program with an exit code of 0 (success).
 func fatalIfErrors() {
 	if exitWithError.Load() {
-		logger.Warn().Msg("Exiting, during run some errors were encountered.")
-		os.Exit(1)
+		logger.Fatal().Msg("Exiting, during run some errors were encountered.")
 	}
 
 	logger.Info().Msg("Exiting with a success.")
