@@ -38,15 +38,24 @@ func dbExists(filePath string) bool {
 
 // hashContent creates SHA-256 hash from (bucket, subBucket, []target) concatenated strings and returns []byte result.
 func hashContent(bucket, subBucket string, target []string) []byte {
+	// get total length of all strings
+	totalLen := len(bucket) + len(subBucket)
+	for i := range target {
+		totalLen += len(target[i])
+	}
+
 	var sb bytes.Buffer
+
+	// pre-allocate buffer
+	sb.Grow(totalLen)
 
 	sb.WriteString(bucket)
 	sb.WriteString(subBucket)
-
 	for i := range target {
 		sb.WriteString(target[i])
 	}
 
+	// calculate SHA-256 using SIMD AVX512 or SHA Extensions where possible
 	targetHash256 := sha256.Sum256(sb.Bytes())
 
 	return targetHash256[:]
