@@ -30,17 +30,17 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-alpha.4
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.32.0
-	github.com/slack-go/slack v0.12.5
+	github.com/slack-go/slack v0.13.0
 	github.com/tj/go-spin v1.1.0
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/goleak v1.3.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.20.0
-	google.golang.org/api v0.178.0
+	google.golang.org/api v0.181.0
 )
 
 require (
-	cloud.google.com/go/auth v0.4.0 // indirect
+	cloud.google.com/go/auth v0.4.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.2 // indirect
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
@@ -100,8 +100,9 @@ require (
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240506185236-b8a5c65736ae // indirect
-	google.golang.org/grpc v1.63.2 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240515191416-fc5f0ca64291 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240515191416-fc5f0ca64291 // indirect
+	google.golang.org/grpc v1.64.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
