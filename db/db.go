@@ -55,11 +55,11 @@ func New(filePath string) (*Edb, error) {
 	opts := badger.DefaultOptions(filePath)
 
 	// adapt for low memory environment
-	//nolint:gomnd
+	//nolint:mnd
 	if strconv.IntSize == 32 {
 		logger.Info().Msg("Detected 32-bit environment, tuning DB for lower memory usage")
 
-		opts.ValueLogFileSize = 1 << 20 //nolint:gomnd
+		opts.ValueLogFileSize = 1 << 20 //nolint:mnd
 	}
 
 	db, err := badger.Open(opts.WithLogger(nil)) // disable Badger verbose logging
