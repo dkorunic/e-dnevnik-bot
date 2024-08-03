@@ -430,3 +430,7 @@ jobs:
 ```
 
 This Github Actions recipe runs every 6 hours and upon each run will checkout the database, render the configuration file, run the bot and commit the database back, taking care of the persistency.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=dkorunic/e-dnevnik-bot&type=Date)](https://star-history.com/#dkorunic/e-dnevnik-bot&Date)
