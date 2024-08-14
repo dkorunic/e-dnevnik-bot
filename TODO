@@ -1,1 +1,2 @@
 - don't acknowledge alert that didn't go through with at least one consumer
+- alert on EOY grades
