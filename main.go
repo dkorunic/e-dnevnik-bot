@@ -44,6 +44,7 @@ import (
 	sysdnotify "github.com/iguanesolutions/go-systemd/v5/notify"
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v5/notify/watchdog"
 	"github.com/mattn/go-isatty"
+	"github.com/reiver/go-cast"
 	"github.com/rs/zerolog"
 	"go.uber.org/automaxprocs/maxprocs"
 )
@@ -110,8 +111,10 @@ func main() {
 		logLevel = zerolog.DebugLevel
 	} else {
 		if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
-			if l, err := strconv.Atoi(v); err != nil {
-				logLevel = zerolog.Level(int8(l))
+			if l, err := strconv.Atoi(v); err == nil {
+				if l8, err := cast.Int8(l); err == nil {
+					logLevel = zerolog.Level(l8)
+				}
 			}
 		}
 	}

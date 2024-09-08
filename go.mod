@@ -7,7 +7,7 @@ toolchain go1.23.0
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/KimMachineGun/automemlimit v0.6.1
-	github.com/PuerkitoBio/goquery v1.9.2
+	github.com/PuerkitoBio/goquery v1.10.0
 	github.com/Shopify/gomail v0.0.0-20220729171026-0784ece65e69
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.6.0
@@ -29,6 +29,7 @@ require (
 	github.com/minio/sha256-simd v1.0.1
 	github.com/peterbourgon/ff/v4 v4.0.0-alpha.4
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
+	github.com/reiver/go-cast v0.0.0-20240904124821-be0103637c3f
 	github.com/rs/zerolog v1.33.0
 	github.com/slack-go/slack v0.14.0
 	github.com/tj/go-spin v1.1.0
@@ -84,6 +85,7 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/reiver/go-erorr v0.0.0-20240801233437-8cbde6d1fa3f // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
