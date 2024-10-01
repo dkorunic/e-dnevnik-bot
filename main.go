@@ -148,7 +148,7 @@ func main() {
 	if err != nil {
 		logger.Warn().Msgf("Unable to get/set GOMEMLIMIT: %v", err)
 	} else {
-		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", humanize.Bytes(uint64(limit)))
+		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", humanize.Bytes(uint64(limit))) //nolint:gosec
 	}
 
 	// configure GOMAXPROCS

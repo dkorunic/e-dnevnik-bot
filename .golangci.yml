@@ -12,3 +12,4 @@ linters:
     - exhaustruct
     - lll
     - depguard
+    - gomnd

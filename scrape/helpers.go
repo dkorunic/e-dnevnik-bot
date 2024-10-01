@@ -117,6 +117,8 @@ func cleanEventDescription(summary string) string {
 
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
+//
+//nolint:unparam
 func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events, multiClass bool, className string) error {
 	if len(events) == 0 {
 		logger.Info().Msgf("No scheduled exams for user %v", username)
