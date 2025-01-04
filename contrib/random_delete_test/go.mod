@@ -5,7 +5,7 @@ go 1.21
 toolchain go1.23.3
 
 require (
-	filippo.io/mostly-harmless/cryptosource v0.0.0-20241224013008-b7c6edc6c9bf
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20250104143725-72c58a1ef471
 	github.com/dgraph-io/badger/v4 v4.5.0
 )
 
@@ -20,6 +20,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/sys v0.29.0 // indirect
 	google.golang.org/protobuf v1.36.1 // indirect
 )
