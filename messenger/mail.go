@@ -27,11 +27,11 @@ import (
 	"strconv"
 	"time"
 
-	mail "github.com/Shopify/gomail"
 	"github.com/avast/retry-go/v4"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	mail "github.com/wneessen/go-mail"
 	"go.uber.org/ratelimit"
 )
 
@@ -43,8 +43,9 @@ const (
 )
 
 var (
-	ErrMailSendingMessage = errors.New("error sending mail message")
-	ErrMailInvalidPort    = errors.New("invalid or missing SMTP port, will try with default 587/tcp")
+	ErrMailInvalidPort     = errors.New("invalid or missing SMTP port, will try with default 587/tcp")
+	ErrMailDialer          = errors.New("failed to create mail delivery client")
+	ErrMailSendingMessages = errors.New("error sending mail messages")
 )
 
 // Mail sends a message through the mail service.
@@ -92,40 +93,58 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 			htmlContent := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 
 			// establish dialer
-			d := mail.NewDialer(server, portInt, username, password)
-			d.StartTLSPolicy = mail.OpportunisticStartTLS
+			d, err := mail.NewClient(server,
+				mail.WithPort(portInt),
+				mail.WithSMTPAuth(mail.SMTPAuthPlain),
+				mail.WithTLSPolicy(mail.TLSOpportunistic),
+				mail.WithUsername(username),
+				mail.WithPassword(password),
+			)
+			if err != nil {
+				logger.Error().Msgf("%v: %v", ErrMailDialer, err)
 
-			// send to all recipients
+				break
+			}
+
+			var messages []*mail.Msg
+
+			// bulk send to all recipients
 			for _, u := range to {
-				m := mail.NewMessage()
-				m.SetHeader("From", from)
-				m.SetHeader("To", u)
+				m := mail.NewMsg()
+				_ = m.From(from)
+				_ = m.To(u)
+
+				m.SetMessageID()
+				m.SetDate()
+				m.SetBulk()
 
 				if subject != "" {
-					m.SetHeader("Subject", subject)
+					m.Subject(subject)
 				} else {
-					m.SetHeader("Subject", MailSubject)
+					m.Subject(MailSubject)
 				}
 
-				m.SetBody("text/plain", plainContent)
-				m.AddAlternative("text/html", htmlContent)
+				m.SetBodyString(mail.TypeTextPlain, plainContent)
+				m.SetBodyString(mail.TypeTextHTML, htmlContent)
 
-				rl.Take()
+				messages = append(messages, m)
+			}
 
-				// retryable and cancellable attempt to send a message
-				err = retry.Do(
-					func() error {
-						return d.DialAndSend(m)
-					},
-					retry.Attempts(retries),
-					retry.Context(ctx),
-					retry.Delay(MailMinDelay),
-				)
-				if err != nil {
-					logger.Error().Msgf("%v: %v", ErrMailSendingMessage, err)
+			rl.Take()
 
-					break
-				}
+			// retryable and cancellable attempt to send a message
+			err = retry.Do(
+				func() error {
+					return d.DialAndSend(messages...)
+				},
+				retry.Attempts(retries),
+				retry.Context(ctx),
+				retry.Delay(MailMinDelay),
+			)
+			if err != nil {
+				logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
+
+				break
 			}
 		}
 	}
