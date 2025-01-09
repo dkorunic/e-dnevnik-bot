@@ -111,6 +111,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 			// bulk send to all recipients
 			for _, u := range to {
 				m := mail.NewMsg()
+
 				_ = m.From(from)
 				_ = m.To(u)
 
@@ -125,7 +126,7 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 				}
 
 				m.SetBodyString(mail.TypeTextPlain, plainContent)
-				m.SetBodyString(mail.TypeTextHTML, htmlContent)
+				m.AddAlternativeString(mail.TypeTextHTML, htmlContent)
 
 				messages = append(messages, m)
 			}
