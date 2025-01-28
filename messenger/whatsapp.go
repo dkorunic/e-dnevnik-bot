@@ -49,6 +49,7 @@ const (
 	DefaultWhatsAppDBName       = ".e-dnevnik.sqlite"
 	DefaultWhatsAppDBConnstring = "file:%v?_pragma=foreign_keys(1)"
 	DefaultWhatsAppDisplayName  = "Chrome (Linux)"
+	DefaultWhatsAppOS           = "Linux"
 )
 
 const (
@@ -217,7 +218,11 @@ func whatsAppProcessGroups(userIDs, groups []string) []string {
 //
 // If any error occurs during the process, it is logged and returned.
 func whatsAppLogin() error {
+	// request syncing for last 3-months
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
+
+	// set OS to Linux
+	store.DeviceProps.Os = proto.String(DefaultWhatsAppOS)
 
 	storeContainer, err := sqlstore.New("sqlite",
 		fmt.Sprintf(DefaultWhatsAppDBConnstring, DefaultWhatsAppDBName), nil)

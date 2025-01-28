@@ -105,6 +105,9 @@ func checkWhatsApp(ctx context.Context, config *tomlConfig) {
 	// request syncing for last 3-months
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
 
+	// set OS to Linux
+	store.DeviceProps.Os = proto.String(messenger.DefaultWhatsAppOS)
+
 	storeContainer, err := sqlstore.New("sqlite",
 		fmt.Sprintf(messenger.DefaultWhatsAppDBConnstring, messenger.DefaultWhatsAppDBName), nil)
 	if err != nil {
