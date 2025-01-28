@@ -11,6 +11,7 @@ e-dnevnik-bot
 contrib/random_delete_test/random_delete_test
 .e-dnevnik.toml
 .e-dnevnik.db
+.e-dnevnik.sqlite
 calendar_token.json
 
 # Test binary, build with `go test -c`
