@@ -42,7 +42,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"go.uber.org/ratelimit"
 	"google.golang.org/protobuf/proto"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
 const (

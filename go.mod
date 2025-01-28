@@ -36,7 +36,6 @@ require (
 	github.com/wneessen/go-mail v0.6.1
 	go.mau.fi/whatsmeow v0.0.0-20250104105216-918c879fcd19
 	go.uber.org/automaxprocs v1.6.0
-	go.uber.org/goleak v1.3.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.25.0
 	google.golang.org/api v0.218.0
