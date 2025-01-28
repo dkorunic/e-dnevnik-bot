@@ -91,40 +91,19 @@ func WhatsApp(ctx context.Context, ch <-chan interface{}, userIDs, groups []stri
 		return ErrWhatsAppEmptyUserIDs
 	}
 
-	// login and/or reconnect if needed
-	if whatsAppCli == nil {
-		if err := whatsappLogin(); err != nil {
-			return err
-		}
-	} else if !whatsAppCli.IsConnected() {
-		whatsAppCli.Disconnect()
-
-		if err := whatsAppCli.Connect(); err != nil {
-			return err
-		}
+	// reconnecting and syncing the state is very expensive, so we are keeping it open
+	// and reconnecting only if needed
+	err := whatsAppInit()
+	if err != nil {
+		return err
 	}
-
-	var err error
 
 	logger.Debug().Msg("Started WhatsApp messenger")
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
 	// find named groups and append to userIDs
-	if len(groups) > 0 {
-		g, err := whatsAppCli.GetJoinedGroups()
-		if err != nil {
-			logger.Error().Msgf("%v %v", ErrWhatsaAppUnableGroups, err)
-		} else {
-			for _, x := range g {
-				if slices.Contains(groups, x.Name) {
-					userIDs = append(userIDs, x.JID.String())
-
-					logger.Debug().Msgf("Found WhatsApp group by name %q - ID %q", x.Name, x.JID.String())
-				}
-			}
-		}
-	}
+	userIDs = whatsAppProcessGroups(userIDs, groups)
 
 	for o := range ch {
 		select {
@@ -176,7 +155,56 @@ func WhatsApp(ctx context.Context, ch <-chan interface{}, userIDs, groups []stri
 	return err
 }
 
-// whatsappLogin initializes WhatsApp messenger.
+// whatsAppInit ensures that the WhatsApp client is initialized and connected.
+//
+// If the WhatsApp client is not already initialized, it calls whatsAppLogin()
+// to initialize it. If the client is initialized but not connected, it attempts
+// to disconnect and then reconnect the client. The function returns an error
+// if any step of the initialization or connection process fails.
+func whatsAppInit() error {
+	if whatsAppCli == nil {
+		if err := whatsAppLogin(); err != nil {
+			return err
+		}
+	} else if !whatsAppCli.IsConnected() {
+		whatsAppCli.Disconnect()
+
+		if err := whatsAppCli.Connect(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// whatsAppProcessGroups takes a list of group names and user IDs, retrieves the joined WhatsApp groups,
+// and appends the JIDs of any matching groups to the user IDs slice. If an error occurs while fetching
+// the groups, it logs the error. The function returns the updated list of user IDs which now includes
+// the JIDs of the specified groups.
+func whatsAppProcessGroups(userIDs, groups []string) []string {
+	if len(groups) > 0 {
+		g, err := whatsAppCli.GetJoinedGroups()
+		if err != nil {
+			logger.Error().Msgf("%v %v", ErrWhatsaAppUnableGroups, err)
+
+			return userIDs
+		}
+
+		for _, x := range g {
+			// have a matching group name, add group JID to userIDs
+			if _, found := slices.BinarySearch(groups, x.Name); found {
+				userIDs = append(userIDs, x.JID.String())
+
+				// debugging for users to help directly write JID to config userIDs
+				logger.Debug().Msgf("Found WhatsApp group by name %q - ID %q", x.Name, x.JID.String())
+			}
+		}
+	}
+
+	return userIDs
+}
+
+// whatsAppLogin initializes WhatsApp messenger.
 //
 // It connects to the SQLite database specified by DefaultWhatsAppDBName, upgrades
 // the database schema if necessary, loads the first device, and then connects
@@ -185,10 +213,10 @@ func WhatsApp(ctx context.Context, ch <-chan interface{}, userIDs, groups []stri
 //
 // The WhatsApp client is configured to enable automatic reconnection and
 // automatic trust of the identity key. The client is also configured to use
-// the whatsappEventHandler to handle events.
+// the whatsAppEventHandler to handle events.
 //
 // If any error occurs during the process, it is logged and returned.
-func whatsappLogin() error {
+func whatsAppLogin() error {
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
 
 	storeContainer, err := sqlstore.New("sqlite",
@@ -217,7 +245,7 @@ func whatsappLogin() error {
 	whatsAppCli = whatsmeow.NewClient(device, nil)
 	whatsAppCli.EnableAutoReconnect = true
 	whatsAppCli.AutoTrustIdentity = true
-	whatsAppCli.AddEventHandler(whatsappEventHandler)
+	whatsAppCli.AddEventHandler(whatsAppEventHandler)
 
 	err = whatsAppCli.Connect()
 	if err != nil {
@@ -227,7 +255,7 @@ func whatsappLogin() error {
 	return nil
 }
 
-// whatsappEventHandler is a callback function that handles events from the
+// whatsAppEventHandler is a callback function that handles events from the
 // WhatsApp client. It switches on the type of the event and performs the
 // appropriate action.
 //
@@ -243,7 +271,7 @@ func whatsappLogin() error {
 //   - *events.LoggedOut: removes the database file and logs a message.
 //   - *events.Disconnected, *events.StreamReplaced: logs a message, disconnects
 //     the client, and reconnects if possible.
-func whatsappEventHandler(rawEvt interface{}) {
+func whatsAppEventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.AppStateSyncComplete:
 		if len(whatsAppCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {

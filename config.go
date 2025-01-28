@@ -22,6 +22,9 @@
 package main
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/BurntSushi/toml"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 )
@@ -128,6 +131,9 @@ func loadConfig() (tomlConfig, error) {
 
 	if len(config.WhatsApp.UserIDs) > 0 || len(config.WhatsApp.Groups) > 0 {
 		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
+
+		// sort group names for binary search in WhatsApp messenger
+		slices.SortStableFunc(config.WhatsApp.Groups, strings.Compare)
 
 		config.whatsAppEnabled = true
 	}
