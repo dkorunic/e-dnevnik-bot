@@ -66,6 +66,13 @@ type calendar struct {
 	Name string `toml:"name"`
 }
 
+// whatsapp struct holds WhatsApp messenger configuration.
+type whatsapp struct {
+	PhoneNumber string   `toml:"phonenumber"`
+	UserIDs     []string `toml:"userids"`
+	Groups      []string `toml:"groups"`
+}
+
 // tomlConfig struct holds all other configuration structures.
 type tomlConfig struct {
 	Calendar        calendar `toml:"calendar"`
@@ -74,11 +81,13 @@ type tomlConfig struct {
 	Discord         discord  `toml:"discord"`
 	Slack           slack    `toml:"slack"`
 	User            []user   `toml:"user"`
+	WhatsApp        whatsapp `toml:"whatsapp"`
 	telegramEnabled bool     `toml:"telegram_enabled"`
 	discordEnabled  bool     `toml:"discord_enabled"`
 	slackEnabled    bool     `toml:"slack_enabled"`
 	mailEnabled     bool     `toml:"mail_enabled"`
 	calendarEnabled bool     `toml:"calendar_enabled"`
+	whatsAppEnabled bool     `toml:"whatsapp_enabled"`
 }
 
 // loadConfig attempts to load and decode configuration file in TOML format, doing a minimal sanity checking and
@@ -108,13 +117,19 @@ func loadConfig() (tomlConfig, error) {
 	}
 
 	if config.Mail.Server != "" && config.Mail.From != "" && len(config.Mail.To) > 0 {
-		logger.Info().Msg("Configuration: e-mail messenger enabled")
+		logger.Info().Msg("Configuration: e-mail messenger enabled (pending check during initialization)")
 
 		config.mailEnabled = true
 	}
 
 	if config.Calendar.Name != "" {
 		config.calendarEnabled = true
+	}
+
+	if len(config.WhatsApp.UserIDs) > 0 || len(config.WhatsApp.Groups) > 0 {
+		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
+
+		config.whatsAppEnabled = true
 	}
 
 	return config, nil

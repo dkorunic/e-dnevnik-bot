@@ -24,13 +24,11 @@ package main
 import (
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -38,7 +36,6 @@ import (
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
-	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dustin/go-humanize"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
@@ -69,19 +66,6 @@ var (
 	GitDirty      = ""
 	BuildTime     = ""
 )
-
-// init initializes the GitTag, GitCommit, GitDirty, and BuildTime variables.
-//
-// It trims leading and trailing white spaces from the values of GitTag, GitCommit,
-// GitDirty, and BuildTime.
-//
-//nolint:gochecknoinits
-func init() {
-	GitTag = strings.TrimSpace(GitTag)
-	GitCommit = strings.TrimSpace(GitCommit)
-	GitDirty = strings.TrimSpace(GitDirty)
-	BuildTime = strings.TrimSpace(BuildTime)
-}
 
 // fatalIfErrors is a Go function that checks if any errors were encountered during runtime.
 //
@@ -211,6 +195,11 @@ func main() {
 		checkCalendar(ctx, &config)
 	}
 
+	// WhatsApp initial setup and sync
+	if config.whatsAppEnabled {
+		checkWhatsApp(ctx, &config)
+	}
+
 	// test mode: send messages and exit
 	if *emulation {
 		logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
@@ -332,35 +321,6 @@ func main() {
 			logger.Info().Msg(scheduledSleep)
 
 			_ = sysdnotify.Status(scheduledSleep)
-		}
-	}
-}
-
-// checkCalendar checks the calendar configuration and enables or disables the calendar integration based on the existence of the Google Calendar API credentials file and token file.
-//
-// Parameters:
-// - config: a pointer to the tomlConfig struct containing the configuration settings.
-// - ctx: the context object for cancellation and timeout.
-func checkCalendar(ctx context.Context, config *tomlConfig) {
-	if config == nil {
-		return
-	}
-
-	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
-		// check if we are running under a terminal
-		fd := os.Stdout.Fd()
-		if os.Getenv("TERM") == "dumb" || (!isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd)) {
-			logger.Error().Msgf("Google Calendar API token file not found and first run requires running under a terminal. Disabling calendar integration.")
-
-			config.calendarEnabled = false
-		} else {
-			// early Google Calendar API initialization and token refresh
-			_, _, err := messenger.InitCalendar(ctx, *calTokFile, config.Calendar.Name)
-			if err != nil {
-				logger.Error().Msgf("Error initializing Google Calendar API: %v. Disabling calendar integration.", err)
-
-				config.calendarEnabled = false
-			}
 		}
 	}
 }

@@ -62,3 +62,16 @@ chatids = [ "chat_id", "chat_id2" ]
 #
 #[calendar]
 #name = "Djeca ispiti"
+
+# WhatsApp block
+##################################################
+# If phone number is not set, initial linking requires interactive terminal to display
+# QR link code. Phone number should be in international format with + and country code.
+#
+# Userids are either in the format of +XXXYYYYYYY@s.whatsapp.net (phone number in international format) or in the format
+# of XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net (Group ID).
+# Groups are actually group names. More efficient way is to directly use group ID and append to userids.
+#
+#phonenumber = "+385XXYYYYYYY"
+#userids = [ "+385XXYYYYYYY@s.whatsapp.net", "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" ]
+#groups = [ "group1", "group2" ]

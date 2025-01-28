@@ -53,6 +53,7 @@ var (
 	ErrSlack        = errors.New("Slack messenger issue")    //nolint:stylecheck
 	ErrMail         = errors.New("Mail messenger issue")     //nolint:stylecheck
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:stylecheck
+	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:stylecheck
 
 	formatHRDateOnly = "2.1."
 )
@@ -187,6 +188,28 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 
 				if err := messenger.Calendar(ctx, ch, config.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
+					exitWithError.Store(true)
+				}
+			}()
+		}
+
+		// WhatsApp sSender
+		if config.whatsAppEnabled {
+			ch := make(chan interface{}) // broadcast listener
+			defer close(ch)
+
+			bcast.Register(ch) // broadcast registration
+			defer bcast.Unregister(ch)
+
+			wgMsg.Add(1)
+
+			go func() {
+				defer wgMsg.Done()
+				logger.Debug().Msgf("WhatsApp messenger started")
+
+				if err := messenger.WhatsApp(ctx, ch, config.WhatsApp.UserIDs, config.WhatsApp.Groups,
+					*retries); err != nil {
+					logger.Warn().Msgf("%v: %v", ErrWhatsApp, err)
 					exitWithError.Store(true)
 				}
 			}()
