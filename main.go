@@ -40,7 +40,6 @@ import (
 	"github.com/dustin/go-humanize"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v6/notify/watchdog"
-	"github.com/mattn/go-isatty"
 	"github.com/reiver/go-cast"
 	"github.com/rs/zerolog"
 	"go.uber.org/automaxprocs/maxprocs"
@@ -271,7 +270,7 @@ func main() {
 
 			go stop()
 
-			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+			if isTerminal() {
 				go spinner()
 			}
 

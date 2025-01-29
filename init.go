@@ -73,8 +73,7 @@ func checkCalendar(ctx context.Context, config *tomlConfig) {
 
 	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
 		// check if we are running under a terminal
-		fd := os.Stdout.Fd()
-		if os.Getenv("TERM") == "dumb" || (!isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd)) {
+		if isTerminal() {
 			logger.Error().Msgf("Google Calendar API token file not found and first run requires running under a terminal. Disabling calendar integration.")
 
 			config.calendarEnabled = false
@@ -161,9 +160,8 @@ func checkWhatsApp(ctx context.Context, config *tomlConfig) {
 
 					logger.Info().Msgf("WhatsApp link code: %v", linkCode)
 				} else {
-					fd := os.Stdout.Fd()
 					// display QR code only on interactive terminal
-					if os.Getenv("TERM") != "dumb" && (isatty.IsTerminal(fd) || !isatty.IsCygwinTerminal(fd)) {
+					if isTerminal() {
 						logger.Info().Msg("WhatsApp QR code below")
 						qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 					} else {
@@ -230,4 +228,13 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
 		logger.Debug().Msgf("%v", messenger.ErrWhatsAppDisconnected)
 	}
+}
+
+// isTerminal checks if the output is an interactive terminal.
+//
+// It checks both the "TERM" environment variable and uses the isatty
+// package to determine if the standard output is a terminal.
+func isTerminal() bool {
+	fd := os.Stdout.Fd()
+	return os.Getenv("TERM") != "dumb" && (isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd))
 }
