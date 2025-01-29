@@ -274,12 +274,14 @@ func whatsAppLogin() error {
 //     logs a message, disconnects the client, and reconnects if possible.
 func whatsAppEventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
+	case *events.OfflineSyncCompleted:
+		logger.Debug().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
 		if len(whatsAppCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
 			_ = whatsAppCli.SendPresence(types.PresenceAvailable)
 		}
 
-		logger.Debug().Msg("WhatsApp online sync completed")
+		logger.Debug().Msg("WhatsApp app state sync completed")
 	case *events.Connected, *events.PushNameSetting:
 		if len(whatsAppCli.Store.PushName) > 0 {
 			_ = whatsAppCli.SendPresence(types.PresenceAvailable)
