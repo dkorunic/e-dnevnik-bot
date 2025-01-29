@@ -230,11 +230,13 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 	}
 }
 
-// isTerminal checks if the output is an interactive terminal.
+// isTerminal checks if the current output is a terminal.
 //
-// It checks both the "TERM" environment variable and uses the isatty
-// package to determine if the standard output is a terminal.
+// It returns true if the environment does not disable color output, the terminal
+// is not set to "dumb", and the output file descriptor is a terminal. It also
+// considers Cygwin terminals as valid terminals.
 func isTerminal() bool {
 	fd := os.Stdout.Fd()
-	return os.Getenv("TERM") != "dumb" && (isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd))
+	return os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" &&
+		(isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd))
 }
