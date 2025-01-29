@@ -192,14 +192,15 @@ func checkWhatsApp(ctx context.Context, config *tomlConfig) {
 // Events handled:
 //   - *events.AppStateSyncComplete: checks if the client has a push name and
 //     sends an available presence if so. Logs a message if the online sync
-//     completed. Sends a signal on the whatsAppSynced channel.
+//     completed and signals that the WhatsApp client is fully synced.
 //   - *events.Connected, *events.PushNameSetting: checks if the client has a
 //     push name and sends an available presence if so.
 //   - *events.PairSuccess, *events.PairError: checks if the client has a device
 //     ID and removes the database file if not. Logs a message if the linking
 //     process failed.
 //   - *events.LoggedOut: removes the database file and logs a message.
-//   - *events.Disconnected, *events.StreamReplaced: logs a message.
+//   - *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
+//     logs a message, disconnects the client, and reconnects if possible.
 func whatsappPairingEventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.AppStateSyncComplete:
@@ -217,12 +218,14 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 	case *events.PairSuccess, *events.PairError:
 		if whatsAppCli.Store.ID == nil {
 			_ = os.Remove(messenger.DefaultWhatsAppDBName)
+
 			logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
 		}
 	case *events.LoggedOut:
 		_ = os.Remove(messenger.DefaultWhatsAppDBName)
+
 		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppLoggedout)
-	case *events.Disconnected, *events.StreamReplaced:
-		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppDisconnected)
+	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
+		logger.Debug().Msgf("%v", messenger.ErrWhatsAppDisconnected)
 	}
 }

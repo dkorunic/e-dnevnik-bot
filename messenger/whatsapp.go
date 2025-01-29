@@ -71,7 +71,7 @@ var (
 	ErrWhatsAppLoggedout      = errors.New("logged out from WhatsApp, please link again")
 	ErrWhatsAppInvalidJID     = errors.New("cannot parse recipient JID")
 	ErrWhatsAppSendingMessage = errors.New("error sending WhatsApp message")
-	ErrWhatsAppDisconnected   = errors.New("WhatsApp client disconnected")
+	ErrWhatsAppDisconnected   = errors.New("WhatsApp client disconnected, will auto-reconnect")
 
 	whatsAppCli *whatsmeow.Client
 )
@@ -164,15 +164,11 @@ func WhatsApp(ctx context.Context, ch <-chan interface{}, userIDs, groups []stri
 // if any step of the initialization or connection process fails.
 func whatsAppInit() error {
 	if whatsAppCli == nil {
-		if err := whatsAppLogin(); err != nil {
-			return err
-		}
+		return whatsAppLogin()
 	} else if !whatsAppCli.IsConnected() {
 		whatsAppCli.Disconnect()
 
-		if err := whatsAppCli.Connect(); err != nil {
-			return err
-		}
+		return whatsAppCli.Connect()
 	}
 
 	return nil
@@ -267,15 +263,15 @@ func whatsAppLogin() error {
 // Events handled:
 //   - *events.AppStateSyncComplete: checks if the client has a push name and
 //     sends an available presence if so. Logs a message if the online sync
-//     completed.
+//     completed and signals that the WhatsApp client is fully synced.
 //   - *events.Connected, *events.PushNameSetting: checks if the client has a
 //     push name and sends an available presence if so.
 //   - *events.PairSuccess, *events.PairError: checks if the client has a device
 //     ID and removes the database file if not. Logs a message if the linking
 //     process failed.
 //   - *events.LoggedOut: removes the database file and logs a message.
-//   - *events.Disconnected, *events.StreamReplaced: logs a message, disconnects
-//     the client, and reconnects if possible.
+//   - *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
+//     logs a message, disconnects the client, and reconnects if possible.
 func whatsAppEventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.AppStateSyncComplete:
@@ -298,15 +294,7 @@ func whatsAppEventHandler(rawEvt interface{}) {
 		_ = os.Remove(DefaultWhatsAppDBName)
 
 		logger.Fatal().Msgf("%v", ErrWhatsAppLoggedout)
-	case *events.Disconnected, *events.StreamReplaced:
-		logger.Error().Msgf("%v", ErrWhatsAppDisconnected)
-
-		if whatsAppCli != nil {
-			whatsAppCli.Disconnect()
-
-			if err := whatsAppCli.Connect(); err != nil {
-				logger.Fatal().Msgf("%v: %v", ErrWhatsAppFailConnect, err)
-			}
-		}
+	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
+		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
 	}
 }
