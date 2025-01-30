@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/oauth"
@@ -53,6 +54,8 @@ var (
 	ErrCalendarReadingCreds = errors.New("unable to read credentials file")
 	ErrCalendarParsingCreds = errors.New("unable to parse credentials file")
 	ErrCalendarNotFound     = errors.New("unable to find Google Calendar ID")
+
+	CalendarQueueName = []byte("calendar-queue")
 )
 
 //go:embed assets/calendar_credentials.json
@@ -62,13 +65,14 @@ var credentialFS embed.FS
 //
 // It takes the following parameters:
 // - ctx: the context.Context object for managing the execution of the function
+// - eDB: the database instance for checking failed messages
 // - ch: a channel for receiving messages
 // - name: the name of the calendar
 // - tokFile: the path to the token file
 // - retries: the number of retry attempts for inserting a Google Calendar event
 //
 // It returns an error indicating any issues encountered during the execution of the function.
-func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile string, retries uint) error {
+func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, name, tokFile string, retries uint) error {
 	srv, calID, err := InitCalendar(ctx, tokFile, name)
 	if err != nil {
 		return err
@@ -131,11 +135,18 @@ func Calendar(ctx context.Context, ch <-chan interface{}, name, tokFile string, 
 			)
 			if err != nil {
 				logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
+
+				// store failed message
+				if err := storeFailedMsgs(eDB, CalendarQueueName, g); err != nil {
+					logger.Error().Msgf("%v: %v", ErrQueueing, err)
+				}
+
+				continue
 			}
 		}
 	}
 
-	return err
+	return nil
 }
 
 // InitCalendar initializes a Google Calendar service and retrieves the calendar ID.

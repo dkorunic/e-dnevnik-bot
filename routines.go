@@ -78,9 +78,20 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 	}
 }
 
-// msgSend will process grades/exams messages and broadcast to one or more message services.
-func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, config tomlConfig) {
+// msgSend handles the distribution of scraped grades and events messages to various messaging services configured in the application.
+// It sets up a broadcaster to relay messages to multiple services such as Discord, Telegram, Slack, Mail, Google Calendar, and WhatsApp.
+// Each service runs in its own goroutine and listens to both live and previously failed messages from a database queue.
+//
+// Parameters:
+// - ctx: the context for cancellation and timeout.
+// - eDB: the database instance for checking failed messages.
+// - wgMsg: a WaitGroup to synchronize the completion of message sending.
+// - gradesMsg: a channel receiving messages to be sent to configured messengers.
+// - config: the configuration settings containing enabled services and their respective credentials.
+func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, config tomlConfig) {
 	wgMsg.Add(1)
+
+	var wgFailedMsg sync.WaitGroup
 
 	go func() {
 		defer wgMsg.Done()
@@ -96,13 +107,23 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
+			// handle failed messages
+			wgFailedMsg.Add(1)
+
+			go func() {
+				defer wgFailedMsg.Done()
+
+				fetchAndSendFailedMsg(eDB, ch, messenger.DiscordQueueName)
+			}()
+
+			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Discord messenger started")
 
-				if err := messenger.Discord(ctx, ch, config.Discord.Token, config.Discord.UserIDs, *retries); err != nil {
+				if err := messenger.Discord(ctx, eDB, ch, config.Discord.Token, config.Discord.UserIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
 				}
@@ -117,13 +138,23 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
+			// handle failed messages
+			wgFailedMsg.Add(1)
+
+			go func() {
+				defer wgFailedMsg.Done()
+
+				fetchAndSendFailedMsg(eDB, ch, messenger.TelegramQueueName)
+			}()
+
+			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Telegram messenger started")
 
-				if err := messenger.Telegram(ctx, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries); err != nil {
+				if err := messenger.Telegram(ctx, eDB, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
 				}
@@ -138,13 +169,23 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
+			// handle failed messages
+			wgFailedMsg.Add(1)
+
+			go func() {
+				defer wgFailedMsg.Done()
+
+				fetchAndSendFailedMsg(eDB, ch, messenger.SlackQueueName)
+			}()
+
+			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Slack messenger started")
 
-				if err := messenger.Slack(ctx, ch, config.Slack.Token, config.Slack.ChatIDs, *retries); err != nil {
+				if err := messenger.Slack(ctx, eDB, ch, config.Slack.Token, config.Slack.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
 				}
@@ -159,13 +200,24 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
+			// handle failed messages
+			wgFailedMsg.Add(1)
+
+			go func() {
+				defer wgFailedMsg.Done()
+
+				fetchAndSendFailedMsg(eDB, ch, messenger.MailQueueName)
+			}()
+
+			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Mail messenger started")
 
-				if err := messenger.Mail(ctx, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username, config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
+				if err := messenger.Mail(ctx, eDB, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username,
+					config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrMail, err)
 					exitWithError.Store(true)
 				}
@@ -180,13 +232,23 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
+			// handle failed messages
+			wgFailedMsg.Add(1)
+
+			go func() {
+				defer wgFailedMsg.Done()
+
+				fetchAndSendFailedMsg(eDB, ch, messenger.CalendarQueueName)
+			}()
+
+			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("Calendar messenger started")
 
-				if err := messenger.Calendar(ctx, ch, config.Calendar.Name, *calTokFile, *retries); err != nil {
+				if err := messenger.Calendar(ctx, eDB, ch, config.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
 					exitWithError.Store(true)
 				}
@@ -201,13 +263,23 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			bcast.Register(ch) // broadcast registration
 			defer bcast.Unregister(ch)
 
+			// handle failed messages
+			wgFailedMsg.Add(1)
+
+			go func() {
+				defer wgFailedMsg.Done()
+
+				fetchAndSendFailedMsg(eDB, ch, messenger.WhatsAppQueueName)
+			}()
+
+			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
 				defer wgMsg.Done()
 				logger.Debug().Msg("WhatsApp messenger started")
 
-				if err := messenger.WhatsApp(ctx, ch, config.WhatsApp.UserIDs, config.WhatsApp.Groups,
+				if err := messenger.WhatsApp(ctx, eDB, ch, config.WhatsApp.UserIDs, config.WhatsApp.Groups,
 					*retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrWhatsApp, err)
 					exitWithError.Store(true)
@@ -215,7 +287,10 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 			}()
 		}
 
-		// broadcast incoming messages
+		// wait for all messengers to finish processing failed queue
+		wgFailedMsg.Wait()
+
+		// broadcast regular incoming messages
 		for g := range gradesMsg {
 			select {
 			case <-ctx.Done():
@@ -227,20 +302,13 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 	}()
 }
 
-// msgDedup acts like a filter: processes all incoming messages, calls in to database check and if it hasn't been found
+// msgDedup acts like a filter: processes all incoming messages, calls in to database checkWhatsAppConf and if it hasn't been found
 // and if it is not an initial run, it will pass through to messengers for further alerting.
-func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
+func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Add(1)
 
 	go func() {
 		defer wgFilter.Done()
-
-		// open KV store
-		eDB, err := db.New(*dbFile)
-		if err != nil {
-			logger.Fatal().Msgf("Unable to open database: %v", err)
-		}
-		defer eDB.Close()
 
 		if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")
@@ -259,15 +327,15 @@ func msgDedup(ctx context.Context, wgFilter *sync.WaitGroup, gradesScraped <-cha
 					logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
 				}
 
-				// check if it is an already known alert
+				// checkWhatsAppConf if it is an already known alert
 				found, err := eDB.CheckAndFlag(g.Username, g.Subject, g.Fields)
 				if err != nil {
 					logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
 				}
 
-				// check if is the initial run and send only if not
+				// checkWhatsAppConf if is the initial run and send only if not
 				if !found && eDB.Existing() {
-					// check if it is an old event that should be ignored
+					// checkWhatsAppConf if it is an old event that should be ignored
 					if *relevancePeriod > 0 && !g.IsExam && len(g.Fields) > 0 {
 						t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 						if err != nil {
@@ -308,13 +376,17 @@ func spinner() {
 	}
 }
 
+// versionCheck checks for updates by comparing the current version of the
+// application with the latest version available on GitHub. If a newer version
+// is available, it logs an informational message. This function spawns a
+// goroutine and uses a WaitGroup to synchronize with other goroutines.
 func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	wgVersion.Add(1)
 
 	go func() {
 		defer wgVersion.Done()
 
-		// if we don't have a tag or if it is a local source-build, we don't need to check for updates
+		// if we don't have a tag or if it is a local source-build, we don't need to checkWhatsAppConf for updates
 		if GitTag == "" || GitDirty != "" {
 			return
 		}
@@ -341,7 +413,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 		// get latest release from GitHub
 		latestRelease, _, err := client.Repositories.GetLatestRelease(ctx, githubOrg, githubRepo)
 		if err != nil {
-			logger.Error().Msgf("Unable to check latest version of e-dnevnik-bot: %v", err)
+			logger.Error().Msgf("Unable to checkWhatsAppConf latest version of e-dnevnik-bot: %v", err)
 
 			return
 		}

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -47,19 +48,22 @@ var (
 	ErrTelegramEmptyUserIDs   = errors.New("empty list of Telegram Chat IDs")
 	ErrTelegramInvalidChatID  = errors.New("invalid Telegram Chat ID")
 	ErrTelegramSendingMessage = errors.New("error sending Telegram message")
+
+	TelegramQueueName = []byte("telegram-queue")
 )
 
 // Telegram sends messages through the Telegram API.
 //
 // It takes the following parameters:
 // - ctx: the context.Context object for handling deadlines and cancellations.
+// - eDB: the database instance for checking failed messages.
 // - ch: a channel for receiving messages to be sent.
 // - apiKey: the API key for accessing the Telegram API.
 // - chatIDs: a slice of strings containing the IDs of the chat recipients.
 // - retries: the number of times to retry sending a message in case of failure.
 //
 // It returns an error indicating any failures that occurred during the process.
-func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs []string, retries uint) error {
+func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey string, chatIDs []string, retries uint) error {
 	if apiKey == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
@@ -129,11 +133,16 @@ func Telegram(ctx context.Context, ch <-chan interface{}, apiKey string, chatIDs
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
-					break
+					// store failed message
+					if err := storeFailedMsgs(eDB, TelegramQueueName, g); err != nil {
+						logger.Error().Msgf("%v: %v", ErrQueueing, err)
+					}
+
+					continue
 				}
 			}
 		}
 	}
 
-	return err
+	return nil
 }

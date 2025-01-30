@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -46,12 +47,15 @@ var (
 	ErrMailInvalidPort     = errors.New("invalid or missing SMTP port, will try with default 587/tcp")
 	ErrMailDialer          = errors.New("failed to create mail delivery client")
 	ErrMailSendingMessages = errors.New("error sending mail messages")
+
+	MailQueueName = []byte("mail-queue")
 )
 
 // Mail sends a message through the mail service.
 //
 // The function takes the following parameters:
 // - ctx: the context.Context object for cancellation and timeouts.
+// - eDB: the database instance for checking failed messages.
 // - ch: a channel from which messages are received.
 // - server: the address of the mail server.
 // - port: the port number for the mail server.
@@ -63,7 +67,7 @@ var (
 // - retries: the number of retry attempts to send the message.
 //
 // The function returns an error.
-func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, password, from, subject string, to []string, retries uint) error {
+func Mail(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, server, port, username, password, from, subject string, to []string, retries uint) error {
 	logger.Debug().Msg("Started e-mail messenger")
 
 	portInt, err := strconv.Atoi(port)
@@ -145,10 +149,15 @@ func Mail(ctx context.Context, ch <-chan interface{}, server, port, username, pa
 			if err != nil {
 				logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
-				break
+				// store failed message
+				if err := storeFailedMsgs(eDB, MailQueueName, g); err != nil {
+					logger.Error().Msgf("%v: %v", ErrQueueing, err)
+				}
+
+				continue
 			}
 		}
 	}
 
-	return err
+	return nil
 }

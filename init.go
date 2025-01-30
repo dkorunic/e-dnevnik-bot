@@ -61,7 +61,7 @@ func init() {
 	BuildTime = strings.TrimSpace(BuildTime)
 }
 
-// checkCalendar checks the calendar configuration and enables or disables the calendar integration based on the existence of the Google Calendar API credentials file and token file.
+// checkCalendarConf checks the calendar configuration and enables or disables the calendar integration based on the existence of the Google Calendar API credentials file and token file.
 //
 // Parameters:
 // - config: a pointer to the tomlConfig struct containing the configuration settings.
@@ -72,7 +72,7 @@ func checkCalendar(ctx context.Context, config *tomlConfig) {
 	}
 
 	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
-		// check if we are running under a terminal
+		// checkWhatsAppConf if we are running under a terminal
 		if isTerminal() {
 			logger.Error().Msg("Google Calendar API token file not found and first run requires running under a terminal. Disabling calendar integration.")
 

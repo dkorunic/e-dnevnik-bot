@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -73,13 +74,15 @@ var (
 	ErrWhatsAppSendingMessage = errors.New("error sending WhatsApp message")
 	ErrWhatsAppDisconnected   = errors.New("WhatsApp client disconnected, will auto-reconnect")
 
-	whatsAppCli *whatsmeow.Client
+	WhatsAppQueueName = []byte("whatsapp-queue")
+	whatsAppCli       *whatsmeow.Client
 )
 
 // WhatsApp sends messages through the WhatsApp API to the specified user IDs.
 //
 // ctx: The context.Context used for handling cancellations and deadlines.
 // ch: The channel from which to receive messages.
+// eDB: the database instance for checking failed messages.
 // userIDs: A slice of strings containing the IDs of the recipients (JIDs).
 // retries: The number of attempts to retry sending a message in case of failure.
 //
@@ -87,7 +90,7 @@ var (
 // It ensures the client is connected or reconnects if needed, and uses rate limiting
 // to control the message sending rate. Messages are formatted and sent as Markup.
 // If the userIDs slice is empty, it returns an ErrWhatsAppEmptyUserIDs error.
-func WhatsApp(ctx context.Context, ch <-chan interface{}, userIDs, groups []string, retries uint) error {
+func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, userIDs, groups []string, retries uint) error {
 	if len(userIDs) == 0 && len(groups) == 0 {
 		return ErrWhatsAppEmptyUserIDs
 	}
@@ -147,13 +150,18 @@ func WhatsApp(ctx context.Context, ch <-chan interface{}, userIDs, groups []stri
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
 
-					break
+					// store failed message
+					if err := storeFailedMsgs(eDB, WhatsAppQueueName, g); err != nil {
+						logger.Error().Msgf("%v: %v", ErrQueueing, err)
+					}
+
+					continue
 				}
 			}
 		}
 	}
 
-	return err
+	return nil
 }
 
 // whatsAppInit ensures that the WhatsApp client is initialized and connected.

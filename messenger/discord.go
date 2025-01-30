@@ -30,6 +30,7 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/bwmarrin/discordgo"
+	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -48,17 +49,20 @@ var (
 	ErrDiscordCreatingSession = errors.New("error creating Discord session")
 	ErrDiscordCreatingChannel = errors.New("error creating Discord channel")
 	ErrDiscordSendingMessage  = errors.New("error sending Discord message")
+
+	DiscordQueueName = []byte("discord-queue")
 )
 
 // Discord sends messages through the Discord API to the specified user IDs.
 //
 // ctx: The context.Context that can be used to cancel the operation.
+// eDB: the database instance for checking failed messages.
 // ch: The channel from which to receive messages.
 // token: The Discord API token.
 // userIDs: The list of user IDs to send the messages to.
 // retries: The number of attempts to send the message before giving up.
 // Returns an error if there was a problem sending the message.
-func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs []string, retries uint) error {
+func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string, userIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
@@ -143,11 +147,16 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
-					break
+					// store failed message
+					if err := storeFailedMsgs(eDB, DiscordQueueName, g); err != nil {
+						logger.Error().Msgf("%v: %v", ErrQueueing, err)
+					}
+
+					continue
 				}
 			}
 		}
 	}
 
-	return err
+	return nil
 }

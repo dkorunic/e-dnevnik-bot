@@ -91,8 +91,15 @@ again:
 	return db.db.Close()
 }
 
-// CheckAndFlag checks presence of a SHA256(bucket, subBucket, []target) in a KV database, returning if it has been
-// found or not, flagging it for the next time and returning error if encountered.
+// CheckAndFlag checks if a key already exists in the database and marks it with a flag
+// if it doesn't exist. The flag is set with a TTL of 1+ year.
+//
+// The key is created by hashing a concatenation of the bucket, subBucket and target
+// strings using SHA-256.
+//
+// If the key already exists, the function returns (true, nil). If the key doesn't
+// exist, the function marks the key and returns (false, nil) on success or
+// (false, error) on error.
 func (db *Edb) CheckAndFlag(bucket, subBucket string, target []string) (bool, error) {
 	// SHA256 hash of (bucket, subBucket, []target)
 	key := hashContent(bucket, subBucket, target)
@@ -140,4 +147,80 @@ func (db *Edb) CheckAndFlag(bucket, subBucket string, target []string) (bool, er
 // Existing returns if the database was freshly initialized.
 func (db *Edb) Existing() bool {
 	return db.isExisting
+}
+
+// FetchAndDelete fetches a value by key, deletes the key and returns the value.
+//
+// It does the following steps:
+//
+// 1. Finds the key in the database.
+// 2. Copies the associated value.
+// 3. Deletes the key.
+//
+// If any of the steps fail, it will return an error and the value will not be copied.
+//
+// The returned value is valid until the next database GC is run.
+func (db *Edb) FetchAndDelete(key []byte) ([]byte, error) {
+	var val []byte
+
+	err := db.db.Update(func(txn *badger.Txn) error {
+		// find key
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+
+		// store value
+		val, err = item.ValueCopy(val)
+		if err != nil {
+			return err
+		}
+
+		// delete key
+		err = txn.Delete(key)
+
+		return err
+	})
+
+	return val, err
+}
+
+// Fetch retrieves a value from the database using the specified key.
+//
+// It performs the following steps:
+//
+// 1. Finds the key in the database.
+// 2. Copies the associated value.
+//
+// If the key is found, it returns the value and a nil error. If the key is not found
+// or an error occurs, it returns nil and the error.
+func (db *Edb) Fetch(key []byte) ([]byte, error) {
+	var val []byte
+
+	err := db.db.View(func(txn *badger.Txn) error {
+		// find key
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+
+		// store value
+		val, err = item.ValueCopy(val)
+
+		return err
+	})
+
+	return val, err
+}
+
+// Store adds a key-value pair to the database with a specified TTL.
+//
+// The key and value are stored as byte slices, and the entry is given a default TTL.
+// This function returns an error if the operation fails.
+func (db *Edb) Store(key []byte, val []byte) error {
+	return db.db.Update(func(txn *badger.Txn) error {
+		e := badger.NewEntry(key, val).WithTTL(DefaultTTL)
+
+		return txn.SetEntry(e)
+	})
 }

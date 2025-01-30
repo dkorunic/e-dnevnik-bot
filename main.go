@@ -28,7 +28,6 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -40,8 +39,6 @@ import (
 	"github.com/dustin/go-humanize"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v6/notify/watchdog"
-	"github.com/reiver/go-cast"
-	"github.com/rs/zerolog"
 	"go.uber.org/automaxprocs/maxprocs"
 )
 
@@ -88,31 +85,7 @@ func fatalIfErrors() {
 func main() {
 	parseFlags()
 
-	// set global log level
-	logLevel := zerolog.InfoLevel
-	if *debug {
-		logLevel = zerolog.DebugLevel
-	} else {
-		if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
-			if l, err := strconv.Atoi(v); err == nil {
-				if l8, err := cast.Int8(l); err == nil {
-					logLevel = zerolog.Level(l8)
-				}
-			}
-		}
-	}
-
-	zerolog.SetGlobalLevel(logLevel)
-
-	// enable slow colored console logging
-	if *colorLogs {
-		logger.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).
-			Level(logLevel).
-			With().
-			Timestamp().
-			Caller().
-			Logger()
-	}
+	initLog()
 
 	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on %v, with %v", GitTag, GitCommit, GitDirty,
 		BuildTime, runtime.Version())
@@ -201,28 +174,7 @@ func main() {
 
 	// test mode: send messages and exit
 	if *emulation {
-		logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
-		signal.Reset()
-
-		gradesMsg := make(chan msgtypes.Message, chanBufLen)
-		gradesMsg <- msgtypes.Message{
-			Username: testUsername,
-			Subject:  testSubject,
-			Descriptions: []string{
-				testDescription,
-			},
-			Fields: []string{
-				testField,
-			},
-		}
-		close(gradesMsg)
-
-		var wgMsg sync.WaitGroup
-
-		msgSend(ctx, &wgMsg, gradesMsg, config)
-		wgMsg.Wait()
-
-		logger.Info().Msg("Exiting with a success from the emulation.")
+		testSingleRun(ctx, config)
 
 		return
 	}
@@ -239,25 +191,7 @@ func main() {
 
 	_ = sysdnotify.Ready()
 
-	// systemd watchdog
-	watchdog, _ := sysdwatchdog.New()
-	if watchdog != nil {
-		logger.Debug().Msg("Detected and enabled systemd watchdog support")
-
-		go func() {
-			ticker := watchdog.NewTicker()
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ticker.C:
-					_ = watchdog.SendHeartbeat()
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
+	startSystemdWatchdog(ctx)
 
 	for {
 		select {
@@ -292,17 +226,20 @@ func main() {
 
 			var wgVersion, wgScrape, wgFilter, wgMsg sync.WaitGroup
 
-			// self-check
+			// self-checkWhatsAppConf
 			versionCheck(ctx, &wgVersion)
+
+			// open KV store
+			eDB := openDB()
 
 			// subjects/grades/exams scraper routines
 			scrapers(ctx, &wgScrape, gradesScraped, config)
 
 			// message/alert database checking routine
-			msgDedup(ctx, &wgFilter, gradesScraped, gradesMsg)
+			msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg)
 
 			// messenger routines
-			msgSend(ctx, &wgMsg, gradesMsg, config)
+			msgSend(ctx, eDB, &wgMsg, gradesMsg, config)
 
 			wgScrape.Wait()
 			close(gradesScraped)
@@ -317,9 +254,85 @@ func main() {
 				return
 			}
 
+			closeDB(eDB)
+
 			logger.Info().Msg(scheduledSleep)
 
 			_ = sysdnotify.Status(scheduledSleep)
 		}
 	}
+}
+
+// startSystemdWatchdog sets up the systemd watchdog for the application.
+//
+// It initializes a systemd watchdog and starts a goroutine that sends
+// periodic heartbeat signals to systemd. The function listens for context
+// cancellation, upon which it stops sending heartbeats and exits the
+// goroutine. This function is useful for ensuring the application is
+// alive and responsive, as monitored by systemd.
+//
+// Parameters:
+// - ctx: the context object for cancellation and timeout.
+func startSystemdWatchdog(ctx context.Context) {
+	// systemd watchdog
+	watchdog, _ := sysdwatchdog.New()
+	if watchdog != nil {
+		logger.Debug().Msg("Detected and enabled systemd watchdog support")
+
+		go func() {
+			ticker := watchdog.NewTicker()
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					_ = watchdog.SendHeartbeat()
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+}
+
+// testSingleRun performs a single run in emulation mode. It sends a single test
+// message to each messenger and exits after that. It is meant to be used for
+// testing and debugging purposes only.
+//
+// The function takes a context.Context and a tomlConfig as parameters. The
+// context is used to cancel the function early if the user cancels it.
+//
+// The function will log a message when it is called and another one when it is
+// exiting.
+func testSingleRun(ctx context.Context, config tomlConfig) {
+	logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
+	signal.Reset()
+
+	gradesMsg := make(chan msgtypes.Message, chanBufLen)
+	gradesMsg <- msgtypes.Message{
+		Username: testUsername,
+		Subject:  testSubject,
+		Descriptions: []string{
+			testDescription,
+		},
+		Fields: []string{
+			testField,
+		},
+	}
+
+	close(gradesMsg)
+
+	var wgMsg sync.WaitGroup
+
+	eDB := openDB()
+
+	msgSend(ctx, eDB, &wgMsg, gradesMsg, config)
+
+	wgMsg.Wait()
+
+	closeDB(eDB)
+
+	logger.Info().Msg("Exiting with a success from the emulation.")
+
+	return
 }

@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -45,17 +46,20 @@ var (
 	ErrSlackEmptyAPIKey    = errors.New("empty Slack API key")
 	ErrSlackEmptyUserIDs   = errors.New("empty list of Slack Chat IDs")
 	ErrSlackSendingMessage = errors.New("error sending Slack message")
+
+	SlackQueueName = []byte("slack-queue")
 )
 
 // Slack sends messages through the Slack API.
 //
 // ctx: the context in which the function is executed.
+// eDB: the database instance for checking failed messages.
 // ch: the channel from which messages are received.
 // token: the Slack API key.
 // chatIDs: the IDs of the recipients.
 // retries: the number of retries in case of failure.
 // error: an error if there was a problem sending the message.
-func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []string, retries uint) error {
+func Slack(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string, chatIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
@@ -110,11 +114,16 @@ func Slack(ctx context.Context, ch <-chan interface{}, token string, chatIDs []s
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
-					break
+					// store failed message
+					if err := storeFailedMsgs(eDB, SlackQueueName, g); err != nil {
+						logger.Error().Msgf("%v: %v", ErrQueueing, err)
+					}
+
+					continue
 				}
 			}
 		}
 	}
 
-	return err
+	return nil
 }

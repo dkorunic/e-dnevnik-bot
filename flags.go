@@ -54,7 +54,7 @@ func parseFlags() {
 	debugEvents = fs.Bool('0', "fulldebug", "log every scraped event (only with verbose mode)")
 	daemon = fs.Bool('d', "daemon", "enable daemon mode (running as a service)")
 	help = fs.Bool('?', "help", "display help")
-	emulation = fs.Bool('t', "test", "send a test event (to check if messaging works)")
+	emulation = fs.Bool('t', "test", "send a test event (to checkWhatsAppConf if messaging works)")
 	colorLogs = fs.Bool('l', "colorlogs", "enable colorized console logs")
 	version = fs.BoolLong("version", "display program version")
 
