@@ -98,11 +98,12 @@ type tomlConfig struct {
 }
 
 var (
-	phoneRegex         = regexp.MustCompile(`^\+[1-9][0-9]{3,14}$`)
-	slackTokenRegex    = regexp.MustCompile(`^xox(?i:[abposr])-(?:\d+-)+[a-z0-9]+$`)
-	slackChatIDRegex   = regexp.MustCompile(`^[UWCGD][A-Z0-9]{8,}$|^\d{10}\.\d{6}$`)
-	discordTokenRegex  = regexp.MustCompile(`^[MNO][a-zA-Z\d_-]{23,25}\.[a-zA-Z\d_-]{6}\.[a-zA-Z\d_-]{27}$`)
-	telegramTokenRegex = regexp.MustCompile(`^\d{8,10}:[0-9A-Za-z_-]{35}$`)
+	phoneRegex          = regexp.MustCompile(`^\+[1-9][0-9]{3,14}$`)
+	slackTokenRegex     = regexp.MustCompile(`^xox(?i:[abposr])-(?:\d+-)+[a-z0-9]+$`)
+	slackChatIDRegex    = regexp.MustCompile(`^[UWCGD][A-Z0-9]{8,}$|^\d{10}\.\d{6}$`)
+	discordTokenRegex   = regexp.MustCompile(`^[MNO][a-zA-Z\d_-]{23,25}\.[a-zA-Z\d_-]{6}\.[a-zA-Z\d_-]{27}$`)
+	telegramTokenRegex  = regexp.MustCompile(`^\d{8,10}:[0-9A-Za-z_-]{35}$`)
+	telegramChatIDRegex = regexp.MustCompile(`^-?\d{5,15}$`)
 )
 
 // loadConfig attempts to load and decode configuration file in TOML format, doing a minimal sanity checking and
@@ -174,7 +175,7 @@ func loadConfig() (tomlConfig, error) {
 
 		// check if all chat IDs are valid
 		for _, c := range config.Telegram.ChatIDs {
-			if !isValidID(c) {
+			if !isValidTelegramChatID(c) {
 				logger.Fatal().Msgf("Configuration error: Telegram chat ID %q is not valid", c)
 			}
 		}
@@ -338,6 +339,17 @@ func isValidDiscordToken(token string) bool {
 // - true if the Telegram token is valid, false otherwise
 func isValidTelegramToken(token string) bool {
 	return telegramTokenRegex.MatchString(token)
+}
+
+// isValidTelegramChatID checks if the given string is a valid Telegram Chat ID.
+//
+// Parameters:
+// - id: the string to validate
+//
+// Returns:
+// - true if the string is a valid Telegram Chat ID, false otherwise
+func isValidTelegramChatID(id string) bool {
+	return telegramChatIDRegex.MatchString(id)
 }
 
 // isValidWhatsAppJID checks if the given string is a valid WhatsApp group or user JID.
