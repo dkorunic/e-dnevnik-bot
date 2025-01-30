@@ -99,6 +99,7 @@ type tomlConfig struct {
 
 var (
 	phoneRegex          = regexp.MustCompile(`^\+[1-9][0-9]{3,14}$`)
+	userAtDomainRegex   = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 	slackTokenRegex     = regexp.MustCompile(`^xox(?i:[abposr])-(?:\d+-)+[a-z0-9]+$`)
 	slackChatIDRegex    = regexp.MustCompile(`^[UWCGD][A-Z0-9]{8,}$|^\d{10}\.\d{6}$`)
 	discordTokenRegex   = regexp.MustCompile(`^[MNO][a-zA-Z\d_-]{23,25}\.[a-zA-Z\d_-]{6}\.[a-zA-Z\d_-]{27}$`)
@@ -126,9 +127,9 @@ func loadConfig() (tomlConfig, error) {
 				u.Username, u.Password)
 		}
 
-		// check if username is in e-mail format
-		if !isValidMail(u.Username) {
-			logger.Fatal().Msgf("Configuration error: username not in e-mail format: %q", u.Username)
+		// check if username is in user@domain format
+		if !isValidUserAtDomain(u.Username) {
+			logger.Fatal().Msgf("Configuration error: username not in proper user@domain format: %q", u.Username)
 		}
 
 		// check if username ends with @skole.hr
@@ -268,6 +269,18 @@ func loadConfig() (tomlConfig, error) {
 // - true if phone number is valid, false otherwise
 func isValidPhone(phone string) bool {
 	return phoneRegex.MatchString(phone)
+}
+
+// isValidUserAtDomain checks if the given string is a valid username at domain
+// (user@domain.tld).
+//
+// Parameters:
+// - user: the username at domain to validate
+//
+// Returns:
+// - true if the username at domain is valid, false otherwise
+func isValidUserAtDomain(user string) bool {
+	return userAtDomainRegex.MatchString(user)
 }
 
 // isValidMail checks if the given string is a valid e-mail address in the
