@@ -74,7 +74,7 @@ func checkCalendar(ctx context.Context, config *tomlConfig) {
 	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
 		// check if we are running under a terminal
 		if isTerminal() {
-			logger.Error().Msgf("Google Calendar API token file not found and first run requires running under a terminal. Disabling calendar integration.")
+			logger.Error().Msg("Google Calendar API token file not found and first run requires running under a terminal. Disabling calendar integration.")
 
 			config.calendarEnabled = false
 		} else {
@@ -165,7 +165,7 @@ func checkWhatsApp(ctx context.Context, config *tomlConfig) {
 						logger.Info().Msg("WhatsApp QR code below")
 						qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 					} else {
-						logger.Fatal().Msgf("WhatsApp first run requires running under a terminal or pairing through phone number.")
+						logger.Fatal().Msg("WhatsApp first run requires running under a terminal or pairing through phone number.")
 					}
 				}
 			}
@@ -237,6 +237,7 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 // considers Cygwin terminals as valid terminals.
 func isTerminal() bool {
 	fd := os.Stdout.Fd()
+
 	return os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" &&
 		(isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd))
 }

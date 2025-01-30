@@ -184,7 +184,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msgf("Calendar messenger started")
+				logger.Debug().Msg("Calendar messenger started")
 
 				if err := messenger.Calendar(ctx, ch, config.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
@@ -205,7 +205,7 @@ func msgSend(ctx context.Context, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtyp
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msgf("WhatsApp messenger started")
+				logger.Debug().Msg("WhatsApp messenger started")
 
 				if err := messenger.WhatsApp(ctx, ch, config.WhatsApp.UserIDs, config.WhatsApp.Groups,
 					*retries); err != nil {
