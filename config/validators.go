@@ -63,14 +63,14 @@ func isValidUserAtDomain(user string) bool {
 	return userAtDomainRegex.MatchString(user)
 }
 
-// isValidMail checks if the given string is a valid e-Mail address in the
+// isValidMail checks if the given string is a valid mail address in the
 // format User@domain.tld.
 //
 // Parameters:
-// - Mail: the e-Mail address to validate
+// - Mail: the mail address to validate
 //
 // Returns:
-// - true if the e-Mail address is valid, false otherwise
+// - true if the mail address is valid, false otherwise
 func isValidMail(mail string) bool {
 	_, err := stdmail.ParseAddress(mail)
 

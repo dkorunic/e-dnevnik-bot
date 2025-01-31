@@ -94,29 +94,29 @@ func checkCalendarConf(config *TomlConfig) {
 	}
 }
 
-// checkMailConf does a minimal sanity check on the e-Mail configuration block, ensuring that:
+// checkMailConf does a minimal sanity check on the mail configuration block, ensuring that:
 //
-// 1. the e-Mail server is not empty
+// 1. the mail server is not empty
 //
-// 2. all destination e-Mail addresses (TO) are valid
+// 2. all destination mail addresses (TO) are valid
 //
-// If all conditions are met, the program will log an info message about e-Mail integration being enabled and will set the
+// If all conditions are met, the program will log an info message about mail integration being enabled and will set the
 // mailEnabled field of the TomlConfig object to true.
 func checkMailConf(config *TomlConfig) {
 	if config.Mail.Server != "" {
-		// checkWhatsAppConf if any of e-Mail destinations (TO) are defined
+		// checkWhatsAppConf if any of mail destinations (TO) are defined
 		if len(config.Mail.To) == 0 {
-			logger.Fatal().Msg("Configuration error: no e-Mail to addresses defined")
+			logger.Fatal().Msg("Configuration error: no mail to addresses defined")
 		}
 
-		logger.Info().Msg("Configuration: e-Mail messenger enabled (pending checkWhatsAppConf during initialization)")
+		logger.Info().Msg("Configuration: mail messenger enabled (pending checkWhatsAppConf during initialization)")
 
-		// no need to checkWhatsAppConf e-Mail FROM since it can be anything
+		// no need to checkWhatsAppConf mail FROM since it can be anything
 
-		// checkWhatsAppConf if all destination e-Mail addresses are valid
+		// checkWhatsAppConf if all destination mail addresses are valid
 		for _, t := range config.Mail.To {
 			if !isValidMail(t) {
-				logger.Fatal().Msgf("Configuration error: e-Mail to %q is not in e-Mail format", t)
+				logger.Fatal().Msgf("Configuration error: mail to %q is not in mail format", t)
 			}
 		}
 

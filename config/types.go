@@ -45,7 +45,7 @@ type Slack struct {
 	ChatIDs []string `toml:"chatids"`
 }
 
-// Mail struct hold e-Mail messenger configuration.
+// Mail struct hold mail messenger configuration.
 type Mail struct {
 	Server   string   `toml:"server"`
 	Port     string   `toml:"port"`
