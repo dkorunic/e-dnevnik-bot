@@ -41,6 +41,7 @@ const (
 	TelegramAPILimit = 30 // 30 API req/s per user
 	TelegramWindow   = 1 * time.Second
 	TelegramMinDelay = TelegramWindow / TelegramAPILimit
+	TelegramQueue    = "telegram-queue"
 )
 
 var (
@@ -49,7 +50,7 @@ var (
 	ErrTelegramInvalidChatID  = errors.New("invalid Telegram Chat ID")
 	ErrTelegramSendingMessage = errors.New("error sending Telegram message")
 
-	TelegramQueueName = []byte("telegram-queue")
+	TelegramQueueName = []byte(TelegramQueue)
 )
 
 // Telegram sends messages through the Telegram API.

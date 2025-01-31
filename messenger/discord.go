@@ -41,6 +41,7 @@ const (
 	DiscordAPILimit = 50 // 50 API req/s per user/IP
 	DiscordWindow   = 1 * time.Second
 	DiscordMinDelay = DiscordWindow / DiscordAPILimit
+	DiscordQueue    = "discord-queue"
 )
 
 var (
@@ -50,7 +51,7 @@ var (
 	ErrDiscordCreatingChannel = errors.New("error creating Discord channel")
 	ErrDiscordSendingMessage  = errors.New("error sending Discord message")
 
-	DiscordQueueName = []byte("discord-queue")
+	DiscordQueueName = []byte(DiscordQueue)
 )
 
 // Discord sends messages through the Discord API to the specified user IDs.

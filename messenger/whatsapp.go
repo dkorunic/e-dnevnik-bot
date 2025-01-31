@@ -47,16 +47,14 @@ import (
 )
 
 const (
-	DefaultWhatsAppDBName       = ".e-dnevnik.sqlite"
-	DefaultWhatsAppDBConnstring = "file:%v?_pragma=foreign_keys(1)"
-	DefaultWhatsAppDisplayName  = "Chrome (Linux)"
-	DefaultWhatsAppOS           = "Linux"
-)
-
-const (
-	WhatsAppAPILimit = 10 // 10 req/s per user/IP
-	WhatsAppWindow   = 1 * time.Second
-	WhatsAppMinDelay = WhatsAppWindow / WhatsAppAPILimit
+	WhatsAppDBName       = ".e-dnevnik.sqlite"
+	WhatsAppDBConnstring = "file:%v?_pragma=foreign_keys(1)"
+	WhatsAppDisplayName  = "Chrome (Linux)"
+	WhatsAppOS           = "Linux"
+	WhatsAppAPILimit     = 10 // 10 req/s per user/IP
+	WhatsAppWindow       = 1 * time.Second
+	WhatsAppMinDelay     = WhatsAppWindow / WhatsAppAPILimit
+	WhatsAppQueue        = "whatsapp-queue"
 )
 
 var (
@@ -74,7 +72,7 @@ var (
 	ErrWhatsAppSendingMessage = errors.New("error sending WhatsApp message")
 	ErrWhatsAppDisconnected   = errors.New("WhatsApp client disconnected, will auto-reconnect")
 
-	WhatsAppQueueName = []byte("whatsapp-queue")
+	WhatsAppQueueName = []byte(WhatsAppQueue)
 	whatsAppCli       *whatsmeow.Client
 )
 
@@ -211,7 +209,7 @@ func whatsAppProcessGroups(userIDs, groups []string) []string {
 
 // whatsAppLogin initializes WhatsApp messenger.
 //
-// It connects to the SQLite database specified by DefaultWhatsAppDBName, upgrades
+// It connects to the SQLite database specified by WhatsAppDBName, upgrades
 // the database schema if necessary, loads the first device, and then connects
 // to WhatsApp using the loaded device. If the device is not logged in, it will
 // request a QR code or code to pair with the WhatsApp account.
@@ -226,10 +224,10 @@ func whatsAppLogin() error {
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
 
 	// set OS to Linux
-	store.DeviceProps.Os = proto.String(DefaultWhatsAppOS)
+	store.DeviceProps.Os = proto.String(WhatsAppOS)
 
 	storeContainer, err := sqlstore.New("sqlite",
-		fmt.Sprintf(DefaultWhatsAppDBConnstring, DefaultWhatsAppDBName), nil)
+		fmt.Sprintf(WhatsAppDBConnstring, WhatsAppDBName), nil)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableConnect, err)
 
@@ -296,12 +294,12 @@ func whatsAppEventHandler(rawEvt interface{}) {
 		}
 	case *events.PairSuccess, *events.PairError:
 		if whatsAppCli.Store.ID == nil {
-			_ = os.Remove(DefaultWhatsAppDBName)
+			_ = os.Remove(WhatsAppDBName)
 
 			logger.Fatal().Msgf("%v", ErrWhatsAppFailLinkDevice)
 		}
 	case *events.LoggedOut:
-		_ = os.Remove(DefaultWhatsAppDBName)
+		_ = os.Remove(WhatsAppDBName)
 
 		logger.Fatal().Msgf("%v", ErrWhatsAppLoggedout)
 	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:

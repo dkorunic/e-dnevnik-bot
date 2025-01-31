@@ -106,10 +106,10 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
 
 	// set OS to Linux
-	store.DeviceProps.Os = proto.String(messenger.DefaultWhatsAppOS)
+	store.DeviceProps.Os = proto.String(messenger.WhatsAppOS)
 
 	storeContainer, err := sqlstore.New("sqlite",
-		fmt.Sprintf(messenger.DefaultWhatsAppDBConnstring, messenger.DefaultWhatsAppDBName), nil)
+		fmt.Sprintf(messenger.WhatsAppDBConnstring, messenger.WhatsAppDBName), nil)
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableConnect, err)
 	}
@@ -154,7 +154,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 				// prefer pairing through code if phone number is enabled
 				if config.WhatsApp.PhoneNumber != "" {
 					linkCode, err := whatsAppCli.PairPhone(config.WhatsApp.PhoneNumber, true,
-						whatsmeow.PairClientChrome, messenger.DefaultWhatsAppDisplayName)
+						whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)
 					if err != nil {
 						logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailLink, err)
 					}
@@ -218,12 +218,12 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 		}
 	case *events.PairSuccess, *events.PairError:
 		if whatsAppCli.Store.ID == nil {
-			_ = os.Remove(messenger.DefaultWhatsAppDBName)
+			_ = os.Remove(messenger.WhatsAppDBName)
 
 			logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
 		}
 	case *events.LoggedOut:
-		_ = os.Remove(messenger.DefaultWhatsAppDBName)
+		_ = os.Remove(messenger.WhatsAppDBName)
 
 		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppLoggedout)
 	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:

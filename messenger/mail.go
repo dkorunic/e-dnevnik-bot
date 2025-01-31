@@ -41,6 +41,7 @@ const (
 	MailWindow    = 1 * time.Hour
 	MailMinDelay  = MailWindow / MailSendLimit
 	MailSubject   = "Nova ocjena iz e-Dnevnika"
+	MailQueue     = "mail-queue"
 )
 
 var (
@@ -48,7 +49,7 @@ var (
 	ErrMailDialer          = errors.New("failed to create mail delivery client")
 	ErrMailSendingMessages = errors.New("error sending mail messages")
 
-	MailQueueName = []byte("mail-queue")
+	MailQueueName = []byte(MailQueue)
 )
 
 // Mail sends a message through the mail service.

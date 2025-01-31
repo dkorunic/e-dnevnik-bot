@@ -47,7 +47,7 @@ const (
 	CalendarMinDelay    = CalendarWindow / CalendarAPILimit
 	CalendarMaxResults  = 100
 	CalendarCredentials = "assets/calendar_credentials.json" // embedded Google Calendar credentials file
-
+	CalendarQueue       = "calendar-queue"
 )
 
 var (
@@ -55,7 +55,7 @@ var (
 	ErrCalendarParsingCreds = errors.New("unable to parse credentials file")
 	ErrCalendarNotFound     = errors.New("unable to find Google Calendar ID")
 
-	CalendarQueueName = []byte("calendar-queue")
+	CalendarQueueName = []byte(CalendarQueue)
 )
 
 //go:embed assets/calendar_credentials.json

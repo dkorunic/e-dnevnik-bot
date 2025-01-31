@@ -40,6 +40,7 @@ const (
 	SlackAPILImit = 1 // typically 1 req/s per user
 	SlackWindow   = 1 * time.Second
 	SlackMinDelay = SlackWindow / SlackAPILImit
+	SlackQueue    = "slack-queue"
 )
 
 var (
@@ -47,7 +48,7 @@ var (
 	ErrSlackEmptyUserIDs   = errors.New("empty list of Slack Chat IDs")
 	ErrSlackSendingMessage = errors.New("error sending Slack message")
 
-	SlackQueueName = []byte("slack-queue")
+	SlackQueueName = []byte(SlackQueue)
 )
 
 // Slack sends messages through the Slack API.
