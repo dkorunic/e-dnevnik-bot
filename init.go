@@ -28,6 +28,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -113,6 +114,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableConnect, err)
 	}
+	defer storeContainer.Close()
 
 	err = storeContainer.Upgrade()
 	if err != nil {
@@ -177,11 +179,13 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if err != nil {
 		logger.Fatal().Msgf("Failed to connect to WhatsApp: %v", err)
 	}
-
 	defer whatsAppCli.Disconnect()
 
 	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep mobile app open. This can take quite a while.")
 	<-whatsAppSynced
+
+	// give additional time for WhatsApp to fully sync
+	time.Sleep(120 * time.Second)
 }
 
 // whatsappPairingEventHandler is a callback function that handles events from the

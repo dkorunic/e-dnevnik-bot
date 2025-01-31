@@ -48,7 +48,7 @@ import (
 
 const (
 	WhatsAppDBName       = ".e-dnevnik.sqlite"
-	WhatsAppDBConnstring = "file:%v?_pragma=foreign_keys(1)"
+	WhatsAppDBConnstring = "file:%v?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000"
 	WhatsAppDisplayName  = "Chrome (Linux)"
 	WhatsAppOS           = "Linux"
 	WhatsAppAPILimit     = 10 // 10 req/s per user/IP
