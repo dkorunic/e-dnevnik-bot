@@ -38,8 +38,8 @@ import (
 //
 // The application database is stored in a file in the current working directory
 // with the name given by the `dbFile` flag.
-func openDB() *db.Edb {
-	eDB, err := db.New(*dbFile)
+func openDB(file string) *db.Edb {
+	eDB, err := db.New(file)
 	if err != nil {
 		logger.Fatal().Msgf("Unable to open application database: %v", err)
 	}

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/blang/semver/v4"
+	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/messenger"
@@ -47,7 +48,7 @@ const (
 )
 
 var (
-	ErrScrapingUser = errors.New("error scraping data for user")
+	ErrScrapingUser = errors.New("error scraping data for User")
 	ErrDiscord      = errors.New("Discord messenger issue")  //nolint:stylecheck
 	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:stylecheck
 	ErrSlack        = errors.New("Slack messenger issue")    //nolint:stylecheck
@@ -58,12 +59,12 @@ var (
 	formatHRDateOnly = "2.1."
 )
 
-// scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI user and send grades/exams messages
+// scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI User and send grades/exams messages
 // to a channel.
-func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, config tomlConfig) {
+func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, cfg config.TomlConfig) {
 	logger.Debug().Msg("Starting scrapers")
 
-	for _, i := range config.User {
+	for _, i := range cfg.User {
 		wgScrape.Add(1)
 
 		go func() {
@@ -87,8 +88,8 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 // - eDB: the database instance for checking failed messages.
 // - wgMsg: a WaitGroup to synchronize the completion of message sending.
 // - gradesMsg: a channel receiving messages to be sent to configured messengers.
-// - config: the configuration settings containing enabled services and their respective credentials.
-func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, config tomlConfig) {
+// - cfg: the configuration settings containing enabled services and their respective credentials.
+func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Add(1)
 
 	var wgFailedMsg sync.WaitGroup
@@ -100,7 +101,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		defer bcast.Close()
 
 		// Discord sender
-		if config.discordEnabled {
+		if cfg.DiscordEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
 
@@ -123,7 +124,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 				defer wgMsg.Done()
 				logger.Debug().Msg("Discord messenger started")
 
-				if err := messenger.Discord(ctx, eDB, ch, config.Discord.Token, config.Discord.UserIDs, *retries); err != nil {
+				if err := messenger.Discord(ctx, eDB, ch, cfg.Discord.Token, cfg.Discord.UserIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
 				}
@@ -131,7 +132,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		}
 
 		// Telegram sender
-		if config.telegramEnabled {
+		if cfg.TelegramEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
 
@@ -154,7 +155,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 				defer wgMsg.Done()
 				logger.Debug().Msg("Telegram messenger started")
 
-				if err := messenger.Telegram(ctx, eDB, ch, config.Telegram.Token, config.Telegram.ChatIDs, *retries); err != nil {
+				if err := messenger.Telegram(ctx, eDB, ch, cfg.Telegram.Token, cfg.Telegram.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
 				}
@@ -162,7 +163,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		}
 
 		// Slack sender
-		if config.slackEnabled {
+		if cfg.SlackEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
 
@@ -185,15 +186,15 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 				defer wgMsg.Done()
 				logger.Debug().Msg("Slack messenger started")
 
-				if err := messenger.Slack(ctx, eDB, ch, config.Slack.Token, config.Slack.ChatIDs, *retries); err != nil {
+				if err := messenger.Slack(ctx, eDB, ch, cfg.Slack.Token, cfg.Slack.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
 				}
 			}()
 		}
 
-		// mail Sender
-		if config.mailEnabled {
+		// Mail Sender
+		if cfg.MailEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
 
@@ -216,8 +217,8 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 				defer wgMsg.Done()
 				logger.Debug().Msg("Mail messenger started")
 
-				if err := messenger.Mail(ctx, eDB, ch, config.Mail.Server, config.Mail.Port, config.Mail.Username,
-					config.Mail.Password, config.Mail.From, config.Mail.Subject, config.Mail.To, *retries); err != nil {
+				if err := messenger.Mail(ctx, eDB, ch, cfg.Mail.Server, cfg.Mail.Port, cfg.Mail.Username,
+					cfg.Mail.Password, cfg.Mail.From, cfg.Mail.Subject, cfg.Mail.To, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrMail, err)
 					exitWithError.Store(true)
 				}
@@ -225,7 +226,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		}
 
 		// Google Calendar Sender
-		if config.calendarEnabled {
+		if cfg.CalendarEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
 
@@ -248,7 +249,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 				defer wgMsg.Done()
 				logger.Debug().Msg("Calendar messenger started")
 
-				if err := messenger.Calendar(ctx, eDB, ch, config.Calendar.Name, *calTokFile, *retries); err != nil {
+				if err := messenger.Calendar(ctx, eDB, ch, cfg.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
 					exitWithError.Store(true)
 				}
@@ -256,7 +257,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		}
 
 		// WhatsApp sSender
-		if config.whatsAppEnabled {
+		if cfg.WhatsAppEnabled {
 			ch := make(chan interface{}) // broadcast listener
 			defer close(ch)
 
@@ -279,7 +280,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 				defer wgMsg.Done()
 				logger.Debug().Msg("WhatsApp messenger started")
 
-				if err := messenger.WhatsApp(ctx, eDB, ch, config.WhatsApp.UserIDs, config.WhatsApp.Groups,
+				if err := messenger.WhatsApp(ctx, eDB, ch, cfg.WhatsApp.UserIDs, cfg.WhatsApp.Groups,
 					*retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrWhatsApp, err)
 					exitWithError.Store(true)

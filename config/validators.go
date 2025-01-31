@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package main
+package config
 
 import (
 	stdmail "net/mail"
@@ -52,10 +52,10 @@ func isValidPhone(phone string) bool {
 }
 
 // isValidUserAtDomain checks if the given string is a valid username at domain
-// (user@domain.tld).
+// (User@domain.tld).
 //
 // Parameters:
-// - user: the username at domain to validate
+// - User: the username at domain to validate
 //
 // Returns:
 // - true if the username at domain is valid, false otherwise
@@ -63,14 +63,14 @@ func isValidUserAtDomain(user string) bool {
 	return userAtDomainRegex.MatchString(user)
 }
 
-// isValidMail checks if the given string is a valid e-mail address in the
-// format user@domain.tld.
+// isValidMail checks if the given string is a valid e-Mail address in the
+// format User@domain.tld.
 //
 // Parameters:
-// - mail: the e-mail address to validate
+// - Mail: the e-Mail address to validate
 //
 // Returns:
-// - true if the e-mail address is valid, false otherwise
+// - true if the e-Mail address is valid, false otherwise
 func isValidMail(mail string) bool {
 	_, err := stdmail.ParseAddress(mail)
 
@@ -145,7 +145,7 @@ func isValidTelegramChatID(id string) bool {
 	return telegramChatIDRegex.MatchString(id)
 }
 
-// isValidWhatsAppJID checks if the given string is a valid WhatsApp group or user JID.
+// isValidWhatsAppJID checks if the given string is a valid WhatsApp group or User JID.
 //
 // Parameters:
 // - jid: the string to validate

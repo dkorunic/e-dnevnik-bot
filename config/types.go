@@ -19,34 +19,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package main
+package config
 
-// user struct holds a single AAI/SSO username.
-type user struct {
+// User struct holds a single AAI/SSO username.
+type User struct {
 	Username string `toml:"username"`
 	Password string `toml:"password"`
 }
 
-// telegram struct holds Telegram messenger configuration.
-type telegram struct {
+// Telegram struct holds Telegram messenger configuration.
+type Telegram struct {
 	Token   string   `toml:"token"`
 	ChatIDs []string `toml:"chatids"`
 }
 
-// discord struct holds Discord messenger configuration.
-type discord struct {
+// Discord struct holds Discord messenger configuration.
+type Discord struct {
 	Token   string   `toml:"token"`
 	UserIDs []string `toml:"userids"`
 }
 
-// slack struct holds Slack messenger configuration.
-type slack struct {
+// Slack struct holds Slack messenger configuration.
+type Slack struct {
 	Token   string   `toml:"token"`
 	ChatIDs []string `toml:"chatids"`
 }
 
-// mail struct hold e-mail messenger configuration.
-type mail struct {
+// Mail struct hold e-Mail messenger configuration.
+type Mail struct {
 	Server   string   `toml:"server"`
 	Port     string   `toml:"port"`
 	Username string   `toml:"username"`
@@ -56,31 +56,31 @@ type mail struct {
 	To       []string `toml:"to"`
 }
 
-// calendar struct hold Google Calendar configuration.
-type calendar struct {
+// Calendar struct hold Google Calendar configuration.
+type Calendar struct {
 	Name string `toml:"name"`
 }
 
-// whatsapp struct holds WhatsApp messenger configuration.
-type whatsapp struct {
+// WhatsApp struct holds WhatsApp messenger configuration.
+type WhatsApp struct {
 	PhoneNumber string   `toml:"phonenumber"`
 	UserIDs     []string `toml:"userids"`
 	Groups      []string `toml:"groups"`
 }
 
-// tomlConfig struct holds all other configuration structures.
-type tomlConfig struct {
-	Calendar        calendar `toml:"calendar"`
-	Mail            mail     `toml:"mail"`
-	Telegram        telegram `toml:"telegram"`
-	Discord         discord  `toml:"discord"`
-	Slack           slack    `toml:"slack"`
-	User            []user   `toml:"user"`
-	WhatsApp        whatsapp `toml:"whatsapp"`
-	telegramEnabled bool     `toml:"telegram_enabled"`
-	discordEnabled  bool     `toml:"discord_enabled"`
-	slackEnabled    bool     `toml:"slack_enabled"`
-	mailEnabled     bool     `toml:"mail_enabled"`
-	calendarEnabled bool     `toml:"calendar_enabled"`
-	whatsAppEnabled bool     `toml:"whatsapp_enabled"`
+// TomlConfig struct holds all other configuration structures.
+type TomlConfig struct {
+	Calendar        Calendar `toml:"calendar"`
+	Mail            Mail     `toml:"mail"`
+	Telegram        Telegram `toml:"telegram"`
+	Discord         Discord  `toml:"discord"`
+	Slack           Slack    `toml:"slack"`
+	User            []User   `toml:"user"`
+	WhatsApp        WhatsApp `toml:"whatsapp"`
+	TelegramEnabled bool     `toml:"telegram_enabled"`
+	DiscordEnabled  bool     `toml:"discord_enabled"`
+	SlackEnabled    bool     `toml:"slack_enabled"`
+	MailEnabled     bool     `toml:"mail_enabled"`
+	CalendarEnabled bool     `toml:"calendar_enabled"`
+	WhatsAppEnabled bool     `toml:"whatsapp_enabled"`
 }

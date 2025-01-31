@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
+	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dustin/go-humanize"
@@ -126,7 +127,7 @@ func main() {
 	defer stop()
 
 	// load TOML config
-	config, err := loadConfig()
+	cfg, err := config.LoadConfig(*confFile)
 	if err != nil {
 		logger.Fatal().Msgf("Error loading configuration: %v", err)
 	}
@@ -163,18 +164,18 @@ func main() {
 	}
 
 	// Google Calendar API initial setup
-	if config.calendarEnabled {
-		checkCalendar(ctx, &config)
+	if cfg.CalendarEnabled {
+		checkCalendar(ctx, &cfg)
 	}
 
 	// WhatsApp initial setup and sync
-	if config.whatsAppEnabled {
-		checkWhatsApp(ctx, &config)
+	if cfg.WhatsAppEnabled {
+		checkWhatsApp(ctx, &cfg)
 	}
 
 	// test mode: send messages and exit
 	if *emulation {
-		testSingleRun(ctx, config)
+		testSingleRun(ctx, cfg)
 
 		return
 	}
@@ -230,16 +231,16 @@ func main() {
 			versionCheck(ctx, &wgVersion)
 
 			// open KV store
-			eDB := openDB()
+			eDB := openDB(*dbFile)
 
 			// subjects/grades/exams scraper routines
-			scrapers(ctx, &wgScrape, gradesScraped, config)
+			scrapers(ctx, &wgScrape, gradesScraped, cfg)
 
 			// message/alert database checking routine
 			msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg)
 
 			// messenger routines
-			msgSend(ctx, eDB, &wgMsg, gradesMsg, config)
+			msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
 
 			wgScrape.Wait()
 			close(gradesScraped)
@@ -299,12 +300,12 @@ func startSystemdWatchdog(ctx context.Context) {
 // message to each messenger and exits after that. It is meant to be used for
 // testing and debugging purposes only.
 //
-// The function takes a context.Context and a tomlConfig as parameters. The
-// context is used to cancel the function early if the user cancels it.
+// The function takes a context.Context and a TomlConfig as parameters. The
+// context is used to cancel the function early if the User cancels it.
 //
 // The function will log a message when it is called and another one when it is
 // exiting.
-func testSingleRun(ctx context.Context, config tomlConfig) {
+func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
 	signal.Reset()
 
@@ -324,7 +325,7 @@ func testSingleRun(ctx context.Context, config tomlConfig) {
 
 	var wgMsg sync.WaitGroup
 
-	eDB := openDB()
+	eDB := openDB(*dbFile)
 
 	msgSend(ctx, eDB, &wgMsg, gradesMsg, config)
 

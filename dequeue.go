@@ -37,6 +37,7 @@ func fetchAndSendFailedMsg(eDB *db.Edb, ch chan<- interface{}, queueKey []byte) 
 		return
 	}
 
+	// decode
 	failedList, err := encdec.DecodeMsgs(val)
 	if err != nil {
 		return

@@ -29,6 +29,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/mattn/go-isatty"
@@ -61,12 +62,12 @@ func init() {
 	BuildTime = strings.TrimSpace(BuildTime)
 }
 
-// checkCalendarConf checks the calendar configuration and enables or disables the calendar integration based on the existence of the Google Calendar API credentials file and token file.
+// checkCalendarConf checks the Calendar configuration and enables or disables the Calendar integration based on the existence of the Google Calendar API credentials file and token file.
 //
 // Parameters:
-// - config: a pointer to the tomlConfig struct containing the configuration settings.
+// - config: a pointer to the TomlConfig struct containing the configuration settings.
 // - ctx: the context object for cancellation and timeout.
-func checkCalendar(ctx context.Context, config *tomlConfig) {
+func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
 	}
@@ -74,16 +75,16 @@ func checkCalendar(ctx context.Context, config *tomlConfig) {
 	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
 		// checkWhatsAppConf if we are running under a terminal
 		if isTerminal() {
-			logger.Error().Msg("Google Calendar API token file not found and first run requires running under a terminal. Disabling calendar integration.")
+			logger.Error().Msg("Google Calendar API token file not found and first run requires running under a terminal. Disabling Calendar integration.")
 
-			config.calendarEnabled = false
+			config.CalendarEnabled = false
 		} else {
 			// early Google Calendar API initialization and token refresh
 			_, _, err := messenger.InitCalendar(ctx, *calTokFile, config.Calendar.Name)
 			if err != nil {
-				logger.Error().Msgf("Error initializing Google Calendar API: %v. Disabling calendar integration.", err)
+				logger.Error().Msgf("Error initializing Google Calendar API: %v. Disabling Calendar integration.", err)
 
-				config.calendarEnabled = false
+				config.CalendarEnabled = false
 			}
 		}
 	}
@@ -95,8 +96,8 @@ func checkCalendar(ctx context.Context, config *tomlConfig) {
 //
 // Parameters:
 // - ctx: the context object for cancellation and timeout.
-// - config: a pointer to the tomlConfig struct containing the configuration settings.
-func checkWhatsApp(ctx context.Context, config *tomlConfig) {
+// - config: a pointer to the TomlConfig struct containing the configuration settings.
+func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
 	}
