@@ -164,7 +164,7 @@ func (db *Edb) FetchAndDelete(key []byte) ([]byte, error) {
 	var val []byte
 
 	err := db.db.Update(func(txn *badger.Txn) error {
-		// find key
+		// find key -- returns error if key doesn't exist
 		item, err := txn.Get(key)
 		if err != nil {
 			return err
@@ -185,42 +185,45 @@ func (db *Edb) FetchAndDelete(key []byte) ([]byte, error) {
 	return val, err
 }
 
-// Fetch retrieves a value from the database using the specified key.
+// FetchAndStore fetches a value by key, applies a given function to the value
+// and stores the result.
 //
-// It performs the following steps:
+// It does the following steps:
 //
 // 1. Finds the key in the database.
 // 2. Copies the associated value.
+// 3. Calls the given function with the copied value as argument and stores the result.
+// 4. Stores the result in the database with the same key and a TTL of 1+ year.
 //
-// If the key is found, it returns the value and a nil error. If the key is not found
-// or an error occurs, it returns nil and the error.
-func (db *Edb) Fetch(key []byte) ([]byte, error) {
-	var val []byte
+// If any of the steps fail, it will return an error.
+func (db *Edb) FetchAndStore(key []byte, f func(old []byte) ([]byte, error)) error {
+	var val, newVal []byte
 
-	err := db.db.View(func(txn *badger.Txn) error {
-		// find key
+	err := db.db.Update(func(txn *badger.Txn) error {
+		// find key -- doesn't return error if key doesn't exist
 		item, err := txn.Get(key)
+		if err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
+			return err
+		}
+
+		// copy value (if it exists)
+		if item != nil {
+			val, err = item.ValueCopy(val)
+			if err != nil {
+				return err
+			}
+		}
+
+		// call conversion function
+		newVal, err = f(val)
 		if err != nil {
 			return err
 		}
 
-		// store value
-		val, err = item.ValueCopy(val)
-
-		return err
-	})
-
-	return val, err
-}
-
-// Store adds a key-value pair to the database with a specified TTL.
-//
-// The key and value are stored as byte slices, and the entry is given a default TTL.
-// This function returns an error if the operation fails.
-func (db *Edb) Store(key []byte, val []byte) error {
-	return db.db.Update(func(txn *badger.Txn) error {
-		e := badger.NewEntry(key, val).WithTTL(DefaultTTL)
+		e := badger.NewEntry(key, newVal).WithTTL(DefaultTTL)
 
 		return txn.SetEntry(e)
 	})
+
+	return err
 }

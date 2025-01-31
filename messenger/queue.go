@@ -24,7 +24,6 @@ package messenger
 import (
 	"errors"
 
-	"github.com/dgraph-io/badger/v4"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -41,27 +40,10 @@ var ErrQueueing = errors.New("problem with persistent queue")
 //
 // If any of the operations fail, the function returns an error.
 func storeFailedMsgs(eDB *db.Edb, key []byte, g msgtypes.Message) error {
-	// fetch existing messages from DB with queue key as []byte
-	msgsEnc, err := eDB.Fetch(key)
-	if err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
-		return err
-	}
+	return eDB.FetchAndStore(key, func(old []byte) ([]byte, error) {
+		msgs, _ := encdec.DecodeMsgs(old)
+		msgs = append(msgs, g)
 
-	// decode existing messages (can be empty)
-	msgs, err := encdec.DecodeMsgs(msgsEnc)
-	if err != nil {
-		return err
-	}
-
-	// append single message to list
-	msgs = append(msgs, g)
-
-	// encode to []byte
-	msgsEnc, err = encdec.EncodeMsgs(msgs)
-	if err != nil {
-		return err
-	}
-
-	// store to DB
-	return eDB.Store(WhatsAppQueueName, msgsEnc)
+		return encdec.EncodeMsgs(msgs)
+	})
 }

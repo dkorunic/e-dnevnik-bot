@@ -334,6 +334,4 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	closeDB(eDB)
 
 	logger.Info().Msg("Exiting with a success from the emulation.")
-
-	return
 }
