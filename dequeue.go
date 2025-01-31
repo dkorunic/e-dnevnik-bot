@@ -42,6 +42,7 @@ func fetchAndSendFailedMsg(eDB *db.Edb, ch chan<- interface{}, queueKey []byte) 
 	})
 	if err != nil {
 		logger.Error().Msgf("Error managing failed messages list in database for %v: %v", queueKey, err)
+
 		return
 	}
 

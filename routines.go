@@ -87,16 +87,15 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 // - ctx: the context for cancellation and timeout.
 // - eDB: the database instance for checking failed messages.
 // - wgMsg: a WaitGroup to synchronize the completion of message sending.
-// - wgFailedMsg: a WaitGroup to synchronize the completion of failed message processing.
 // - gradesMsg: a channel receiving messages to be sent to configured messengers.
 // - cfg: the configuration settings containing enabled services and their respective credentials.
-func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg chan msgtypes.Message, cfg config.TomlConfig) {
+func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Add(1)
-
-	var wgFailedMsg sync.WaitGroup
 
 	go func() {
 		defer wgMsg.Done()
+
+		var wgFailedMsg sync.WaitGroup
 
 		bcast := broadcast.NewBroadcaster(broadcastBufLen)
 		defer bcast.Close()
