@@ -87,9 +87,10 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 // - ctx: the context for cancellation and timeout.
 // - eDB: the database instance for checking failed messages.
 // - wgMsg: a WaitGroup to synchronize the completion of message sending.
+// - wgFailedMsg: a WaitGroup to synchronize the completion of failed message processing.
 // - gradesMsg: a channel receiving messages to be sent to configured messengers.
 // - cfg: the configuration settings containing enabled services and their respective credentials.
-func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
+func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Add(1)
 
 	var wgFailedMsg sync.WaitGroup
@@ -113,6 +114,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgFailedMsg.Done()
+				logger.Debug().Msg("Discord processing failed messages started")
 
 				fetchAndSendFailedMsg(eDB, ch, messenger.DiscordQueueName)
 			}()
@@ -144,6 +146,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgFailedMsg.Done()
+				logger.Debug().Msg("Telegram processing failed messages started")
 
 				fetchAndSendFailedMsg(eDB, ch, messenger.TelegramQueueName)
 			}()
@@ -175,6 +178,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgFailedMsg.Done()
+				logger.Debug().Msg("Slack processing failed messages started")
 
 				fetchAndSendFailedMsg(eDB, ch, messenger.SlackQueueName)
 			}()
@@ -206,6 +210,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgFailedMsg.Done()
+				logger.Debug().Msg("Mail processing failed messages started")
 
 				fetchAndSendFailedMsg(eDB, ch, messenger.MailQueueName)
 			}()
@@ -238,6 +243,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgFailedMsg.Done()
+				logger.Debug().Msg("Calendar processing failed messages started")
 
 				fetchAndSendFailedMsg(eDB, ch, messenger.CalendarQueueName)
 			}()
@@ -269,6 +275,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgFailedMsg.Done()
+				logger.Debug().Msg("WhatsApp processing failed messages started")
 
 				fetchAndSendFailedMsg(eDB, ch, messenger.WhatsAppQueueName)
 			}()
@@ -288,7 +295,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 			}()
 		}
 
-		// wait for all messengers to finish processing failed queue
+		// wait for all failed messages to be processed
 		wgFailedMsg.Wait()
 
 		// broadcast regular incoming messages
@@ -329,7 +336,7 @@ func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, grades
 				}
 
 				// checkWhatsAppConf if it is an already known alert
-				found, err := eDB.CheckAndFlag(g.Username, g.Subject, g.Fields)
+				found, err := eDB.CheckAndFlagTTL(g.Username, g.Subject, g.Fields)
 				if err != nil {
 					logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
 				}

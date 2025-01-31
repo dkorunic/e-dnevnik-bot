@@ -37,13 +37,13 @@ func LoadConfig(file string) (TomlConfig, error) {
 		return config, err
 	}
 
-	checkUserConf(config)
-	checkDiscordConf(config)
-	checkTelegramConf(config)
-	checkSlackConf(config)
-	checkMailConf(config)
-	checkCalendarConf(config)
-	checkWhatsAppConf(config)
+	checkUserConf(&config)
+	checkDiscordConf(&config)
+	checkTelegramConf(&config)
+	checkSlackConf(&config)
+	checkMailConf(&config)
+	checkCalendarConf(&config)
+	checkWhatsAppConf(&config)
 
 	return config, nil
 }
@@ -58,7 +58,7 @@ func LoadConfig(file string) (TomlConfig, error) {
 //
 // If all conditions are met, the program will log an info message about WhatsApp messenger being enabled and will set
 // the whatsAppEnabled field of the TomlConfig object to true.
-func checkWhatsAppConf(config TomlConfig) {
+func checkWhatsAppConf(config *TomlConfig) {
 	if len(config.WhatsApp.UserIDs) > 0 || len(config.WhatsApp.Groups) > 0 {
 		// checkWhatsAppConf if phone number is valid
 		if config.WhatsApp.PhoneNumber != "" && !isValidPhone(config.WhatsApp.PhoneNumber) {
@@ -88,7 +88,7 @@ func checkWhatsAppConf(config TomlConfig) {
 //
 // If all conditions are met, the program will log an info message about Google Calendar integration being enabled and
 // will set the calendarEnabled field of the TomlConfig object to true.
-func checkCalendarConf(config TomlConfig) {
+func checkCalendarConf(config *TomlConfig) {
 	if config.Calendar.Name != "" {
 		config.CalendarEnabled = true
 	}
@@ -102,7 +102,7 @@ func checkCalendarConf(config TomlConfig) {
 //
 // If all conditions are met, the program will log an info message about e-Mail integration being enabled and will set the
 // mailEnabled field of the TomlConfig object to true.
-func checkMailConf(config TomlConfig) {
+func checkMailConf(config *TomlConfig) {
 	if config.Mail.Server != "" {
 		// checkWhatsAppConf if any of e-Mail destinations (TO) are defined
 		if len(config.Mail.To) == 0 {
@@ -132,7 +132,7 @@ func checkMailConf(config TomlConfig) {
 //
 // If all conditions are met, the program will log an info message about Slack integration being enabled and will set the
 // slackEnabled field of the TomlConfig object to true.
-func checkSlackConf(config TomlConfig) {
+func checkSlackConf(config *TomlConfig) {
 	// checkWhatsAppConf if Slack token is defined
 	if config.Slack.Token != "" {
 		// checkWhatsAppConf if token is valid
@@ -166,7 +166,7 @@ func checkSlackConf(config TomlConfig) {
 //
 // If all conditions are met, the program will log an info message about Telegram integration being enabled and will set the
 // telegramEnabled field of the TomlConfig object to true.
-func checkTelegramConf(config TomlConfig) {
+func checkTelegramConf(config *TomlConfig) {
 	// checkWhatsAppConf if Telegram token is defined
 	if config.Telegram.Token != "" {
 		// checkWhatsAppConf if token is valid
@@ -200,7 +200,7 @@ func checkTelegramConf(config TomlConfig) {
 //
 // If all conditions are met, the program will log an info message about Discord integration being enabled and will set the
 // discordEnabled field of the TomlConfig object to true.
-func checkDiscordConf(config TomlConfig) {
+func checkDiscordConf(config *TomlConfig) {
 	// checkWhatsAppConf if Discord token is defined
 	if config.Discord.Token != "" {
 		// checkWhatsAppConf if token is valid
@@ -237,7 +237,7 @@ func checkDiscordConf(config TomlConfig) {
 // 4. all usernames end with @skole.hr (a warning is logged if not)
 //
 // If all conditions are met, the program will log an info message about User configuration being enabled.
-func checkUserConf(config TomlConfig) {
+func checkUserConf(config *TomlConfig) {
 	// checkWhatsAppConf if users are defined
 	if len(config.User) == 0 {
 		logger.Fatal().Msg("Configuration error: No users defined")

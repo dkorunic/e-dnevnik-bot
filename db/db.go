@@ -91,7 +91,7 @@ again:
 	return db.db.Close()
 }
 
-// CheckAndFlag checks if a key already exists in the database and marks it with a flag
+// CheckAndFlagTTL checks if a key already exists in the database and marks it with a flag
 // if it doesn't exist. The flag is set with a TTL of 1+ year.
 //
 // The key is created by hashing a concatenation of the bucket, subBucket and target
@@ -100,7 +100,7 @@ again:
 // If the key already exists, the function returns (true, nil). If the key doesn't
 // exist, the function marks the key and returns (false, nil) on success or
 // (false, error) on error.
-func (db *Edb) CheckAndFlag(bucket, subBucket string, target []string) (bool, error) {
+func (db *Edb) CheckAndFlagTTL(bucket, subBucket string, target []string) (bool, error) {
 	// SHA256 hash of (bucket, subBucket, []target)
 	key := hashContent(bucket, subBucket, target)
 
@@ -149,42 +149,6 @@ func (db *Edb) Existing() bool {
 	return db.isExisting
 }
 
-// FetchAndDelete fetches a value by key, deletes the key and returns the value.
-//
-// It does the following steps:
-//
-// 1. Finds the key in the database.
-// 2. Copies the associated value.
-// 3. Deletes the key.
-//
-// If any of the steps fail, it will return an error and the value will not be copied.
-//
-// The returned value is valid until the next database GC is run.
-func (db *Edb) FetchAndDelete(key []byte) ([]byte, error) {
-	var val []byte
-
-	err := db.db.Update(func(txn *badger.Txn) error {
-		// find key -- returns error if key doesn't exist
-		item, err := txn.Get(key)
-		if err != nil {
-			return err
-		}
-
-		// store value
-		val, err = item.ValueCopy(val)
-		if err != nil {
-			return err
-		}
-
-		// delete key
-		err = txn.Delete(key)
-
-		return err
-	})
-
-	return val, err
-}
-
 // FetchAndStore fetches a value by key, applies a given function to the value
 // and stores the result.
 //
@@ -220,9 +184,8 @@ func (db *Edb) FetchAndStore(key []byte, f func(old []byte) ([]byte, error)) err
 			return err
 		}
 
-		e := badger.NewEntry(key, newVal).WithTTL(DefaultTTL)
-
-		return txn.SetEntry(e)
+		// store new value with no TTL
+		return txn.Set(key, newVal)
 	})
 
 	return err

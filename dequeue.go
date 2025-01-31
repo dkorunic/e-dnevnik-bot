@@ -25,27 +25,31 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 // fetchAndSendFailedMsg fetches a list of failed messages from the database using the
 // queueKey, decodes the GOB-encoded value, and sends each message to the given
 // channel. If there is an error, the function returns immediately.
 func fetchAndSendFailedMsg(eDB *db.Edb, ch chan<- interface{}, queueKey []byte) {
-	// fetch and delete failed messages list
-	val, err := eDB.FetchAndDelete(queueKey)
-	if err != nil {
-		return
-	}
+	var failedList, emptyList []msgtypes.Message
 
-	// decode
-	failedList, err := encdec.DecodeMsgs(val)
+	// fetch failed messages list, store empty list
+	err := eDB.FetchAndStore(queueKey, func(old []byte) ([]byte, error) {
+		failedList, _ = encdec.DecodeMsgs(old)
+
+		return encdec.EncodeMsgs(emptyList)
+	})
 	if err != nil {
+		logger.Error().Msgf("Error managing failed messages list in database for %v: %v", queueKey, err)
 		return
 	}
 
 	failedCount := len(failedList)
 	if failedCount > 0 {
 		logger.Info().Msgf("Found %v failed messages in %v, trying to resend", failedCount, queueKey)
+	} else {
+		return
 	}
 
 	// send to channel for processing
