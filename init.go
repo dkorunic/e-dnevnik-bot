@@ -114,6 +114,8 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableConnect, err)
 	}
+
+	// make sure to close WhatsApp sqlite database after the init
 	defer storeContainer.Close()
 
 	err = storeContainer.Upgrade()
@@ -179,10 +181,14 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if err != nil {
 		logger.Fatal().Msgf("Failed to connect to WhatsApp: %v", err)
 	}
+
+	// make sure to disconnect WhatsApp after the init
 	defer whatsAppCli.Disconnect()
 
-	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep mobile app open. This can take quite a while.")
+	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep Android/iOS mobile app active and open")
 	<-whatsAppSynced
+
+	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 
 	// give additional time for WhatsApp to fully sync
 	time.Sleep(120 * time.Second)
@@ -207,13 +213,13 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 func whatsappPairingEventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.OfflineSyncCompleted:
-		logger.Debug().Msg("WhatsApp offline sync completed")
+		logger.Info().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
 		if len(whatsAppCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
 			_ = whatsAppCli.SendPresence(types.PresenceAvailable)
 		}
 
-		logger.Debug().Msg("WhatsApp app state sync completed")
+		logger.Info().Msg("WhatsApp app state sync completed")
 
 		whatsAppSynced <- struct{}{}
 	case *events.Connected, *events.PushNameSetting:
