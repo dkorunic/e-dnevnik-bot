@@ -71,6 +71,7 @@ var (
 	ErrWhatsAppInvalidJID     = errors.New("cannot parse recipient JID")
 	ErrWhatsAppSendingMessage = errors.New("error sending WhatsApp message")
 	ErrWhatsAppDisconnected   = errors.New("WhatsApp client disconnected, will auto-reconnect")
+	ErrWhatsAppOutdated       = errors.New("WhatsApp Go library version is outdated, please update")
 
 	WhatsAppQueueName = []byte(WhatsAppQueue)
 	whatsAppCli       *whatsmeow.Client
@@ -280,6 +281,11 @@ func whatsAppLogin() error {
 //     logs a message, disconnects the client, and reconnects if possible.
 func whatsAppEventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
+	case *events.OfflineSyncPreview:
+		logger.Debug().Msgf("WhatsApp offline sync preview: %v messages, %v receipts, %v notifications, %v app data changes",
+			evt.Messages, evt.Receipts, evt.Notifications, evt.AppDataChanges)
+	case *events.HistorySync:
+		logger.Debug().Msg("WhatsApp history sync")
 	case *events.OfflineSyncCompleted:
 		logger.Debug().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
@@ -297,6 +303,8 @@ func whatsAppEventHandler(rawEvt interface{}) {
 			_ = os.Remove(WhatsAppDBName)
 
 			logger.Fatal().Msgf("%v", ErrWhatsAppFailLinkDevice)
+		} else {
+			logger.Debug().Msg("WhatsApp device successfully paired")
 		}
 	case *events.LoggedOut:
 		_ = os.Remove(WhatsAppDBName)
@@ -304,5 +312,7 @@ func whatsAppEventHandler(rawEvt interface{}) {
 		logger.Fatal().Msgf("%v", ErrWhatsAppLoggedout)
 	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
 		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
+	case *events.ClientOutdated:
+		logger.Error().Msgf("%v", ErrWhatsAppOutdated)
 	}
 }

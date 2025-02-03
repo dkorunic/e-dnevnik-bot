@@ -212,6 +212,11 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 //     logs a message, disconnects the client, and reconnects if possible.
 func whatsappPairingEventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
+	case *events.OfflineSyncPreview:
+		logger.Info().Msgf("WhatsApp offline sync preview: %v messages, %v receipts, %v notifications, %v app data changes",
+			evt.Messages, evt.Receipts, evt.Notifications, evt.AppDataChanges)
+	case *events.HistorySync:
+		logger.Info().Msg("WhatsApp history sync")
 	case *events.OfflineSyncCompleted:
 		logger.Info().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
@@ -231,6 +236,8 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 			_ = os.Remove(messenger.WhatsAppDBName)
 
 			logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
+		} else {
+			logger.Info().Msg("WhatsApp device successfully paired")
 		}
 	case *events.LoggedOut:
 		_ = os.Remove(messenger.WhatsAppDBName)
@@ -238,6 +245,8 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppLoggedout)
 	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
 		logger.Debug().Msgf("%v", messenger.ErrWhatsAppDisconnected)
+	case *events.ClientOutdated:
+		logger.Error().Msgf("%v", messenger.ErrWhatsAppOutdated)
 	}
 }
 
