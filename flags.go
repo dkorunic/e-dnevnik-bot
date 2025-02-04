@@ -24,6 +24,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/db"
@@ -86,7 +87,8 @@ func parseFlags() {
 	}
 
 	if *version {
-		fmt.Printf("e-dnevnik-bot %v %v%v, built on: %v\n", GitTag, GitCommit, GitDirty, BuildTime)
+		fmt.Printf("e-dnevnik-bot %v %v%v, built on %v, with %v", GitTag, GitCommit, GitDirty,
+			BuildTime, runtime.Version())
 
 		os.Exit(0)
 	}
