@@ -33,6 +33,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/messenger"
+	"github.com/hako/durafmt"
 	"github.com/mattn/go-isatty"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
@@ -247,6 +248,9 @@ func whatsappPairingEventHandler(rawEvt interface{}) {
 		logger.Debug().Msgf("%v", messenger.ErrWhatsAppDisconnected)
 	case *events.ClientOutdated:
 		logger.Error().Msgf("%v", messenger.ErrWhatsAppOutdated)
+	case *events.TemporaryBan:
+		duration := durafmt.Parse(evt.Expire).String()
+		logger.Fatal().Msgf("%v: code %v / expire %v", messenger.ErrWhatsAppBan, evt.Code, duration)
 	}
 }
 

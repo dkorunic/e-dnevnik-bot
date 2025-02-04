@@ -34,6 +34,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/hako/durafmt"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -72,6 +73,7 @@ var (
 	ErrWhatsAppSendingMessage = errors.New("error sending WhatsApp message")
 	ErrWhatsAppDisconnected   = errors.New("WhatsApp client disconnected, will auto-reconnect")
 	ErrWhatsAppOutdated       = errors.New("WhatsApp Go library version is outdated, please update")
+	ErrWhatsAppBan            = errors.New("WhatsApp device is temporarily banned")
 
 	WhatsAppQueueName = []byte(WhatsAppQueue)
 	whatsAppCli       *whatsmeow.Client
@@ -101,7 +103,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, userIDs, 
 		return err
 	}
 
-	logger.Debug().Msg("Started WhatsApp messenger")
+	logger.Debug().Msgf("Started WhatsApp messenger (client version %v)", store.GetWAVersion().String())
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
@@ -314,5 +316,8 @@ func whatsAppEventHandler(rawEvt interface{}) {
 		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
 	case *events.ClientOutdated:
 		logger.Error().Msgf("%v", ErrWhatsAppOutdated)
+	case *events.TemporaryBan:
+		duration := durafmt.Parse(evt.Expire).String()
+		logger.Error().Msgf("%v: code %v / expire %v", ErrWhatsAppBan, evt.Code, duration)
 	}
 }
