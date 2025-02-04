@@ -21,6 +21,9 @@ builds:
     goarm:
       - 6
       - 7
+    goamd64:
+      - v2
+      - v3
     ignore:
       - goos: windows
         goarch: arm64
