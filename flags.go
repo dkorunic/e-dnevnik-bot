@@ -28,6 +28,7 @@ import (
 
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/hako/durafmt"
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
 )
@@ -91,7 +92,8 @@ func parseFlags() {
 	}
 
 	if *tickInterval < DefaultTickInterval {
-		logger.Info().Msgf("Poll interval is below %v, so I will default to %v", DefaultTickInterval, DefaultTickInterval)
+		logger.Info().Msgf("Poll interval is below %v, so I will default to %v",
+			durafmt.Parse(DefaultTickInterval).String(), durafmt.Parse(DefaultTickInterval))
 
 		*tickInterval = time.Hour
 	}

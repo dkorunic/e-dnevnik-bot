@@ -38,6 +38,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dustin/go-humanize"
+	"github.com/hako/durafmt"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v6/notify/watchdog"
 	"go.uber.org/automaxprocs/maxprocs"
@@ -163,12 +164,12 @@ func main() {
 		}()
 	}
 
-	// Google Calendar API initial setup
+	// Google Calendar API initial setup -- needs to be in the main thread
 	if cfg.CalendarEnabled {
 		checkCalendar(ctx, &cfg)
 	}
 
-	// WhatsApp initial setup and sync
+	// WhatsApp initial setup and sync -- needs to be in the main thread
 	if cfg.WhatsAppEnabled {
 		checkWhatsApp(ctx, &cfg)
 	}
@@ -185,7 +186,8 @@ func main() {
 	defer ticker.Stop()
 
 	if *daemon {
-		logger.Info().Msgf("Service started, will collect information every %v", tickInterval)
+		logger.Info().Msgf("Service started, will collect information every %v",
+			durafmt.Parse(*tickInterval).String())
 	} else {
 		logger.Info().Msg("Service is not enabled, doing just a single run")
 	}
