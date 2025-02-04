@@ -34,7 +34,7 @@ require (
 	github.com/slack-go/slack v0.15.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.1
-	go.mau.fi/whatsmeow v0.0.0-20250131212655-c3c6a06399a5
+	go.mau.fi/whatsmeow v0.0.0-20250204095649-a75587ab11d7
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.25.0
