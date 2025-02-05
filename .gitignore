@@ -46,5 +46,8 @@ token.json
 ## Usual macOS cruft ###
 .DS_Store
 
-## Configuratio
+## Configuration
 .config.yml
+
+## Qodo
+.qodo

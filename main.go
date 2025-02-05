@@ -24,6 +24,7 @@ package main
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"runtime"
@@ -186,8 +187,14 @@ func main() {
 	defer ticker.Stop()
 
 	if *daemon {
-		logger.Info().Msgf("Service started, will collect information every %v",
-			durafmt.Parse(*tickInterval).String())
+		interval := durafmt.Parse(*tickInterval).String()
+		if *jitter {
+			logger.Info().Msgf("Service started, will collect information every %v (with random jitter up to +-10%%)",
+				interval)
+		} else {
+			logger.Info().Msgf("Service started, will collect information every %v",
+				interval)
+		}
 	} else {
 		logger.Info().Msg("Service is not enabled, doing just a single run")
 	}
@@ -217,7 +224,11 @@ func main() {
 			return
 		case <-ticker.C:
 			logger.Info().Msg(scheduledActive)
-			ticker.Reset(*tickInterval)
+			if *jitter {
+				ticker.Reset(durationRandJitter(*tickInterval))
+			} else {
+				ticker.Reset(*tickInterval)
+			}
 
 			_ = sysdnotify.Status(scheduledActive)
 
@@ -336,4 +347,17 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	closeDB(eDB)
 
 	logger.Info().Msg("Exiting with a success from the emulation.")
+}
+
+// durationRandJitter adds a random jitter to x in the range [0.9 * x, 1.1 * x].
+//
+// This is useful for spreading out events in time, e.g. when multiple instances
+// of this program are running at the same time and you don't want them to hit
+// the same external service at the same time.
+//
+// The jitter is a random fraction of the duration x, and is uniformly
+// distributed in the range [0.9, 1.1]. The randomness is generated using the
+// crypto/rand package, which is safe for generating random numbers.
+func durationRandJitter(x time.Duration) time.Duration {
+	return time.Duration(int64(x) / 100 * (rand.Int64N(21) + 90))
 }
