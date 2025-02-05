@@ -36,7 +36,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/scrape"
 	"github.com/dustin/go-broadcast"
-	"github.com/google/go-github/v68/github"
+	"github.com/google/go-github/v69/github"
 	"github.com/tj/go-spin"
 )
 

@@ -19,7 +19,7 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/goccy/go-json v0.10.5
-	github.com/google/go-github/v68 v68.0.0
+	github.com/google/go-github/v69 v69.0.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
@@ -35,11 +35,11 @@ require (
 	github.com/slack-go/slack v0.15.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.1
-	go.mau.fi/whatsmeow v0.0.0-20250204095649-a75587ab11d7
+	go.mau.fi/whatsmeow v0.0.0-20250204231212-e43fe38f58d3
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.26.0
-	google.golang.org/api v0.219.0
+	google.golang.org/api v0.220.0
 	google.golang.org/protobuf v1.36.4
 	modernc.org/sqlite v1.34.5
 )
