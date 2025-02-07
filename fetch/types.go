@@ -60,3 +60,10 @@ type Class struct {
 
 // Classes is a slice of Class structure.
 type Classes []Class
+
+type Course struct {
+	URL  string
+	Name string
+}
+
+type Courses []Course

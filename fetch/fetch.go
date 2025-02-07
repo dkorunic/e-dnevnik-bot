@@ -31,12 +31,7 @@ import (
 )
 
 const (
-	LoginURL       = "https://ocjene.skole.hr/login"
-	ClassURL       = "https://ocjene.skole.hr/class"
-	ClassActionURL = "https://ocjene.skole.hr/class_action/%v/course"
-	GradeAllURL    = "https://ocjene.skole.hr/grade/all"
-	CalendarURL    = "https://ocjene.skole.hr/exam/ical"
-	Timeout        = 60 * time.Second // site can get really slow sometimes
+	Timeout = 60 * time.Second // site can get really slow sometimes
 )
 
 // NewClientWithContext creates new *Client, initializing HTTP Cookie Jar, context and username with password.
@@ -108,6 +103,23 @@ func (c *Client) GetClasses() (string, error) {
 	}
 
 	return rawClasses, nil
+}
+
+// GetCourses attempts to fetch all active courses.
+func (c *Client) GetCourses() (string, error) {
+	// fetch all active courses
+	rawCourses, err := c.getCourses()
+	if err != nil {
+		return "", err
+	}
+
+	return rawCourses, nil
+}
+
+// GetCourse fetches the course with the given destination URL and returns its
+// raw body, or an error.
+func (c *Client) GetCourse(dest string) (string, error) {
+	return c.getCourse(dest)
 }
 
 // CloseConnections closes all connections on its transport.

@@ -80,8 +80,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 							// clean excess whitespace and newlines
 							txt := strings.TrimSpace(column.Text())
 							if len(txt) > 0 {
-								txt = strings.ReplaceAll(txt, "\n", " ")
-								txt = strings.Join(strings.Fields(txt), " ")
+								txt = trimAllSpace(txt)
 							}
 
 							spans = append(spans, txt)
@@ -212,4 +211,97 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 	}
 
 	return classes, nil
+}
+
+// parseCourses takes a raw HTML string of all courses a user is enrolled in, extracts
+// the course name, teacher name, and URL, and returns a slice of fetch.Course objects.
+func parseCourses(rawCourses string) (fetch.Courses, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawCourses))
+	if err != nil {
+		return fetch.Courses{}, err
+	}
+
+	var courses fetch.Courses
+
+	doc.Find("div.content > ul.list > li > a").
+		Each(func(_ int, row *goquery.Selection) {
+			href, hrefOK := row.Attr("href")
+			if !hrefOK {
+				return
+			}
+
+			span := row.Find("div.course-info > span")
+			if span.Length() > 0 {
+				courseName := strings.TrimSpace(span.First().Text())
+
+				courses = append(courses, fetch.Course{
+					Name: courseName,
+					URL:  href,
+				})
+			}
+		})
+
+	return courses, nil
+}
+
+func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiClass bool, className, subject string) error {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawCourse))
+	if err != nil {
+		return err
+	}
+
+	// if multiclass, append class name to subject
+	if multiClass {
+		subject = strings.Join([]string{subject, className}, " / ")
+	}
+
+	// only process readings-table
+	doc.Find("div.content > div.flex-table.readings-table").
+		Each(func(_ int, table *goquery.Selection) {
+			var descriptions []string
+			// row descriptions are in div with class "row header" in each div with class "cell" in a span
+			// skip over block header
+			table.Find("div.row.header:not(.first) div.cell > span").
+				Each(func(_ int, column *goquery.Selection) {
+					txt := strings.TrimSpace(column.Text())
+					descriptions = append(descriptions, txt)
+				})
+
+			table.Find("div.row:not(.header)").
+				Each(func(_ int, row *goquery.Selection) {
+					var spans []string
+
+					// ... and in each div with class "cell" in a span
+					row.Find("div.cell > span").
+						Each(func(_ int, column *goquery.Selection) {
+							// clean excess whitespace and newlines
+							txt := strings.TrimSpace(column.Text())
+							if len(txt) > 0 {
+								txt = trimAllSpace(txt)
+							}
+
+							spans = append(spans, txt)
+						})
+
+					// we have a readings table entry, send it through the channel
+					ch <- msgtypes.Message{
+						Username:     username,
+						Subject:      subject,
+						Fields:       spans,
+						Descriptions: descriptions,
+					}
+				})
+		})
+
+	// XXX: Needs processing final grade
+
+	return nil
+}
+
+// trimAllSpace removes all leading, trailing, and repeated spaces from the input string.
+// It returns a single-space separated string.
+func trimAllSpace(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+
+	return strings.Join(strings.Fields(s), " ")
 }

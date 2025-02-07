@@ -33,6 +33,16 @@ import (
 	"github.com/jordic/goics"
 )
 
+const (
+	BaseURL        = "https://ocjene.skole.hr"
+	LoginURL       = "https://ocjene.skole.hr/login"
+	ClassURL       = "https://ocjene.skole.hr/class"
+	ClassActionURL = "https://ocjene.skole.hr/class_action/%v/course"
+	GradeAllURL    = "https://ocjene.skole.hr/grade/all"
+	CalendarURL    = "https://ocjene.skole.hr/exam/ical"
+	CourseURL      = "https://ocjene.skole.hr/course"
+)
+
 var (
 	ErrUnexpectedStatus = errors.New("unexpected status code")
 	ErrCSRFToken        = errors.New("could not find CSRF token")
@@ -157,9 +167,22 @@ func (c *Client) doSAMLRequest() error {
 	return nil
 }
 
-// getGrades fetches all grades from all subjects and returns them as raw body string.
-func (c *Client) getGrades() (string, error) {
-	u, err := url.Parse(GradeAllURL)
+// getGeneric performs a GET request on the given URL, handling the response
+// with care.
+//
+// The function sets the User-Agent header to the value of `c.userAgent`, and
+// Cache-Control and Pragma headers to "no-cache". It also sets the Referer
+// header to `LoginURL`.
+//
+// If the request returns a non-2xx status, or if the response body is empty,
+// the function returns an error.
+//
+// The function also handles context cancellation and returns the context's
+// error in such a case.
+//
+// The function returns the response body as a string, or an error.
+func (c *Client) getGeneric(dest string) (string, error) {
+	u, err := url.Parse(dest)
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +212,7 @@ func (c *Client) getGrades() (string, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
 		return "", fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
@@ -201,49 +224,46 @@ func (c *Client) getGrades() (string, error) {
 	return string(body), nil
 }
 
+// getGrades fetches all grades from all subjects and returns them as raw body string.
+func (c *Client) getGrades() (string, error) {
+	return c.getGeneric(GradeAllURL)
+}
+
+// getClasses fetches all old and new classes and returns them as a raw body string.
+func (c *Client) getClasses() (string, error) {
+	return c.getGeneric(ClassURL)
+}
+
+// getCourses fetches all courses and returns them as a raw body string.
+func (c *Client) getCourses() (string, error) {
+	return c.getGeneric(CourseURL)
+}
+
+// getCourse fetches the course with the given destination URL and returns its
+// raw body, or an error.
+//
+// The function takes the destination URL as a parameter, prepends the base URL
+// to it, and then calls `getGeneric` to fetch the content.
+// If the request returns a non-2xx status, or if the response body is empty,
+// the function returns an error.
+//
+// The function also handles context cancellation and returns the context's
+// error in such a case.
+func (c *Client) getCourse(dest string) (string, error) {
+	dest = strings.Join([]string{BaseURL, dest}, "")
+
+	return c.getGeneric(dest)
+}
+
 // getCalendar fetches all events from exams calendar in ICS format.
 func (c *Client) getCalendar() (Events, error) {
-	u, err := url.Parse(CalendarURL)
-	if err != nil {
-		return Events{}, err
-	}
-
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return Events{}, err
-	}
-
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", LoginURL)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		select {
-		case <-c.ctx.Done():
-			return Events{}, c.ctx.Err()
-		default:
-			return Events{}, err
-		}
-	}
-
-	if resp == nil || resp.Body == nil {
-		return Events{}, fmt.Errorf("%w", ErrNilBody)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return Events{}, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := c.getGeneric(CalendarURL)
 	if err != nil {
 		return Events{}, err
 	}
 
 	// decode ICS events
-	d := goics.NewDecoder(strings.NewReader(string(body)))
+	d := goics.NewDecoder(strings.NewReader(body))
 	evs := Events{}
 
 	if err = d.Decode(&evs); err != nil {
@@ -253,88 +273,9 @@ func (c *Client) getCalendar() (Events, error) {
 	return evs, nil
 }
 
-// getClasses fetches all old and new classes and returns them as a raw body string.
-func (c *Client) getClasses() (string, error) {
-	u, err := url.Parse(ClassURL)
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", LoginURL)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		select {
-		case <-c.ctx.Done():
-			return "", c.ctx.Err()
-		default:
-			return "", err
-		}
-	}
-
-	if resp == nil || resp.Body == nil {
-		return "", fmt.Errorf("%w", ErrNilBody)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	return string(body), nil
-}
-
+// doClassAction switches the active class to the given class ID, returning an error upon failure.
 func (c *Client) doClassAction(classID string) error {
-	u, err := url.Parse(fmt.Sprintf(ClassActionURL, classID))
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", LoginURL)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		select {
-		case <-c.ctx.Done():
-			return c.ctx.Err()
-		default:
-			return err
-		}
-	}
-
-	if resp == nil || resp.Body == nil {
-		return fmt.Errorf("%w", ErrNilBody)
-	}
-	defer resp.Body.Close()
-
-	// regular /class_action responses are HTTP 200 or HTTP 302 with redirect to /course
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
-		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
-	}
-
-	// drain rest of the body
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+	_, err := c.getGeneric(fmt.Sprintf(ClassActionURL, classID))
 
 	return err
 }
