@@ -286,11 +286,13 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 						})
 
 					// we have a readings table entry, send it through the channel
-					ch <- msgtypes.Message{
-						Username:     username,
-						Subject:      subject,
-						Fields:       spans,
-						Descriptions: descriptions,
+					if len(spans) > 0 && len(descriptions) > 0 {
+						ch <- msgtypes.Message{
+							Username:     username,
+							Subject:      subject,
+							Fields:       spans,
+							Descriptions: descriptions,
+						}
 					}
 				})
 		})
@@ -303,7 +305,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 		Each(func(_ int, row *goquery.Selection) {
 			var descriptions []string
 
-			// first cell is description
+			// first cell is a description ("ZAKLJUČENO")
 			row.Find("div.cell.bold.first > span").
 				Each(func(_ int, column *goquery.Selection) {
 					txt := strings.TrimSpace(column.Text())
@@ -317,18 +319,21 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 				Each(func(_ int, column *goquery.Selection) {
 					// clean excess whitespace and newlines
 					txt := strings.TrimSpace(column.Text())
-					if len(txt) > 0 {
-						txt = trimAllSpace(txt)
-					}
 
-					spans = append(spans, txt)
+					// it can be empty (ie. divisor)
+					if len(txt) > 0 {
+						spans = append(spans, txt)
+					}
 				})
 
-			ch <- msgtypes.Message{
-				Username:     username,
-				Subject:      subject,
-				Fields:       spans,
-				Descriptions: descriptions,
+			// send only if we have a final grade
+			if len(spans) > 0 && len(descriptions) > 0 {
+				ch <- msgtypes.Message{
+					Username:     username,
+					Subject:      subject,
+					Fields:       spans,
+					Descriptions: descriptions,
+				}
 			}
 		})
 
