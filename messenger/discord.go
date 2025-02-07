@@ -127,7 +127,10 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token stri
 				rl.Take()
 
 				// create a new user/private channel if needed
-				c, err := dg.UserChannelCreate(u)
+				c, err := dg.UserChannelCreate(u,
+					discordgo.WithContext(ctx),
+					discordgo.WithRetryOnRatelimit(true),
+					discordgo.WithRestRetries(1))
 				if err != nil {
 					logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
 
@@ -137,7 +140,11 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token stri
 				// retryable and cancellable attempt to send a message
 				err = retry.Do(
 					func() error {
-						_, err := dg.ChannelMessageSendEmbed(c.ID, msg)
+						_, err := dg.ChannelMessageSendEmbed(c.ID,
+							msg,
+							discordgo.WithContext(ctx),
+							discordgo.WithRetryOnRatelimit(true),
+							discordgo.WithRestRetries(1))
 
 						return err
 					},
