@@ -1,6 +1,6 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-filippo.io/mostly-harmless/cryptosource v0.0.0-20250104143725-72c58a1ef471 h1:bT2blvGvl2QcWKm0ydIhSrAHff9JBQSaZuF+WNmz/NY=
-filippo.io/mostly-harmless/cryptosource v0.0.0-20250104143725-72c58a1ef471/go.mod h1:hIhrS2FFqXOAlsXLtU3FZ3R5TMD47Mhh/8UQ+vBylQk=
+filippo.io/mostly-harmless/cryptosource v0.0.0-20250207164953-f7265945bb06 h1:udg+sTKZeHHTCU8OaG+K71cHrdtMK/GKDChjBMq5sdA=
+filippo.io/mostly-harmless/cryptosource v0.0.0-20250207164953-f7265945bb06/go.mod h1:hIhrS2FFqXOAlsXLtU3FZ3R5TMD47Mhh/8UQ+vBylQk=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
