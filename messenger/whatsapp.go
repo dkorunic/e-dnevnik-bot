@@ -52,8 +52,8 @@ const (
 	WhatsAppDBConnstring = "file:%v?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000"
 	WhatsAppDisplayName  = "Chrome (Linux)"
 	WhatsAppOS           = "Linux"
-	WhatsAppAPILimit     = 10 // 10 req/s per user/IP
-	WhatsAppWindow       = 1 * time.Second
+	WhatsAppAPILimit     = 10 // 10 req/min per user/IP
+	WhatsAppWindow       = 1 * time.Minute
 	WhatsAppMinDelay     = WhatsAppWindow / WhatsAppAPILimit
 	WhatsAppQueue        = "whatsapp-queue"
 )

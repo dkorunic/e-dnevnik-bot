@@ -38,8 +38,8 @@ import (
 )
 
 const (
-	DiscordAPILimit = 50 // 50 API req/s per user/IP
-	DiscordWindow   = 1 * time.Second
+	DiscordAPILimit = 10 // 10 API req/min per user/IP
+	DiscordWindow   = 1 * time.Minute
 	DiscordMinDelay = DiscordWindow / DiscordAPILimit
 	DiscordQueue    = "discord-queue"
 )

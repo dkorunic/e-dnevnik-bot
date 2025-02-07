@@ -42,8 +42,8 @@ import (
 )
 
 const (
-	CalendarAPILimit    = 5 // 5 req/s per user
-	CalendarWindow      = 1 * time.Second
+	CalendarAPILimit    = 20 // 20 req/min per user
+	CalendarWindow      = 1 * time.Minute
 	CalendarMinDelay    = CalendarWindow / CalendarAPILimit
 	CalendarMaxResults  = 100
 	CalendarCredentials = "assets/calendar_credentials.json" // embedded Google Calendar credentials file

@@ -37,8 +37,8 @@ import (
 )
 
 const (
-	SlackAPILImit = 1 // typically 1 req/s per user
-	SlackWindow   = 1 * time.Second
+	SlackAPILImit = 20 // typically 20 req/min per user
+	SlackWindow   = 1 * time.Minute
 	SlackMinDelay = SlackWindow / SlackAPILImit
 	SlackQueue    = "slack-queue"
 )

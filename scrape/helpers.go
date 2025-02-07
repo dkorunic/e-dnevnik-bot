@@ -62,6 +62,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 			}
 
 			var descriptions []string
+
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			table.Find("div.row.header div.cell > span").
 				Each(func(_ int, column *goquery.Selection) {
@@ -259,6 +260,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 	doc.Find("div.content > div.flex-table.readings-table").
 		Each(func(_ int, table *goquery.Selection) {
 			var descriptions []string
+
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			// skip over block header
 			table.Find("div.row.header:not(.first) div.cell > span").
@@ -293,7 +295,42 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 				})
 		})
 
-	// XXX: Needs processing final grade
+	// final grades need subject suffix to have unique content for hash
+	subject = strings.Join([]string{subject, className}, " / ")
+
+	// process final grades
+	doc.Find("div.content > div.flex-table.s.grades-table > div.row.final-grade").
+		Each(func(_ int, row *goquery.Selection) {
+			var descriptions []string
+
+			// first cell is description
+			row.Find("div.cell.bold.first > span").
+				Each(func(_ int, column *goquery.Selection) {
+					txt := strings.TrimSpace(column.Text())
+					descriptions = append(descriptions, txt)
+				})
+
+			var spans []string
+
+			// following cells are grades
+			row.Find("div.cell:not(.bold.first) > span").
+				Each(func(_ int, column *goquery.Selection) {
+					// clean excess whitespace and newlines
+					txt := strings.TrimSpace(column.Text())
+					if len(txt) > 0 {
+						txt = trimAllSpace(txt)
+					}
+
+					spans = append(spans, txt)
+				})
+
+			ch <- msgtypes.Message{
+				Username:     username,
+				Subject:      subject,
+				Fields:       spans,
+				Descriptions: descriptions,
+			}
+		})
 
 	return nil
 }

@@ -38,8 +38,8 @@ import (
 )
 
 const (
-	TelegramAPILimit = 30 // 30 API req/s per user
-	TelegramWindow   = 1 * time.Second
+	TelegramAPILimit = 20 // 20 API req/min per user
+	TelegramWindow   = 1 * time.Minute
 	TelegramMinDelay = TelegramWindow / TelegramAPILimit
 	TelegramQueue    = "telegram-queue"
 )

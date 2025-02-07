@@ -152,6 +152,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 			var subjects fetch.Courses
 
+			// parse all courses and reading lists and final grades
 			subjects, err = parseCourses(rawCourses)
 			if err != nil {
 				return err
@@ -160,12 +161,13 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			var rawCourse string
 
 			for _, s := range subjects {
+				// requires additional fetch
 				rawCourse, err = client.GetCourse(s.URL)
 				if err != nil {
 					return err
 				}
 
-				// XXX Need to move up due to multiclass
+				// process individual course
 				err = parseCourse(ch, username, rawCourse, multiClass, cName, s.Name)
 				if err != nil {
 					return err
