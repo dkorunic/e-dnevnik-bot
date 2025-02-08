@@ -72,7 +72,7 @@ var credentialFS embed.FS
 // - retries: the number of retry attempts for inserting a Google Calendar event
 //
 // It returns an error indicating any issues encountered during the execution of the function.
-func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, name, tokFile string, retries uint) error {
+func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name, tokFile string, retries uint) error {
 	srv, calID, err := InitCalendar(ctx, tokFile, name)
 	if err != nil {
 		return err
@@ -84,18 +84,11 @@ func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, name, tok
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
 	// process all messages
-	for o := range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
-			if !ok {
-				logger.Warn().Msg("Received invalid type from channel, trying to continue")
-
-				continue
-			}
-
 			// skip non-exam events
 			if !g.IsExam {
 				continue

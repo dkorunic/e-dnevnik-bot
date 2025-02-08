@@ -91,7 +91,7 @@ var (
 // It ensures the client is connected or reconnects if needed, and uses rate limiting
 // to control the message sending rate. Messages are formatted and sent as Markup.
 // If the userIDs slice is empty, it returns an ErrWhatsAppEmptyUserIDs error.
-func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, userIDs, groups []string, retries uint) error {
+func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, userIDs, groups []string, retries uint) error {
 	if len(userIDs) == 0 && len(groups) == 0 {
 		return ErrWhatsAppEmptyUserIDs
 	}
@@ -110,18 +110,11 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, userIDs, 
 	// find named groups and append to userIDs
 	userIDs = whatsAppProcessGroups(userIDs, groups)
 
-	for o := range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
-			if !ok {
-				logger.Warn().Msg("Received invalid type from channel, trying to continue")
-
-				continue
-			}
-
 			// format message as Markup
 			mRaw := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 			m := &waE2E.Message{Conversation: proto.String(mRaw)}

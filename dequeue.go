@@ -31,7 +31,7 @@ import (
 // fetchAndSendFailedMsg fetches a list of failed messages from the database using the
 // queueKey, decodes the GOB-encoded value, and sends each message to the given
 // channel. If there is an error, the function returns immediately.
-func fetchAndSendFailedMsg(eDB *db.Edb, ch chan<- interface{}, queueKey []byte) {
+func fetchAndSendFailedMsg(eDB *db.Edb, ch chan<- msgtypes.Message, queueKey []byte) {
 	var failedList, emptyList []msgtypes.Message
 
 	// fetch failed messages list, store empty list

@@ -14,7 +14,6 @@ require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/corpix/uarand v0.2.0
 	github.com/dgraph-io/badger/v4 v4.5.1
-	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-telegram/bot v1.13.3
@@ -33,6 +32,7 @@ require (
 	github.com/reiver/go-cast v0.0.0-20250101182008-cd84ca728c05
 	github.com/rs/zerolog v1.33.0
 	github.com/slack-go/slack v0.15.0
+	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.1
 	go.mau.fi/whatsmeow v0.0.0-20250206162117-495e4eb60aee

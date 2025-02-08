@@ -64,7 +64,7 @@ var (
 // userIDs: The list of user IDs to send the messages to.
 // retries: The number of attempts to send the message before giving up.
 // Returns an error if there was a problem sending the message.
-func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string, userIDs []string, retries uint) error {
+func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token string, userIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
@@ -83,17 +83,12 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token stri
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
 	// process all messages
-	for o := range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
-			if !ok {
-				logger.Warn().Msg("Received invalid type from channel, trying to continue")
-
-				continue
-			}
+			logger.Debug().Msgf("Received Discord message: %+v", g)
 
 			// format message as rich message with embedded data
 			fields := make([]*discordgo.MessageEmbedField, 0)

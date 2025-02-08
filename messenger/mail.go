@@ -68,7 +68,7 @@ var (
 // - retries: the number of retry attempts to send the message.
 //
 // The function returns an error.
-func Mail(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, server, port, username, password, from, subject string, to []string, retries uint) error {
+func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
 	logger.Debug().Msg("Started e-mail messenger")
 
 	portInt, err := strconv.Atoi(port)
@@ -81,18 +81,11 @@ func Mail(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, server, port,
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
 	// process all messages
-	for o := range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
-			if !ok {
-				logger.Warn().Msg("Received invalid type from channel, trying to continue")
-
-				continue
-			}
-
 			// format message, have both text/plain and text/html alternative
 			plainContent := format.PlainMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 			htmlContent := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)

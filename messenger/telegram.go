@@ -67,7 +67,7 @@ var (
 // - retries: the number of times to retry sending a message in case of failure.
 //
 // It returns an error indicating any failures that occurred during the process.
-func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey string, chatIDs []string, retries uint) error {
+func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, apiKey string, chatIDs []string, retries uint) error {
 	if apiKey == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
@@ -86,18 +86,11 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey st
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
 	// process all messages
-	for o := range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
-			if !ok {
-				logger.Warn().Msg("Received invalid type from channel, trying to continue")
-
-				continue
-			}
-
 			// format message as HTML
 			m := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 

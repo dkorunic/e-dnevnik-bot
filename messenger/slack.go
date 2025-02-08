@@ -66,7 +66,7 @@ var (
 // chatIDs: the IDs of the recipients.
 // retries: the number of retries in case of failure.
 // error: an error if there was a problem sending the message.
-func Slack(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string, chatIDs []string, retries uint) error {
+func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token string, chatIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
@@ -85,17 +85,12 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
 
 	// process all messages
-	for o := range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			g, ok := o.(msgtypes.Message)
-			if !ok {
-				logger.Warn().Msg("Received invalid type from channel, trying to continue")
-
-				continue
-			}
+			logger.Debug().Msgf("Received Slack message: %+v", g)
 
 			// format message as Markup
 			m := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
