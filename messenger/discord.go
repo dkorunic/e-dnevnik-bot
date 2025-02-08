@@ -134,7 +134,7 @@ func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userID
 	sb := strings.Builder{}
 	format.PlainFormatSubject(&sb, g.Username, g.Subject, g.IsExam)
 
-	msg := &discordgo.MessageEmbed{
+	msg := discordgo.MessageEmbed{
 		Title:  sb.String(),
 		Fields: fields,
 	}
@@ -158,7 +158,7 @@ func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userID
 		err = retry.Do(
 			func() error {
 				_, err := discordCli.ChannelMessageSendEmbed(c.ID,
-					msg,
+					&msg,
 					discordgo.WithContext(ctx),
 					discordgo.WithRetryOnRatelimit(true),
 					discordgo.WithRestRetries(1))

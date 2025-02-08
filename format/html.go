@@ -27,12 +27,12 @@ import (
 
 // HTMLMsg formats grade report as preformatted HTML block in a string.
 func HTMLMsg(username, subject string, isExam bool, descriptions, grade []string) string {
-	sb := &strings.Builder{}
+	sb := strings.Builder{}
 
-	htmlAddHeader(sb, username, subject, isExam)
+	htmlAddHeader(&sb, username, subject, isExam)
 
 	sb.WriteString("<pre>\n")
-	plainFormatGrades(sb, descriptions, grade)
+	plainFormatGrades(&sb, descriptions, grade)
 	sb.WriteString("</pre>\n")
 
 	return sb.String()

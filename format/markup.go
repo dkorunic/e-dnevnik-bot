@@ -27,12 +27,12 @@ import (
 
 // MarkupMsg formats grade report as preformatted Markup block in a string.
 func MarkupMsg(username, subject string, isExam bool, descriptions, grade []string) string {
-	sb := &strings.Builder{}
+	sb := strings.Builder{}
 
-	markupAddHeader(sb, username, subject, isExam)
+	markupAddHeader(&sb, username, subject, isExam)
 
 	sb.WriteString("```\n")
-	plainFormatGrades(sb, descriptions, grade)
+	plainFormatGrades(&sb, descriptions, grade)
 	sb.WriteString("```\n")
 
 	return sb.String()

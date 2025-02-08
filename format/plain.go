@@ -32,10 +32,10 @@ const (
 
 // PlainMsg formats grade report as cleartext block in a string.
 func PlainMsg(username, subject string, isExam bool, descriptions, grade []string) string {
-	sb := &strings.Builder{}
+	sb := strings.Builder{}
 
-	plainAddHeader(sb, username, subject, isExam)
-	plainFormatGrades(sb, descriptions, grade)
+	plainAddHeader(&sb, username, subject, isExam)
+	plainFormatGrades(&sb, descriptions, grade)
 
 	return sb.String()
 }
