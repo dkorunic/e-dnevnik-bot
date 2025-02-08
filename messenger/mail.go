@@ -132,8 +132,8 @@ func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server st
 	password string, to []string, from, subject string, rl ratelimit.Limiter, retries uint,
 ) {
 	// format message, have both text/plain and text/html alternative
-	plainContent := format.PlainMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
-	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
+	plainContent := format.PlainMsg(g.Username, g.Subject, g.IsExam, g.IsReading, g.Descriptions, g.Fields)
+	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.IsReading, g.Descriptions, g.Fields)
 
 	// establish dialer
 	d, err := mail.NewClient(server,

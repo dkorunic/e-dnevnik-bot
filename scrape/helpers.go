@@ -290,7 +290,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 					// we have a readings table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
 						ch <- msgtypes.Message{
-							IsExam:       true, // reading is classified as an exam
+							IsReading:    true,
 							Username:     username,
 							Subject:      subject,
 							Fields:       spans,

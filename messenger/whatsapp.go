@@ -152,7 +152,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 // It uses rate limiting and supports retries with delay.
 func processWhatsApp(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as Markup
-	mRaw := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
+	mRaw := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.IsReading, g.Descriptions, g.Fields)
 	m := waE2E.Message{Conversation: proto.String(mRaw)}
 
 	// send to all recipients: channels and nicknames are permitted

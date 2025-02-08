@@ -31,4 +31,5 @@ type Message struct {
 	Descriptions []string  // descriptions for fields
 	Fields       []string  // fields with actual grades/exams and remarks
 	IsExam       bool      // message is an exam event
+	IsReading    bool      // message is a reading list entry
 }

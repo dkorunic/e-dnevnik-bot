@@ -132,7 +132,7 @@ func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userID
 	}
 
 	sb := strings.Builder{}
-	format.PlainFormatSubject(&sb, g.Username, g.Subject, g.IsExam)
+	format.PlainFormatSubject(&sb, g.Username, g.Subject, g.IsExam, g.IsReading)
 
 	msg := discordgo.MessageEmbed{
 		Title:  sb.String(),
