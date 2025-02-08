@@ -129,7 +129,7 @@ func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, 
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server string, portInt int, username string,
-	password string, to []string, from string, subject string, rl ratelimit.Limiter, retries uint,
+	password string, to []string, from, subject string, rl ratelimit.Limiter, retries uint,
 ) {
 	// format message, have both text/plain and text/html alternative
 	plainContent := format.PlainMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
@@ -149,6 +149,7 @@ func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server st
 		return
 	}
 
+	//nolint:prealloc
 	var messages []*mail.Msg
 
 	// bulk send to all recipients

@@ -163,6 +163,8 @@ func slackInit(ctx context.Context, token string) error {
 //
 // evt: The Slack socketmode event that triggered the handler.
 // _: Unused parameter for the Slack client instance.
+//
+//nolint:exhaustive
 func slackEventHandler(evt *socketmode.Event, _ *socketmode.Client) {
 	switch evt.Type {
 	case socketmode.EventTypeConnectionError:
