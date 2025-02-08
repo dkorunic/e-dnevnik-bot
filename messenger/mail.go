@@ -52,22 +52,25 @@ var (
 	MailQueueName = []byte(MailQueue)
 )
 
-// Mail sends a message through the mail service.
+// Mail sends messages through the mail service to the specified recipients.
 //
-// The function takes the following parameters:
+// It takes the following parameters:
 // - ctx: the context.Context object for cancellation and timeouts.
-// - eDB: the database instance for checking failed messages.
-// - ch: a channel from which messages are received.
+// - eDB: the database instance for checking and storing failed messages.
+// - ch: the channel from which to receive messages.
 // - server: the address of the mail server.
-// - port: the port number for the mail server.
+// - port: the port number for the mail server as a string.
 // - username: the username for authentication.
 // - password: the password for authentication.
 // - from: the email address of the sender.
 // - subject: the subject of the email.
 // - to: a slice of email addresses of the recipients.
-// - retries: the number of retry attempts to send the message.
+// - retries: the number of retry attempts for sending the message.
 //
-// The function returns an error.
+// The function processes all failed messages and new messages, sending them
+// through the mail service. It uses a rate limiter to control the message
+// sending rate and supports retry attempts for sending failures. It logs
+// invalid ports and sets a default port if necessary.
 func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
 	logger.Debug().Msg("Started e-mail messenger")
 
@@ -80,78 +83,116 @@ func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, 
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
-	// process all messages
-	for g := range ch {
+	var g msgtypes.Message
+
+	// process all failed messages
+	for _, g = range fetchFailedMsgs(eDB, MailQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			// format message, have both text/plain and text/html alternative
-			plainContent := format.PlainMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
-			htmlContent := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
+			processMail(ctx, eDB, g, server, portInt, username, password, to, from, subject, rl, retries)
+		}
+	}
 
-			// establish dialer
-			d, err := mail.NewClient(server,
-				mail.WithPort(portInt),
-				mail.WithSMTPAuth(mail.SMTPAuthPlain),
-				mail.WithTLSPolicy(mail.TLSOpportunistic),
-				mail.WithUsername(username),
-				mail.WithPassword(password),
-			)
-			if err != nil {
-				logger.Error().Msgf("%v: %v", ErrMailDialer, err)
-
-				break
-			}
-
-			var messages []*mail.Msg
-
-			// bulk send to all recipients
-			for _, u := range to {
-				m := mail.NewMsg()
-
-				_ = m.From(from)
-				_ = m.To(u)
-
-				m.SetMessageID()
-				m.SetDate()
-				m.SetBulk()
-
-				if subject != "" {
-					m.Subject(subject)
-				} else {
-					m.Subject(MailSubject)
-				}
-
-				m.SetBodyString(mail.TypeTextPlain, plainContent)
-				m.AddAlternativeString(mail.TypeTextHTML, htmlContent)
-
-				messages = append(messages, m)
-			}
-
-			rl.Take()
-
-			// retryable and cancellable attempt to send a message
-			err = retry.Do(
-				func() error {
-					return d.DialAndSend(messages...)
-				},
-				retry.Attempts(retries),
-				retry.Context(ctx),
-				retry.Delay(MailMinDelay),
-			)
-			if err != nil {
-				logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
-
-				// store failed message
-				if err := storeFailedMsgs(eDB, MailQueueName, g); err != nil {
-					logger.Error().Msgf("%v: %v", ErrQueueing, err)
-				}
-
-				continue
-			}
+	// process all messages
+	for g = range ch {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			processMail(ctx, eDB, g, server, portInt, username, password, to, from, subject, rl, retries)
 		}
 	}
 
 	return nil
+}
+
+// processMail processes a message and sends it to the specified recipients through the mail service.
+//
+// It takes the following parameters:
+// - ctx: the context.Context object for cancellation and timeouts.
+// - eDB: the database instance for checking and storing failed messages.
+// - g: the message to be processed and sent.
+// - server: the address of the mail server.
+// - portInt: the port number for the mail server.
+// - username: the username for authentication.
+// - password: the password for authentication.
+// - to: a slice of email addresses of the recipients.
+// - from: the email address of the sender.
+// - subject: the subject of the email.
+// - rl: the rate limiter to control the message sending rate.
+// - retries: the number of retry attempts to send the message.
+//
+// The function formats the message as a multipart/alternative with both text/plain and text/html
+// alternative parts, establishes a dialer, and sends the message to all recipients.
+// It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
+// It uses rate limiting and supports retries with delay.
+func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server string, portInt int, username string,
+	password string, to []string, from string, subject string, rl ratelimit.Limiter, retries uint,
+) {
+	// format message, have both text/plain and text/html alternative
+	plainContent := format.PlainMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
+	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
+
+	// establish dialer
+	d, err := mail.NewClient(server,
+		mail.WithPort(portInt),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithTLSPolicy(mail.TLSOpportunistic),
+		mail.WithUsername(username),
+		mail.WithPassword(password),
+	)
+	if err != nil {
+		logger.Error().Msgf("%v: %v", ErrMailDialer, err)
+
+		return
+	}
+
+	var messages []*mail.Msg
+
+	// bulk send to all recipients
+	for _, u := range to {
+		m := mail.NewMsg()
+
+		_ = m.From(from)
+		_ = m.To(u)
+
+		m.SetMessageID()
+		m.SetDate()
+		m.SetBulk()
+
+		if subject != "" {
+			m.Subject(subject)
+		} else {
+			m.Subject(MailSubject)
+		}
+
+		m.SetBodyString(mail.TypeTextPlain, plainContent)
+		m.AddAlternativeString(mail.TypeTextHTML, htmlContent)
+
+		messages = append(messages, m)
+	}
+
+	rl.Take()
+
+	// retryable and cancellable attempt to send a message
+	err = retry.Do(
+		func() error {
+			return d.DialAndSend(messages...)
+		},
+		retry.Attempts(retries),
+		retry.Context(ctx),
+		retry.Delay(MailMinDelay),
+	)
+	if err != nil {
+		logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
+
+		// store failed message
+		if err := storeFailedMsgs(eDB, MailQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", ErrQueueing, err)
+		}
+
+		return
+	}
 }

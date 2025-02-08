@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package main
+package messenger
 
 import (
 	"github.com/dkorunic/e-dnevnik-bot/db"
@@ -28,33 +28,31 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
-// fetchAndSendFailedMsg fetches a list of failed messages from the database using the
-// queueKey, decodes the GOB-encoded value, and sends each message to the given
-// channel. If there is an error, the function returns immediately.
-func fetchAndSendFailedMsg(eDB *db.Edb, ch chan<- msgtypes.Message, queueKey []byte) {
-	var failedList, emptyList []msgtypes.Message
+// fetchFailedMsgs fetches failed messages from a persistent queue identified by key
+// and attempts to send them again. The function returns the list of failed messages.
+//
+// The function assumes the database and the key are valid. If the key doesn't exist, it will be created.
+//
+// If any of the operations fail, the function will log an error and return an empty list.
+func fetchFailedMsgs(eDB *db.Edb, queueKey []byte) []msgtypes.Message {
+	var failedList []msgtypes.Message
 
 	// fetch failed messages list, store empty list
 	err := eDB.FetchAndStore(queueKey, func(old []byte) ([]byte, error) {
 		failedList, _ = encdec.DecodeMsgs(old)
 
-		return encdec.EncodeMsgs(emptyList)
+		return encdec.EncodeMsgs([]msgtypes.Message{})
 	})
 	if err != nil {
 		logger.Error().Msgf("Error managing failed messages list in database for %v: %v", queueKey, err)
 
-		return
+		return []msgtypes.Message{}
 	}
 
 	failedCount := len(failedList)
 	if failedCount > 0 {
 		logger.Info().Msgf("Found %v failed messages in %v, trying to resend", failedCount, queueKey)
-	} else {
-		return
 	}
 
-	// send to channel for processing
-	for _, u := range failedList {
-		ch <- u
-	}
+	return failedList
 }

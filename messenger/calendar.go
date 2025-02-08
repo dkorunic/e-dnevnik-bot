@@ -48,6 +48,8 @@ const (
 	CalendarMaxResults  = 100
 	CalendarCredentials = "assets/calendar_credentials.json" // embedded Google Calendar credentials file
 	CalendarQueue       = "calendar-queue"
+
+	CalendarExamSep = " - Ispit iz: "
 )
 
 var (
@@ -61,17 +63,17 @@ var (
 //go:embed assets/calendar_credentials.json
 var credentialFS embed.FS
 
-// Calendar is a function that processes messages from a channel and creates events in Google Calendar.
+// Calendar sends messages through the Google Calendar API to the specified calendar.
 //
 // It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function
-// - eDB: the database instance for checking failed messages
-// - ch: a channel for receiving messages
-// - name: the name of the calendar
-// - tokFile: the path to the token file
-// - retries: the number of retry attempts for inserting a Google Calendar event
+// - ctx: the context.Context object for handling deadlines and cancellations.
+// - eDB: the database instance for checking failed messages.
+// - ch: a channel for receiving messages to be sent.
+// - name: the name of the calendar to be used.
+// - tokFile: the path to the file containing the OAuth2 token.
+// - retries: the number of times to retry sending a message in case of failure.
 //
-// It returns an error indicating any issues encountered during the execution of the function.
+// It returns an error indicating any failures that occurred during the process.
 func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name, tokFile string, retries uint) error {
 	srv, calID, err := InitCalendar(ctx, tokFile, name)
 	if err != nil {
@@ -83,63 +85,96 @@ func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name
 	now := time.Now()
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
-	// process all messages
-	for g := range ch {
+	var g msgtypes.Message
+
+	// process all failed messages
+	for _, g = range fetchFailedMsgs(eDB, CalendarQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			// skip non-exam events
-			if !g.IsExam {
-				continue
-			}
+			processCalendar(ctx, eDB, g, now, rl, srv, calID, retries)
+		}
+	}
 
-			// skip events in the past
-			if g.Timestamp.Before(now) {
-				logger.Info().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)
-
-				continue
-			}
-
-			// create an all day event
-			newEvent := &calendar.Event{
-				Summary: strings.Join([]string{g.Username, g.Subject}, " - Ispit iz: "),
-				Start: &calendar.EventDateTime{
-					Date: g.Timestamp.Format(time.DateOnly),
-				},
-				End: &calendar.EventDateTime{
-					Date: g.Timestamp.AddDate(0, 0, 1).Format(time.DateOnly),
-				},
-				Description: g.Fields[len(g.Fields)-1],
-			}
-
-			rl.Take()
-
-			// retryable and cancellable attempt
-			err = retry.Do(
-				func() error {
-					_, err := srv.Events.Insert(calID, newEvent).Do()
-
-					return err
-				},
-				retry.Attempts(retries),
-				retry.Context(ctx),
-				retry.Delay(CalendarMinDelay),
-			)
-			if err != nil {
-				logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
-
-				// store failed message
-				if err := storeFailedMsgs(eDB, CalendarQueueName, g); err != nil {
-					logger.Error().Msgf("%v: %v", ErrQueueing, err)
-				}
-
-				continue
-			}
+	// process all messages
+	for g = range ch {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			processCalendar(ctx, eDB, g, now, rl, srv, calID, retries)
 		}
 	}
 
 	return nil
+}
+
+// processCalendar is a helper function that processes a message from a channel and creates an event in Google Calendar.
+//
+// It takes the following parameters:
+// - ctx: the context.Context object for managing the execution of the function
+// - eDB: the database instance for checking failed messages
+// - g: the message to be processed
+// - now: the current time
+// - rl: the rate limiter
+// - srv: the Google Calendar service client
+// - calID: the ID of the Google Calendar
+// - retries: the number of retry attempts for inserting a Google Calendar event
+//
+// It returns an error indicating any issues encountered during the execution of the function.
+func processCalendar(ctx context.Context, eDB *db.Edb, g msgtypes.Message, now time.Time, rl ratelimit.Limiter,
+	srv *calendar.Service, calID string, retries uint,
+) {
+	var err error
+
+	// skip non-exam events
+	if !g.IsExam {
+		return
+	}
+
+	// skip events in the past
+	if g.Timestamp.Before(now) {
+		logger.Info().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)
+
+		return
+	}
+
+	// create an all day event
+	newEvent := &calendar.Event{
+		Summary: strings.Join([]string{g.Username, g.Subject}, CalendarExamSep),
+		Start: &calendar.EventDateTime{
+			Date: g.Timestamp.Format(time.DateOnly),
+		},
+		End: &calendar.EventDateTime{
+			Date: g.Timestamp.AddDate(0, 0, 1).Format(time.DateOnly),
+		},
+		Description: g.Fields[len(g.Fields)-1],
+	}
+
+	rl.Take()
+
+	// retryable and cancellable attempt
+	err = retry.Do(
+		func() error {
+			_, err := srv.Events.Insert(calID, newEvent).Do()
+
+			return err
+		},
+		retry.Attempts(retries),
+		retry.Context(ctx),
+		retry.Delay(CalendarMinDelay),
+	)
+	if err != nil {
+		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
+
+		// store failed message
+		if err = storeFailedMsgs(eDB, CalendarQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", ErrQueueing, err)
+		}
+
+		return
+	}
 }
 
 // InitCalendar initializes a Google Calendar service and retrieves the calendar ID.

@@ -156,6 +156,13 @@ func slackInit(ctx context.Context, token string) error {
 	return nil
 }
 
+// slackEventHandler handles various Slack socketmode events and logs errors
+// based on the event type. It processes connection errors, invalid
+// authentication, disconnections, and write failures, logging the corresponding
+// error message with the event data.
+//
+// evt: The Slack socketmode event that triggered the handler.
+// _: Unused parameter for the Slack client instance.
 func slackEventHandler(evt *socketmode.Event, _ *socketmode.Client) {
 	switch evt.Type {
 	case socketmode.EventTypeConnectionError:
@@ -166,5 +173,6 @@ func slackEventHandler(evt *socketmode.Event, _ *socketmode.Client) {
 		logger.Error().Msgf("%v: %v", ErrSlackDisconnect, evt.Data)
 	case socketmode.EventTypeErrorWriteFailed:
 		logger.Error().Msgf("%v: %v", ErrSlackWrite, evt.Data)
+	default:
 	}
 }

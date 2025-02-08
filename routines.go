@@ -95,8 +95,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 	go func() {
 		defer wgMsg.Done()
 
-		var wgFailedMsg sync.WaitGroup
-
 		relay := broadcast.NewRelay[msgtypes.Message]()
 		defer relay.Close()
 
@@ -104,17 +102,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		if cfg.DiscordEnabled {
 			l := relay.Listener(broadcastBufLen)
 
-			// handle failed messages
-			wgFailedMsg.Add(1)
-
-			go func() {
-				defer wgFailedMsg.Done()
-				logger.Debug().Msg("Discord processing failed messages started")
-
-				// fetchAndSendFailedMsg(eDB, l.Ch(), messenger.DiscordQueueName)
-			}()
-
-			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
@@ -132,17 +119,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		if cfg.TelegramEnabled {
 			l := relay.Listener(broadcastBufLen)
 
-			// handle failed messages
-			wgFailedMsg.Add(1)
-
-			go func() {
-				defer wgFailedMsg.Done()
-				logger.Debug().Msg("Telegram processing failed messages started")
-
-				// fetchAndSendFailedMsg(eDB, l.Ch(), messenger.TelegramQueueName)
-			}()
-
-			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
@@ -160,17 +136,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		if cfg.SlackEnabled {
 			l := relay.Listener(broadcastBufLen)
 
-			// handle failed messages
-			wgFailedMsg.Add(1)
-
-			go func() {
-				defer wgFailedMsg.Done()
-				logger.Debug().Msg("Slack processing failed messages started")
-
-				// fetchAndSendFailedMsg(eDB, l.Ch(), messenger.SlackQueueName)
-			}()
-
-			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
@@ -188,17 +153,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		if cfg.MailEnabled {
 			l := relay.Listener(broadcastBufLen)
 
-			// handle failed messages
-			wgFailedMsg.Add(1)
-
-			go func() {
-				defer wgFailedMsg.Done()
-				logger.Debug().Msg("Mail processing failed messages started")
-
-				// fetchAndSendFailedMsg(eDB, l.Ch(), messenger.MailQueueName)
-			}()
-
-			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
@@ -217,17 +171,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		if cfg.CalendarEnabled {
 			l := relay.Listener(broadcastBufLen)
 
-			// handle failed messages
-			wgFailedMsg.Add(1)
-
-			go func() {
-				defer wgFailedMsg.Done()
-				logger.Debug().Msg("Calendar processing failed messages started")
-
-				// fetchAndSendFailedMsg(eDB, l.Ch(), messenger.CalendarQueueName)
-			}()
-
-			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
@@ -245,17 +188,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 		if cfg.WhatsAppEnabled {
 			l := relay.Listener(broadcastBufLen)
 
-			// handle failed messages
-			wgFailedMsg.Add(1)
-
-			go func() {
-				defer wgFailedMsg.Done()
-				logger.Debug().Msg("WhatsApp processing failed messages started")
-
-				// fetchAndSendFailedMsg(eDB, l.Ch(), messenger.WhatsAppQueueName)
-			}()
-
-			// handle regular messages
 			wgMsg.Add(1)
 
 			go func() {
@@ -269,9 +201,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 				}
 			}()
 		}
-
-		// wait for all failed messages to be processed
-		wgFailedMsg.Wait()
 
 		// broadcast incoming messages with guaranteed delivery and context
 		for g := range gradesMsg {

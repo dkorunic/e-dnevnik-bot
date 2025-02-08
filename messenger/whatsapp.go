@@ -79,18 +79,20 @@ var (
 	whatsAppCli       *whatsmeow.Client
 )
 
-// WhatsApp sends messages through the WhatsApp API to the specified user IDs.
+// WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
 //
-// ctx: The context.Context used for handling cancellations and deadlines.
-// ch: The channel from which to receive messages.
-// eDB: the database instance for checking failed messages.
-// userIDs: A slice of strings containing the IDs of the recipients (JIDs).
-// retries: The number of attempts to retry sending a message in case of failure.
+// It takes the following parameters:
+// - ctx: the context.Context object for managing the execution of the function.
+// - eDB: the database instance for checking and storing failed messages.
+// - ch: the channel from which to receive messages.
+// - userIDs: a slice of strings containing the WhatsApp user IDs (JIDs) to send the message to.
+// - groups: a slice of strings containing the names of the WhatsApp groups to send the message to.
+// - retries: the number of retry attempts for sending the message.
 //
-// The function returns an error if there was a problem sending the message.
-// It ensures the client is connected or reconnects if needed, and uses rate limiting
-// to control the message sending rate. Messages are formatted and sent as Markup.
-// If the userIDs slice is empty, it returns an ErrWhatsAppEmptyUserIDs error.
+// The function processes all failed messages, finds named groups and appends them to the userIDs,
+// processes all new messages and sends them to the specified user IDs or groups.
+// It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
+// It uses rate limiting and supports retries with delay.
 func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, userIDs, groups []string, retries uint) error {
 	if len(userIDs) == 0 && len(groups) == 0 {
 		return ErrWhatsAppEmptyUserIDs
@@ -110,52 +112,82 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 	// find named groups and append to userIDs
 	userIDs = whatsAppProcessGroups(userIDs, groups)
 
-	for g := range ch {
+	var g msgtypes.Message
+
+	// process failed messages
+	for _, g = range fetchFailedMsgs(eDB, WhatsAppQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			// format message as Markup
-			mRaw := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
-			m := &waE2E.Message{Conversation: proto.String(mRaw)}
+			processWhatsApp(ctx, eDB, g, userIDs, rl, retries)
+		}
+	}
 
-			// send to all recipients: channels and nicknames are permitted
-			for _, u := range userIDs {
-				rl.Take()
-
-				target, err := types.ParseJID(u)
-				if err != nil {
-					logger.Error().Msgf("%v: %v", ErrWhatsAppInvalidJID, err)
-
-					continue
-				}
-
-				// retryable and cancellable attempt to send a message
-				err = retry.Do(
-					func() error {
-						_, err := whatsAppCli.SendMessage(ctx, target, m)
-
-						return err
-					},
-					retry.Attempts(retries),
-					retry.Context(ctx),
-					retry.Delay(WhatsAppMinDelay),
-				)
-				if err != nil {
-					logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
-
-					// store failed message
-					if err := storeFailedMsgs(eDB, WhatsAppQueueName, g); err != nil {
-						logger.Error().Msgf("%v: %v", ErrQueueing, err)
-					}
-
-					continue
-				}
-			}
+	// process all new messages
+	for g = range ch {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			processWhatsApp(ctx, eDB, g, userIDs, rl, retries)
 		}
 	}
 
 	return nil
+}
+
+// processWhatsApp processes a message and sends it to the specified user IDs on WhatsApp.
+//
+// It takes the following parameters:
+// - ctx: the context.Context object for managing the execution of the function.
+// - eDB: the database instance for checking failed messages.
+// - g: the message to be processed.
+// - userIDs: a slice of strings containing the IDs of the recipients (JIDs).
+// - rl: the rate limiter to control the message sending rate.
+// - retries: the number of retry attempts to send the message.
+//
+// It formats the message as Markup and attempts to send it to each user ID.
+// It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
+// It uses rate limiting and supports retries with delay.
+func processWhatsApp(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+	// format message as Markup
+	mRaw := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
+	m := waE2E.Message{Conversation: proto.String(mRaw)}
+
+	// send to all recipients: channels and nicknames are permitted
+	for _, u := range userIDs {
+		rl.Take()
+
+		target, err := types.ParseJID(u)
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrWhatsAppInvalidJID, err)
+
+			continue
+		}
+
+		// retryable and cancellable attempt to send a message
+		err = retry.Do(
+			func() error {
+				_, err := whatsAppCli.SendMessage(ctx, target, &m)
+
+				return err
+			},
+			retry.Attempts(retries),
+			retry.Context(ctx),
+			retry.Delay(WhatsAppMinDelay),
+		)
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
+
+			// store failed message
+			if err := storeFailedMsgs(eDB, WhatsAppQueueName, g); err != nil {
+				logger.Error().Msgf("%v: %v", ErrQueueing, err)
+			}
+
+			continue
+		}
+	}
 }
 
 // whatsAppInit ensures that the WhatsApp client is initialized and connected.
@@ -312,5 +344,6 @@ func whatsAppEventHandler(rawEvt interface{}) {
 	case *events.TemporaryBan:
 		duration := durafmt.Parse(evt.Expire).String()
 		logger.Error().Msgf("%v: code %v / expire %v", ErrWhatsAppBan, evt.Code, duration)
+	default:
 	}
 }

@@ -55,15 +55,17 @@ var (
 	discordCli       *discordgo.Session
 )
 
-// Discord sends messages through the Discord API to the specified user IDs.
+// Discord sends messages through the Discord API.
 //
-// ctx: The context.Context that can be used to cancel the operation.
-// eDB: the database instance for checking failed messages.
-// ch: The channel from which to receive messages.
-// token: The Discord API token.
-// userIDs: The list of user IDs to send the messages to.
-// retries: The number of attempts to send the message before giving up.
-// Returns an error if there was a problem sending the message.
+// It takes the following parameters:
+// - ctx: the context.Context object for handling deadlines and cancellations.
+// - eDB: the database instance for checking failed messages.
+// - ch: a channel for receiving messages to be sent.
+// - token: the Discord API key.
+// - userIDs: a slice of strings containing the IDs of the recipients.
+// - retries: the number of times to retry sending a message in case of failure.
+//
+// It returns an error indicating any failures that occurred during the process.
 func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token string, userIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
@@ -82,77 +84,102 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
-	// process all messages
-	for g := range ch {
+	var g msgtypes.Message
+
+	// process all failed messages
+	for _, g = range fetchFailedMsgs(eDB, DiscordQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			logger.Debug().Msgf("Received Discord message: %+v", g)
+			processDiscord(ctx, eDB, g, userIDs, rl, retries)
+		}
+	}
 
-			// format message as rich message with embedded data
-			fields := make([]*discordgo.MessageEmbedField, 0)
-			for ii := range g.Fields {
-				fields = append(fields, &discordgo.MessageEmbedField{
-					Name:   g.Descriptions[ii],
-					Value:  g.Fields[ii],
-					Inline: true,
-				})
-			}
-
-			sb := &strings.Builder{}
-			format.PlainFormatSubject(sb, g.Username, g.Subject, g.IsExam)
-
-			msg := &discordgo.MessageEmbed{
-				Title:  sb.String(),
-				Fields: fields,
-			}
-
-			// send to all recipients
-			for _, u := range userIDs {
-				rl.Take()
-
-				// create a new user/private channel if needed
-				c, err := discordCli.UserChannelCreate(u,
-					discordgo.WithContext(ctx),
-					discordgo.WithRetryOnRatelimit(true),
-					discordgo.WithRestRetries(1))
-				if err != nil {
-					logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
-
-					break
-				}
-
-				// retryable and cancellable attempt to send a message
-				err = retry.Do(
-					func() error {
-						_, err := discordCli.ChannelMessageSendEmbed(c.ID,
-							msg,
-							discordgo.WithContext(ctx),
-							discordgo.WithRetryOnRatelimit(true),
-							discordgo.WithRestRetries(1))
-
-						return err
-					},
-					retry.Attempts(retries),
-					retry.Context(ctx),
-					retry.Delay(DiscordMinDelay),
-				)
-				if err != nil {
-					logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
-
-					// store failed message
-					if err := storeFailedMsgs(eDB, DiscordQueueName, g); err != nil {
-						logger.Error().Msgf("%v: %v", ErrQueueing, err)
-					}
-
-					continue
-				}
-			}
+	// process all messages
+	for g = range ch {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			processDiscord(ctx, eDB, g, userIDs, rl, retries)
 		}
 	}
 
 	return nil
+}
+
+// processDiscord processes a message from a channel and sends it to the specified user IDs on Discord.
+//
+// It takes the following parameters:
+// - ctx: the context.Context object for managing the execution of the function
+// - eDB: the database instance for checking failed messages
+// - g: the message to be processed
+// - userIDs: the list of Discord user IDs to send the messages to
+// - rl: the rate limiter
+// - retries: the number of retry attempts to send the message
+//
+// It returns no value and has no side effects except for error logging.
+func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+	// format message as rich message with embedded data
+	fields := make([]*discordgo.MessageEmbedField, 0)
+	for ii := range g.Fields {
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   g.Descriptions[ii],
+			Value:  g.Fields[ii],
+			Inline: true,
+		})
+	}
+
+	sb := strings.Builder{}
+	format.PlainFormatSubject(&sb, g.Username, g.Subject, g.IsExam)
+
+	msg := &discordgo.MessageEmbed{
+		Title:  sb.String(),
+		Fields: fields,
+	}
+
+	// send to all recipients
+	for _, u := range userIDs {
+		rl.Take()
+
+		// create a new user/private channel if needed
+		c, err := discordCli.UserChannelCreate(u,
+			discordgo.WithContext(ctx),
+			discordgo.WithRetryOnRatelimit(true),
+			discordgo.WithRestRetries(1))
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
+
+			break
+		}
+
+		// retryable and cancellable attempt to send a message
+		err = retry.Do(
+			func() error {
+				_, err := discordCli.ChannelMessageSendEmbed(c.ID,
+					msg,
+					discordgo.WithContext(ctx),
+					discordgo.WithRetryOnRatelimit(true),
+					discordgo.WithRestRetries(1))
+
+				return err
+			},
+			retry.Attempts(retries),
+			retry.Context(ctx),
+			retry.Delay(DiscordMinDelay),
+		)
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
+
+			// store failed message
+			if err := storeFailedMsgs(eDB, DiscordQueueName, g); err != nil {
+				logger.Error().Msgf("%v: %v", ErrQueueing, err)
+			}
+
+			continue
+		}
+	}
 }
 
 // discordInit initializes a Discord client and starts a session if it has not been initialized yet.
