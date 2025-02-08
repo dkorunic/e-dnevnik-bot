@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	GradePrefix   = "Nova ocjena: "       // grade title prefix
-	ExamPrefix    = "⚠ NAJAVLJEN ISPIT: " // exam title prefix
+	GradePrefix   = "💯 Nova ocjena: "      // grade title prefix
+	ExamPrefix    = "⚠️ NAJAVLJEN ISPIT: " // exam title prefix
 	ReadingPrefix = "📚 Lektira: "
 )
 

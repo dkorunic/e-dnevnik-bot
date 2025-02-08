@@ -40,7 +40,7 @@ const (
 	MailSendLimit = 20 // 20 emails per 1 hour
 	MailWindow    = 1 * time.Hour
 	MailMinDelay  = MailWindow / MailSendLimit
-	MailSubject   = "Nova ocjena iz e-Dnevnika"
+	MailSubject   = "Nova ocjena/ispit iz e-Dnevnika"
 	MailQueue     = "mail-queue"
 )
 
