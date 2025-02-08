@@ -7,6 +7,7 @@ toolchain go1.23.0
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/KimMachineGun/automemlimit v0.7.0
+	github.com/OvyFlash/telegram-bot-api v0.0.0-20241219171906-3f2ca0c14ada
 	github.com/PuerkitoBio/goquery v1.10.1
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.6.0
@@ -17,7 +18,6 @@ require (
 	github.com/dustin/go-broadcast v0.0.0-20211018055107-71439988bd91
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.10.0
-	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/goccy/go-json v0.10.5
 	github.com/google/go-github/v69 v69.0.0
 	github.com/google/renameio/v2 v2.0.0

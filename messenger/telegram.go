@@ -28,12 +28,12 @@ import (
 	"strconv"
 	"time"
 
+	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/avast/retry-go/v4"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"go.uber.org/ratelimit"
 )
 
@@ -112,7 +112,7 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey st
 
 				msg := tgbotapi.MessageConfig{
 					BaseChat: tgbotapi.BaseChat{
-						ChatID: uu,
+						ChatConfig: tgbotapi.ChatConfig{ChatID: uu},
 					},
 					Text:      m,
 					ParseMode: tgbotapi.ModeHTML,

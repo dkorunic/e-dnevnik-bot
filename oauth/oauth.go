@@ -85,6 +85,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 	tok, err := tokenFromFile(tokenPath)
 	saveToFile := false
 
+	//nolint:nestif
 	if err == nil {
 		// we have a token, but it has expired so attempt to refresh it
 		if tok.Expiry.Before(time.Now()) {

@@ -224,6 +224,7 @@ func parseCourses(rawCourses string) (fetch.Courses, error) {
 
 	var courses fetch.Courses
 
+	// list containing URLs for each course (but don't contain https schema or domain)
 	doc.Find("div.content > ul.list > li > a").
 		Each(func(_ int, row *goquery.Selection) {
 			href, hrefOK := row.Attr("href")
@@ -231,6 +232,7 @@ func parseCourses(rawCourses string) (fetch.Courses, error) {
 				return
 			}
 
+			// and a course name
 			span := row.Find("div.course-info > span")
 			if span.Length() > 0 {
 				courseName := strings.TrimSpace(span.First().Text())
@@ -297,8 +299,11 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 				})
 		})
 
-	// final grades need subject suffix to have unique content for hash
-	subject = strings.Join([]string{subject, className}, " / ")
+	// final grades need additional subject suffix to have unique content for hash (which in case of multicass=false
+	// was not added yet)
+	if !multiClass {
+		subject = strings.Join([]string{subject, className}, " / ")
+	}
 
 	// process final grades
 	doc.Find("div.content > div.flex-table.s.grades-table > div.row.final-grade").
@@ -314,7 +319,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 
 			var spans []string
 
-			// following cells are grades
+			// following cells are final grades
 			row.Find("div.cell:not(.bold.first) > span").
 				Each(func(_ int, column *goquery.Selection) {
 					// clean excess whitespace and newlines

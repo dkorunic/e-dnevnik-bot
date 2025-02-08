@@ -39,6 +39,8 @@ import (
 //
 // If the -l command-line flag is specified, initLog enables slow colored
 // console logging. This is useful for debugging.
+//
+//nolint:nestif
 func initLog() {
 	// set global log level
 	logLevel := zerolog.InfoLevel

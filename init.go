@@ -46,6 +46,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const (
+	initialWhatsAppDelay = 2 * time.Minute // 2 minutes sleep after successful sync
+)
+
 var (
 	whatsAppCli    *whatsmeow.Client
 	whatsAppSynced = make(chan struct{})
@@ -152,6 +156,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	}
 
 	// handle QR code and initiate code pairing
+	//nolint:nestif
 	go func() {
 		for evt := range ch {
 			// pair/link event
@@ -192,7 +197,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 
 	// give additional time for WhatsApp to fully sync
-	time.Sleep(120 * time.Second)
+	time.Sleep(initialWhatsAppDelay)
 }
 
 // whatsappPairingEventHandler is a callback function that handles events from the

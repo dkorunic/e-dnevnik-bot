@@ -341,6 +341,7 @@ func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, grades
 				}
 
 				// checkWhatsAppConf if is the initial run and send only if not
+				//nolint:nestif
 				if !found && eDB.Existing() {
 					// checkWhatsAppConf if it is an old event that should be ignored
 					if *relevancePeriod > 0 && !g.IsExam && len(g.Fields) > 0 {
