@@ -90,8 +90,6 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			logger.Debug().Msgf("Received Slack message: %+v", g)
-
 			// format message as Markup
 			m := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.Descriptions, g.Fields)
 
