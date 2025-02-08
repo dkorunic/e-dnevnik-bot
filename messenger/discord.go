@@ -52,6 +52,7 @@ var (
 	ErrDiscordSendingMessage  = errors.New("error sending Discord message")
 
 	DiscordQueueName = []byte(DiscordQueue)
+	discordCli       *discordgo.Session
 )
 
 // Discord sends messages through the Discord API to the specified user IDs.
@@ -72,20 +73,10 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token stri
 		return fmt.Errorf("%w", ErrDiscordEmptyUserIDs)
 	}
 
-	// create a Discord session
-	dg, err := discordgo.New("Bot " + token)
-	if err != nil {
-		logger.Error().Msgf("%v: %v", ErrDiscordCreatingSession, err)
-
-		return err
-	}
-
-	// create a Discord websocket
-	err = dg.Open()
+	err := discordInit(token)
 	if err != nil {
 		return err
 	}
-	defer dg.Close()
 
 	logger.Debug().Msg("Started Discord messenger")
 
@@ -127,7 +118,7 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token stri
 				rl.Take()
 
 				// create a new user/private channel if needed
-				c, err := dg.UserChannelCreate(u,
+				c, err := discordCli.UserChannelCreate(u,
 					discordgo.WithContext(ctx),
 					discordgo.WithRetryOnRatelimit(true),
 					discordgo.WithRestRetries(1))
@@ -140,7 +131,7 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token stri
 				// retryable and cancellable attempt to send a message
 				err = retry.Do(
 					func() error {
-						_, err := dg.ChannelMessageSendEmbed(c.ID,
+						_, err := discordCli.ChannelMessageSendEmbed(c.ID,
 							msg,
 							discordgo.WithContext(ctx),
 							discordgo.WithRetryOnRatelimit(true),
@@ -164,6 +155,35 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token stri
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// discordInit initializes a Discord client and starts a session if it has not been initialized yet.
+//
+// The function takes a string parameter, the Discord API key, and returns an error if there was a problem creating the client or starting the session.
+// If the client has already been initialized, the function does nothing and returns nil.
+//
+// The function logs errors if there was a problem creating the client or starting the session.
+func discordInit(token string) error {
+	var err error
+
+	if discordCli == nil {
+		// create a Discord session
+		discordCli, err = discordgo.New("Bot " + token)
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrDiscordCreatingSession, err)
+
+			return err
+		}
+
+		discordCli.ShouldReconnectOnError = true
+		discordCli.ShouldRetryOnRateLimit = true
+		discordCli.MaxRestRetries = 1
+
+		// create a Discord websocket
+		return discordCli.Open()
 	}
 
 	return nil

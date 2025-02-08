@@ -33,6 +33,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/socketmode"
 	"go.uber.org/ratelimit"
 )
 
@@ -47,8 +48,13 @@ var (
 	ErrSlackEmptyAPIKey    = errors.New("empty Slack API key")
 	ErrSlackEmptyUserIDs   = errors.New("empty list of Slack Chat IDs")
 	ErrSlackSendingMessage = errors.New("error sending Slack message")
+	ErrSlackConnect        = errors.New("unable to connect to Slack API, retrying")
+	ErrSlackInvalidAuth    = errors.New("invalid Slack auth token")
+	ErrSlackDisconnect     = errors.New("disconnected from Slack API socket")
+	ErrSlackWrite          = errors.New("error while sending a message")
 
 	SlackQueueName = []byte(SlackQueue)
+	slackCli       *socketmode.Client
 )
 
 // Slack sends messages through the Slack API.
@@ -69,14 +75,14 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string
 		return fmt.Errorf("%w", ErrSlackEmptyUserIDs)
 	}
 
-	// new full Slack client
-	api := slack.New(token)
+	err := slackInit(ctx, token)
+	if err != nil {
+		return err
+	}
 
 	logger.Debug().Msg("Started Slack messenger")
 
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
-
-	var err error
 
 	// process all messages
 	for o := range ch {
@@ -101,7 +107,8 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string
 				// retryable and cancellable attempt to send a message
 				err = retry.Do(
 					func() error {
-						_, _, err := api.PostMessage(u,
+						_, _, err := slackCli.PostMessageContext(ctx,
+							u,
 							slack.MsgOptionText(m, false),
 							slack.MsgOptionAsUser(true),
 						)
@@ -127,4 +134,42 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, token string
 	}
 
 	return nil
+}
+
+// slackInit initializes the Slack client using the provided API token.
+//
+// token: The Slack API key used to authenticate and create a new Slack client.
+// If the Slack client is not already initialized, the function creates a new
+// Slack client with socket mode enabled. If the client has already been
+// initialized, the function does nothing.
+func slackInit(ctx context.Context, token string) error {
+	if slackCli == nil {
+		// new full Slack API client
+		api := slack.New(token)
+
+		// Socket mode Slack client
+		slackCli = socketmode.New(api)
+
+		smHandler := socketmode.NewSocketmodeHandler(slackCli)
+		smHandler.HandleDefault(slackEventHandler)
+
+		_ = smHandler.RunEventLoopContext(ctx)
+
+		return nil
+	}
+
+	return nil
+}
+
+func slackEventHandler(evt *socketmode.Event, _ *socketmode.Client) {
+	switch evt.Type {
+	case socketmode.EventTypeConnectionError:
+		logger.Error().Msgf("%v: %v", ErrSlackConnect, evt.Data)
+	case socketmode.EventTypeInvalidAuth:
+		logger.Error().Msgf("%v: %v", ErrSlackInvalidAuth, evt.Data)
+	case socketmode.EventTypeDisconnect:
+		logger.Error().Msgf("%v: %v", ErrSlackDisconnect, evt.Data)
+	case socketmode.EventTypeErrorWriteFailed:
+		logger.Error().Msgf("%v: %v", ErrSlackWrite, evt.Data)
+	}
 }

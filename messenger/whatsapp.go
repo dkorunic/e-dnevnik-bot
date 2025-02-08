@@ -63,7 +63,7 @@ var (
 	ErrWhatsAppUnableConnect  = errors.New("unable to connect to WhatsApp database")
 	ErrWhatsAppUnableUpgrade  = errors.New("unable to upgrade WhatsApp database")
 	ErrWhatsAppUnableDeviceID = errors.New("unable to get WhatsApp device ID")
-	ErrWhatsaAppUnableGroups  = errors.New("unable to list WhatsApp groups")
+	ErrWhatsAppUnableGroups   = errors.New("unable to list WhatsApp groups")
 	ErrWhatsAppFailConnect    = errors.New("failed to connect to WhatsApp")
 	ErrWhatsAppFailQR         = errors.New("failed to get WhatsApp QR link channel")
 	ErrWhatsAppFailLink       = errors.New("failed to link with WhatsApp")
@@ -191,7 +191,7 @@ func whatsAppProcessGroups(userIDs, groups []string) []string {
 	if len(groups) > 0 {
 		g, err := whatsAppCli.GetJoinedGroups()
 		if err != nil {
-			logger.Error().Msgf("%v %v", ErrWhatsaAppUnableGroups, err)
+			logger.Error().Msgf("%v %v", ErrWhatsAppUnableGroups, err)
 
 			return userIDs
 		}

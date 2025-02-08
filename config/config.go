@@ -45,6 +45,11 @@ func LoadConfig(file string) (TomlConfig, error) {
 	checkCalendarConf(&config)
 	checkWhatsAppConf(&config)
 
+	if !config.WhatsAppEnabled && !config.DiscordEnabled && !config.TelegramEnabled && !config.SlackEnabled &&
+		!config.MailEnabled && !config.CalendarEnabled {
+		logger.Fatal().Msg("Configuration error: no messenger enabled")
+	}
+
 	return config, nil
 }
 

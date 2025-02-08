@@ -28,12 +28,13 @@ import (
 	"strconv"
 	"time"
 
-	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/avast/retry-go/v4"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 	"go.uber.org/ratelimit"
 )
 
@@ -45,12 +46,14 @@ const (
 )
 
 var (
+	ErrTelegramSession        = errors.New("error creating Telegram session")
 	ErrTelegramEmptyAPIKey    = errors.New("empty Telegram API key")
 	ErrTelegramEmptyUserIDs   = errors.New("empty list of Telegram Chat IDs")
 	ErrTelegramInvalidChatID  = errors.New("invalid Telegram Chat ID")
 	ErrTelegramSendingMessage = errors.New("error sending Telegram message")
 
 	TelegramQueueName = []byte(TelegramQueue)
+	telegramCli       *bot.Bot
 )
 
 // Telegram sends messages through the Telegram API.
@@ -73,11 +76,8 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey st
 		return fmt.Errorf("%w", ErrTelegramEmptyUserIDs)
 	}
 
-	// new Telegram client
-	bot, err := tgbotapi.NewBotAPI(apiKey)
+	err := telegramInit(ctx, apiKey)
 	if err != nil {
-		logger.Error().Msgf("Error creating Telegram session: %v", err)
-
 		return err
 	}
 
@@ -110,12 +110,10 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey st
 					return err
 				}
 
-				msg := tgbotapi.MessageConfig{
-					BaseChat: tgbotapi.BaseChat{
-						ChatConfig: tgbotapi.ChatConfig{ChatID: uu},
-					},
+				msg := bot.SendMessageParams{
+					ChatID:    uu,
 					Text:      m,
-					ParseMode: tgbotapi.ModeHTML,
+					ParseMode: models.ParseModeHTML,
 				}
 
 				rl.Take()
@@ -123,7 +121,7 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey st
 				// retryable and cancellable attempt to send a message
 				err = retry.Do(
 					func() error {
-						_, err := bot.Send(msg)
+						_, err := telegramCli.SendMessage(ctx, &msg)
 
 						return err
 					},
@@ -143,6 +141,33 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan interface{}, apiKey st
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// telegramInit initializes a Telegram client and starts a session if it has not been initialized yet.
+//
+// The function takes a context.Context and the Telegram API key as parameters.
+// If the Telegram client has not been initialized yet (i.e., telegramCli is nil), it creates a new client using the provided API key,
+// starts the session, and assigns the client to the global telegramCli variable.
+// If the client has already been initialized, the function does nothing and returns nil.
+//
+// The function returns an error if there was a problem creating the client or starting the session.
+func telegramInit(ctx context.Context, apiKey string) error {
+	var err error
+
+	if telegramCli == nil {
+		// create a Telegram bot session
+		telegramCli, err = bot.New(apiKey)
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrTelegramSession, err)
+
+			return err
+		}
+
+		// needs a separate goroutine
+		go telegramCli.Start(ctx)
 	}
 
 	return nil
