@@ -83,7 +83,8 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, apiK
 		return err
 	}
 
-	logger.Debug().Msg("Started Telegram messenger")
+	logger.Debug().Msgf("Started Telegram messenger (%v)",
+		readVersion("github.com/go-telegram/bot"))
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 

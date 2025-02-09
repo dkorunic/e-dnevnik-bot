@@ -106,7 +106,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msg("Discord messenger started")
 
 				if err := messenger.Discord(ctx, eDB, l.Ch(), cfg.Discord.Token, cfg.Discord.UserIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
@@ -123,7 +122,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msg("Telegram messenger started")
 
 				if err := messenger.Telegram(ctx, eDB, l.Ch(), cfg.Telegram.Token, cfg.Telegram.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
@@ -140,7 +138,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msg("Slack messenger started")
 
 				if err := messenger.Slack(ctx, eDB, l.Ch(), cfg.Slack.Token, cfg.Slack.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrSlack, err)
@@ -157,7 +154,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msg("Mail messenger started")
 
 				if err := messenger.Mail(ctx, eDB, l.Ch(), cfg.Mail.Server, cfg.Mail.Port, cfg.Mail.Username,
 					cfg.Mail.Password, cfg.Mail.From, cfg.Mail.Subject, cfg.Mail.To, *retries); err != nil {
@@ -175,7 +171,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msg("Calendar messenger started")
 
 				if err := messenger.Calendar(ctx, eDB, l.Ch(), cfg.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
@@ -192,7 +187,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 			go func() {
 				defer wgMsg.Done()
-				logger.Debug().Msg("WhatsApp messenger started")
 
 				if err := messenger.WhatsApp(ctx, eDB, l.Ch(), cfg.WhatsApp.UserIDs, cfg.WhatsApp.Groups,
 					*retries); err != nil {

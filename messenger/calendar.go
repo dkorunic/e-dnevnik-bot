@@ -80,7 +80,8 @@ func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name
 		return err
 	}
 
-	logger.Debug().Msg("Started Google Calendar API messenger")
+	logger.Debug().Msgf("Started Google Calendar API messenger (%v)",
+		readVersion("google.golang.org/api/calendar/v3"))
 
 	now := time.Now()
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))

@@ -72,7 +72,8 @@ var (
 // sending rate and supports retry attempts for sending failures. It logs
 // invalid ports and sets a default port if necessary.
 func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
-	logger.Debug().Msg("Started e-mail messenger")
+	logger.Debug().Msgf("Started e-mail messenger (%v)",
+		readVersion("github.com/wneessen/go-mail"))
 
 	portInt, err := strconv.Atoi(port)
 	if err != nil {

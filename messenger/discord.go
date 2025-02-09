@@ -80,7 +80,8 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token
 		return err
 	}
 
-	logger.Debug().Msg("Started Discord messenger")
+	logger.Debug().Msgf("Started Discord messenger (%v)",
+		readVersion("github.com/bwmarrin/discordgo"))
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 

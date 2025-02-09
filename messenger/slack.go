@@ -77,7 +77,8 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 
 	slackInit(ctx, token)
 
-	logger.Debug().Msg("Started Slack messenger")
+	logger.Debug().Msgf("Started Slack messenger (%v)",
+		readVersion("github.com/slack-go/slack"))
 
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
 

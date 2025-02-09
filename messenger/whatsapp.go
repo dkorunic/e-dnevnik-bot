@@ -105,7 +105,9 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 		return err
 	}
 
-	logger.Debug().Msgf("Started WhatsApp messenger (client version %v)", store.GetWAVersion().String())
+	logger.Debug().Msgf("Started WhatsApp messenger (%v, protocol %v)",
+		readVersion("go.mau.fi/whatsmeow"),
+		store.GetWAVersion().String())
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
