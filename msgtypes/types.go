@@ -23,10 +23,10 @@ package msgtypes
 
 import "time"
 
-// EventCode is an enum for event types
+// EventCode is an enum for event types.
 type EventCode int
 
-// Event codes enum
+// Event codes enum.
 const (
 	Grade EventCode = iota
 	Exam

@@ -83,49 +83,79 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
 
-	// process all messages
-	for g := range ch {
+	var g msgtypes.Message
+
+	// process all failed messages
+	for _, g = range fetchFailedMsgs(eDB, SlackQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			// format message as Markup
-			m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
+			processSlack(ctx, eDB, g, chatIDs, rl, err, retries)
+		}
+	}
 
-			// send to all recipients: channels and nicknames are permitted
-			for _, u := range chatIDs {
-				rl.Take()
-
-				// retryable and cancellable attempt to send a message
-				err = retry.Do(
-					func() error {
-						_, _, err := slackCli.PostMessageContext(ctx,
-							u,
-							slack.MsgOptionText(m, false),
-							slack.MsgOptionAsUser(true),
-						)
-
-						return err
-					},
-					retry.Attempts(retries),
-					retry.Context(ctx),
-					retry.Delay(SlackMinDelay),
-				)
-				if err != nil {
-					logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
-
-					// store failed message
-					if err := storeFailedMsgs(eDB, SlackQueueName, g); err != nil {
-						logger.Error().Msgf("%v: %v", ErrQueueing, err)
-					}
-
-					continue
-				}
-			}
+	// process all messages
+	for g = range ch {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			processSlack(ctx, eDB, g, chatIDs, rl, err, retries)
 		}
 	}
 
 	return nil
+}
+
+// processSlack sends a message to a list of Slack chat IDs.
+//
+// It takes the following parameters:
+// - ctx: the context.Context object for managing the execution of the function.
+// - eDB: the database instance for checking failed messages.
+// - g: the message to be processed and sent.
+// - chatIDs: a slice of strings containing the IDs of the recipients (Slack channels).
+// - rl: the rate limiter to control the message sending rate.
+// - err: an error that occurred during message sending.
+// - retries: the number of retry attempts for sending the message.
+//
+// The function formats the message as Markup and attempts to send it to each chat ID.
+// It logs errors for sending failures, and stores failed messages for retry.
+// It uses rate limiting and supports retries with delay.
+func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, err error, retries uint) {
+	// format message as Markup
+	m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
+
+	// send to all recipients: channels and nicknames are permitted
+	for _, u := range chatIDs {
+		rl.Take()
+
+		// retryable and cancellable attempt to send a message
+		err = retry.Do(
+			func() error {
+				_, _, err := slackCli.PostMessageContext(ctx,
+					u,
+					slack.MsgOptionText(m, false),
+					slack.MsgOptionAsUser(true),
+				)
+
+				return err
+			},
+			retry.Attempts(retries),
+			retry.Context(ctx),
+			retry.Delay(SlackMinDelay),
+		)
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
+
+			// store failed message
+			if err := storeFailedMsgs(eDB, SlackQueueName, g); err != nil {
+				logger.Error().Msgf("%v: %v", ErrQueueing, err)
+			}
+
+			continue
+		}
+	}
 }
 
 // slackInit initializes the Slack client using the provided API token.
