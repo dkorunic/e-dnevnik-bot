@@ -192,6 +192,8 @@ func discordInit(token string) error {
 	var err error
 
 	if discordCli == nil {
+		logger.Debug().Msg("Initializing Discord client")
+
 		// create a Discord session
 		discordCli, err = discordgo.New("Bot " + token)
 		if err != nil {

@@ -182,6 +182,8 @@ func telegramInit(ctx context.Context, apiKey string) error {
 	var err error
 
 	if telegramCli == nil {
+		logger.Debug().Msg("Initializing Telegram client")
+
 		// create a Telegram bot session
 		telegramCli, err = bot.New(apiKey)
 		if err != nil {

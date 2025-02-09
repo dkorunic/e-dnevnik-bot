@@ -77,8 +77,6 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 
 	slackInit(ctx, token)
 
-	var err error
-
 	logger.Debug().Msg("Started Slack messenger")
 
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
@@ -91,7 +89,7 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processSlack(ctx, eDB, g, chatIDs, rl, err, retries)
+			processSlack(ctx, eDB, g, chatIDs, rl, retries)
 		}
 	}
 
@@ -101,7 +99,7 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processSlack(ctx, eDB, g, chatIDs, rl, err, retries)
+			processSlack(ctx, eDB, g, chatIDs, rl, retries)
 		}
 	}
 
@@ -122,7 +120,7 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 // The function formats the message as Markup and attempts to send it to each chat ID.
 // It logs errors for sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, err error, retries uint) {
+func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as Markup
 	m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
@@ -131,7 +129,7 @@ func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs 
 		rl.Take()
 
 		// retryable and cancellable attempt to send a message
-		err = retry.Do(
+		err := retry.Do(
 			func() error {
 				_, _, err := slackCli.PostMessageContext(ctx,
 					u,
@@ -166,6 +164,8 @@ func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs 
 // initialized, the function does nothing.
 func slackInit(ctx context.Context, token string) {
 	if slackCli == nil {
+		logger.Debug().Msg("Initializing Slack client")
+
 		// new full Slack API client
 		api := slack.New(token)
 

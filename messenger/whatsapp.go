@@ -198,8 +198,12 @@ func processWhatsApp(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userI
 // if any step of the initialization or connection process fails.
 func whatsAppInit() error {
 	if whatsAppCli == nil {
+		logger.Debug().Msg("Initializing WhatsApp client")
+
 		return whatsAppLogin()
 	} else if !whatsAppCli.IsConnected() {
+		logger.Debug().Msg("Reconnecting WhatsApp client")
+
 		whatsAppCli.Disconnect()
 
 		return whatsAppCli.Connect()
