@@ -34,6 +34,8 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/oauth"
+	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/version"
 	"go.uber.org/ratelimit"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -81,7 +83,7 @@ func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name
 	}
 
 	logger.Debug().Msgf("Started Google Calendar API messenger (%v)",
-		readVersion("google.golang.org/api"))
+		version.ReadVersion("google.golang.org/api"))
 
 	now := time.Now()
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
@@ -89,7 +91,7 @@ func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range fetchFailedMsgs(eDB, CalendarQueueName) {
+	for _, g = range queue.FetchFailedMsgs(eDB, CalendarQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -170,8 +172,8 @@ func processCalendar(ctx context.Context, eDB *db.Edb, g msgtypes.Message, now t
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
 		// store failed message
-		if err = storeFailedMsgs(eDB, CalendarQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", ErrQueueing, err)
+		if err = queue.StoreFailedMsgs(eDB, CalendarQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 
 		return

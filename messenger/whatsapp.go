@@ -34,6 +34,8 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/version"
 	"github.com/hako/durafmt"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
@@ -106,7 +108,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 	}
 
 	logger.Debug().Msgf("Started WhatsApp messenger (%v, protocol %v)",
-		readVersion("go.mau.fi/whatsmeow"),
+		version.ReadVersion("go.mau.fi/whatsmeow"),
 		store.GetWAVersion().String())
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
@@ -117,7 +119,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 	var g msgtypes.Message
 
 	// process failed messages
-	for _, g = range fetchFailedMsgs(eDB, WhatsAppQueueName) {
+	for _, g = range queue.FetchFailedMsgs(eDB, WhatsAppQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -183,8 +185,8 @@ func processWhatsApp(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userI
 			logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
 
 			// store failed message
-			if err := storeFailedMsgs(eDB, WhatsAppQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", ErrQueueing, err)
+			if err := queue.StoreFailedMsgs(eDB, WhatsAppQueueName, g); err != nil {
+				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 
 			continue

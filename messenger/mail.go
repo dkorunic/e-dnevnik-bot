@@ -32,6 +32,8 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/version"
 	mail "github.com/wneessen/go-mail"
 	"go.uber.org/ratelimit"
 )
@@ -73,7 +75,7 @@ var (
 // invalid ports and sets a default port if necessary.
 func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
 	logger.Debug().Msgf("Started e-mail messenger (%v)",
-		readVersion("github.com/wneessen/go-mail"))
+		version.ReadVersion("github.com/wneessen/go-mail"))
 
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
@@ -87,7 +89,7 @@ func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, 
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range fetchFailedMsgs(eDB, MailQueueName) {
+	for _, g = range queue.FetchFailedMsgs(eDB, MailQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -191,8 +193,8 @@ func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server st
 		logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
 		// store failed message
-		if err := storeFailedMsgs(eDB, MailQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", ErrQueueing, err)
+		if err := queue.StoreFailedMsgs(eDB, MailQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 
 		return

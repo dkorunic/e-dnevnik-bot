@@ -32,6 +32,8 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/version"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
 	"go.uber.org/ratelimit"
@@ -78,14 +80,14 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 	slackInit(ctx, token)
 
 	logger.Debug().Msgf("Started Slack messenger (%v)",
-		readVersion("github.com/slack-go/slack"))
+		version.ReadVersion("github.com/slack-go/slack"))
 
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
 
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range fetchFailedMsgs(eDB, SlackQueueName) {
+	for _, g = range queue.FetchFailedMsgs(eDB, SlackQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -148,8 +150,8 @@ func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs 
 			logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
 			// store failed message
-			if err := storeFailedMsgs(eDB, SlackQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", ErrQueueing, err)
+			if err := queue.StoreFailedMsgs(eDB, SlackQueueName, g); err != nil {
+				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 
 			continue

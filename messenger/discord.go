@@ -34,6 +34,8 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/version"
 	"go.uber.org/ratelimit"
 )
 
@@ -81,14 +83,14 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token
 	}
 
 	logger.Debug().Msgf("Started Discord messenger (%v)",
-		readVersion("github.com/bwmarrin/discordgo"))
+		version.ReadVersion("github.com/bwmarrin/discordgo"))
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range fetchFailedMsgs(eDB, DiscordQueueName) {
+	for _, g = range queue.FetchFailedMsgs(eDB, DiscordQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -174,8 +176,8 @@ func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userID
 			logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
 			// store failed message
-			if err := storeFailedMsgs(eDB, DiscordQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", ErrQueueing, err)
+			if err := queue.StoreFailedMsgs(eDB, DiscordQueueName, g); err != nil {
+				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 
 			continue

@@ -1,5 +1,5 @@
 // @license
-// Copyright (C) 2022  Dinko Korunic
+// Copyright (C) 2025  Dinko Korunic
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -19,26 +19,31 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package messenger
+package queue
 
 import (
-	"runtime/debug"
-	"strings"
+	"errors"
+
+	"github.com/dkorunic/e-dnevnik-bot/db"
+	"github.com/dkorunic/e-dnevnik-bot/encdec"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
-// readVersion takes a string path as an argument and returns a string in the format "path@version".
-// It does this by calling debug.ReadBuildInfo() and then iterating through the Dependencies slice of
-// the BuildInfo struct. If it finds a match for the given path, it will return a string with the path
-// and version number joined by an '@' character. If no match is found, it will simply return the path.
-func readVersion(path string) string {
-	i, ok := debug.ReadBuildInfo()
-	if ok {
-		for _, d := range i.Deps {
-			if d.Path == path {
-				return strings.Join([]string{path, d.Version}, "@")
-			}
-		}
-	}
+var ErrQueueing = errors.New("problem with persistent queue")
 
-	return path
+// StoreFailedMsgs stores a message in a persistent queue identified by key.
+// The message is appended to any existing messages in the queue, and the queue
+// is stored in the database using the given key.
+//
+// The function assumes the database and the key are valid. If the key doesn't
+// exist, it will be created.
+//
+// If any of the operations fail, the function returns an error.
+func StoreFailedMsgs(eDB *db.Edb, key []byte, g msgtypes.Message) error {
+	return eDB.FetchAndStore(key, func(old []byte) ([]byte, error) {
+		msgs, _ := encdec.DecodeMsgs(old)
+		msgs = append(msgs, g)
+
+		return encdec.EncodeMsgs(msgs)
+	})
 }

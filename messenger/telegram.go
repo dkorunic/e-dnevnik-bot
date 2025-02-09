@@ -33,6 +33,8 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/version"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"go.uber.org/ratelimit"
@@ -84,14 +86,14 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, apiK
 	}
 
 	logger.Debug().Msgf("Started Telegram messenger (%v)",
-		readVersion("github.com/go-telegram/bot"))
+		version.ReadVersion("github.com/go-telegram/bot"))
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range fetchFailedMsgs(eDB, TelegramQueueName) {
+	for _, g = range queue.FetchFailedMsgs(eDB, TelegramQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -162,8 +164,8 @@ func processTelegram(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatI
 			logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
 			// store failed message
-			if err := storeFailedMsgs(eDB, TelegramQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", ErrQueueing, err)
+			if err := queue.StoreFailedMsgs(eDB, TelegramQueueName, g); err != nil {
+				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 
 			continue

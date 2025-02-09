@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package messenger
+package queue
 
 import (
 	"github.com/dkorunic/e-dnevnik-bot/db"
@@ -28,13 +28,13 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
-// fetchFailedMsgs fetches failed messages from a persistent queue identified by key
+// FetchFailedMsgs fetches failed messages from a persistent queue identified by key
 // and attempts to send them again. The function returns the list of failed messages.
 //
 // The function assumes the database and the key are valid. If the key doesn't exist, it will be created.
 //
 // If any of the operations fail, the function will log an error and return an empty list.
-func fetchFailedMsgs(eDB *db.Edb, queueKey []byte) []msgtypes.Message {
+func FetchFailedMsgs(eDB *db.Edb, queueKey []byte) []msgtypes.Message {
 	var failedList []msgtypes.Message
 
 	// fetch failed messages list, store empty list
