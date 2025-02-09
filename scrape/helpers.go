@@ -89,6 +89,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 
 					// once we have a single grade with all required fields, send it through the channel
 					ch <- msgtypes.Message{
+						Code:         msgtypes.Grade,
 						Username:     username,
 						Subject:      subject,
 						Descriptions: descriptions,
@@ -136,7 +137,7 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 
 		// send each event through channel
 		ch <- msgtypes.Message{
-			IsExam:   true,
+			Code:     msgtypes.Exam,
 			Username: username,
 			Subject:  subject,
 			Descriptions: []string{
@@ -290,7 +291,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 					// we have a readings table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
 						ch <- msgtypes.Message{
-							IsReading:    true,
+							Code:         msgtypes.Reading,
 							Username:     username,
 							Subject:      subject,
 							Fields:       spans,
@@ -335,6 +336,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 			// send only if we have a final grade
 			if len(spans) > 0 && len(descriptions) > 0 {
 				ch <- msgtypes.Message{
+					Code:         msgtypes.FinalGrade,
 					Username:     username,
 					Subject:      subject,
 					Fields:       spans,

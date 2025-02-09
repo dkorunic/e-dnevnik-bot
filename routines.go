@@ -214,7 +214,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 	}()
 }
 
-// msgDedup acts like a filter: processes all incoming messages, calls in to database checkWhatsAppConf and if it hasn't been found
+// msgDedup acts like a filter: processes all incoming messages, calls in to database check and if it hasn't been found
 // and if it is not an initial run, it will pass through to messengers for further alerting.
 func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Add(1)
@@ -239,17 +239,18 @@ func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, grades
 					logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
 				}
 
-				// checkWhatsAppConf if it is an already known alert
+				// check if it is an already known alert
 				found, err := eDB.CheckAndFlagTTL(g.Username, g.Subject, g.Fields)
 				if err != nil {
 					logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
 				}
 
-				// checkWhatsAppConf if is the initial run and send only if not
+				// check if is the initial run and send only if not
 				//nolint:nestif
 				if !found && eDB.Existing() {
-					// checkWhatsAppConf if it is an old event that should be ignored
-					if *relevancePeriod > 0 && !g.IsExam && len(g.Fields) > 0 {
+					// check if it is an old grade edit that should be ignored
+					if *relevancePeriod > 0 && g.Code == msgtypes.Grade && len(g.Fields) > 0 {
+						// XXX hardcoded location of the date for grades
 						t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 						if err != nil {
 							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
@@ -299,7 +300,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	go func() {
 		defer wgVersion.Done()
 
-		// if we don't have a tag or if it is a local source-build, we don't need to checkWhatsAppConf for updates
+		// if we don't have a tag or if it is a local source-build, we don't need to check for updates
 		if GitTag == "" || GitDirty != "" {
 			return
 		}
@@ -326,7 +327,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 		// get latest release from GitHub
 		latestRelease, _, err := client.Repositories.GetLatestRelease(ctx, githubOrg, githubRepo)
 		if err != nil {
-			logger.Error().Msgf("Unable to checkWhatsAppConf latest version of e-dnevnik-bot: %v", err)
+			logger.Error().Msgf("Unable to check latest version of e-dnevnik-bot: %v", err)
 
 			return
 		}

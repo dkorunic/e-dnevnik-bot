@@ -23,13 +23,15 @@ package format
 
 import (
 	"strings"
+
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 // HTMLMsg formats grade report as preformatted HTML block in a string.
-func HTMLMsg(username, subject string, isExam, isReading bool, descriptions, grade []string) string {
+func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := strings.Builder{}
 
-	htmlAddHeader(&sb, username, subject, isExam, isReading)
+	htmlAddHeader(&sb, username, subject, code)
 
 	sb.WriteString("<pre>\n")
 	plainFormatGrades(&sb, descriptions, grade)
@@ -39,8 +41,8 @@ func HTMLMsg(username, subject string, isExam, isReading bool, descriptions, gra
 }
 
 // htmlAddHeader adds bold header containing username and subject name, and a delimiter.
-func htmlAddHeader(sb *strings.Builder, user, subject string, isExam, isReading bool) {
+func htmlAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	sb.WriteString("<b>")
-	PlainFormatSubject(sb, user, subject, isExam, isReading)
+	PlainFormatSubject(sb, user, subject, code)
 	sb.WriteString("</b>\n")
 }

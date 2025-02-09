@@ -23,6 +23,17 @@ package msgtypes
 
 import "time"
 
+// EventCode is an enum for event types
+type EventCode int
+
+// Event codes enum
+const (
+	Grade EventCode = iota
+	Exam
+	Reading
+	FinalGrade
+)
+
 // Message structure holds alert subject and description as well as grades fields, as well as corresponding username.
 type Message struct {
 	Timestamp    time.Time // event timestamp
@@ -30,6 +41,5 @@ type Message struct {
 	Subject      string    // subject
 	Descriptions []string  // descriptions for fields
 	Fields       []string  // fields with actual grades/exams and remarks
-	IsExam       bool      // message is an exam event
-	IsReading    bool      // message is a reading list entry
+	Code         EventCode // type of event (grade, exam, reading or final grade)
 }

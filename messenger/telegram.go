@@ -127,7 +127,7 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, apiK
 // It uses rate limiting and supports retries with delay.
 func processTelegram(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as HTML
-	m := format.HTMLMsg(g.Username, g.Subject, g.IsExam, g.IsReading, g.Descriptions, g.Fields)
+	m := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
 	// send to all recipients
 	for _, u := range chatIDs {

@@ -242,7 +242,7 @@ func main() {
 
 			var wgVersion, wgScrape, wgFilter, wgMsg sync.WaitGroup
 
-			// self-checkWhatsAppConf
+			// self-check
 			versionCheck(ctx, &wgVersion)
 
 			// open KV store
@@ -326,6 +326,7 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 
 	gradesMsg := make(chan msgtypes.Message, chanBufLen)
 	gradesMsg <- msgtypes.Message{
+		Code:     msgtypes.Grade,
 		Username: testUsername,
 		Subject:  testSubject,
 		Descriptions: []string{

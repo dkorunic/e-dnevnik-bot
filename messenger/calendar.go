@@ -129,7 +129,7 @@ func processCalendar(ctx context.Context, eDB *db.Edb, g msgtypes.Message, now t
 	var err error
 
 	// skip non-exam events
-	if !g.IsExam {
+	if g.Code != msgtypes.Exam {
 		return
 	}
 

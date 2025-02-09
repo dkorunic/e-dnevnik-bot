@@ -23,13 +23,15 @@ package format
 
 import (
 	"strings"
+
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 // MarkupMsg formats grade report as preformatted Markup block in a string.
-func MarkupMsg(username, subject string, isExam, isReading bool, descriptions, grade []string) string {
+func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := strings.Builder{}
 
-	markupAddHeader(&sb, username, subject, isExam, isReading)
+	markupAddHeader(&sb, username, subject, code)
 
 	sb.WriteString("```\n")
 	plainFormatGrades(&sb, descriptions, grade)
@@ -39,8 +41,8 @@ func MarkupMsg(username, subject string, isExam, isReading bool, descriptions, g
 }
 
 // markupAddHeader adds Markup bold header containing username and subject name, and a delimiter.
-func markupAddHeader(sb *strings.Builder, user, subject string, isExam, isReading bool) {
+func markupAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	sb.WriteString("*")
-	PlainFormatSubject(sb, user, subject, isExam, isReading)
+	PlainFormatSubject(sb, user, subject, code)
 	sb.WriteString("*\n\n")
 }

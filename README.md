@@ -16,6 +16,7 @@ Bot is able to login as multiple AAI/AOSI users from skole.hr and check for new 
 - [Discord](https://discord.com/)
 - [Telegram](https://telegram.org/)
 - [Slack](https://slack.com/)
+- [WhatsApp](https://www.whatsapp.com/)
 - regular e-mail (ie. Gmail SMTP, etc.)
 
 Each alert can be broadcasted through multiple services and each of those services can have multiple recipients. All and any authentication information remains on your PC and/or server alone.
@@ -31,6 +32,7 @@ Bot se može autenticirati kao različiti AAI/AOSI korisnici iz skole.hr domene,
 - [Discord](https://discord.com/)
 - [Telegram](https://telegram.org/)
 - [Slack](https://slack.com/)
+- [WhatsApp](https://www.whatsapp.com/)
 - standardni e-mail (npr. Gmail SMTP)
 
 Svaka ta poruka će se proslijediti kroz jedan ili više servisa i svaki navedeni servis može imati konfiguranog jednog ili više primatelja. Autentikacijski podaci za sve navedeno ostaju isključivo lokalno i ne napuštaju vaše računalo i/ili server.
@@ -92,9 +94,10 @@ FLAGS
   -0, --fulldebug              log every scraped event (only with verbose mode)
   -d, --daemon                 enable daemon mode (running as a service)
   -?, --help                   display help
-  -t, --test                   send a test event (to check if messaging works)
+  -t, --test                   send a test event (to checkWhatsAppConf if messaging works)
   -l, --colorlogs              enable colorized console logs
       --version                display program version
+  -j, --jitter BOOL            enable slight (up to 10%) jitter for tick intervals (default: true)
   -f, --conffile STRING        configuration file (in TOML) (default: .e-dnevnik.toml)
   -b, --database STRING        alert database file (default: .e-dnevnik.db)
   -g, --calendartoken STRING   Google Calendar token file (default: calendar_token.json)
@@ -119,7 +122,8 @@ Other flags are:
 - `-l`: enables colorized console logging with JSON output disabled,
 - `-g`: Google Calendar API token file path to read from and store OAuth2 token to,
 - `-p`: maximum relevance period of events (non-exams) to avoid sending alerts on events being changed retroactively,
-- `--version`: display version of the program.
+- `--version`: display version of the program,
+- `-j`: enables slight +-10% random jitter for interval between polls.
 
 Bot se koristi iz tekućeg direktorija u kojem se nalazi i izvršna datoteka i pokušati će učitati datoteku `.e-dnevnik.toml` koja je u [TOML](https://github.com/toml-lang/toml) sintaksi, odnosno učitati će datoteku specificiranu kroz `-f` parametar.
 
@@ -135,7 +139,8 @@ Ostali parametri su:
 - `-l`: omogućuje prikaz na konzolu sa obojenim porukama i gasi JSON oblik ispisa,
 - `-g`: staza do Google Calendar [API tokena](https://developers.google.com/workspace/guides/auth-overview) gdje se sprema korisnički OAuth2 token,
 - `-p`: maksimalna vrijednost trajanja tijekom kojeg se šalju obavijesti za prošle događaje koje nastavnici retroaktivno editiraju,
-- `--version`: ispis verzije programa.
+- `--version`: ispis verzije programa,
+- `-j`: omogućuje blagi +-10% random jitter za interval između buđenja bota.
 
 ### Configuration / Konfiguracija
 
@@ -214,6 +219,20 @@ Steps required:
 1. Create a Slack bot by following the [official Slack bot HOWTO](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
 2. Permissions that are needed are only **chat:write**.
 3. Chat IDs can be copied from Slack user interface, just click either on a desired username, then View full profile, then **Copy member ID**. Channel ID can be also used instead, when sending a group message.
+
+#### WhatsApp configuration
+
+```toml
+[whatsapp]
+phonenumber = "+385XXYYYYYYY"
+userids = [ "+385XXYYYYYYY@s.whatsapp.net", "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" ]
+groups = [ "group1", "group2" ]
+```
+
+Steps required:
+
+1. Open WhatsApp mobile application (iOS, Android, etc.)
+2. Phonenumber is required to pair automatically with PIN which is preferred, especially when not running interactively on your desktop. If there is no phonenumber configured, then pairing will go through with QR code 
 
 --
 

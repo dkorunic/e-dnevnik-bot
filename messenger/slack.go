@@ -90,7 +90,7 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 			return ctx.Err()
 		default:
 			// format message as Markup
-			m := format.MarkupMsg(g.Username, g.Subject, g.IsExam, g.IsReading, g.Descriptions, g.Fields)
+			m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
 			// send to all recipients: channels and nicknames are permitted
 			for _, u := range chatIDs {

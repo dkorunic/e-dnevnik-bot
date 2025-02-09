@@ -23,19 +23,22 @@ package format
 
 import (
 	"strings"
+
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 const (
-	GradePrefix   = "💯 Nova ocjena: "      // grade title prefix
-	ExamPrefix    = "⚠️ NAJAVLJEN ISPIT: " // exam title prefix
-	ReadingPrefix = "📚 Lektira: "
+	GradePrefix      = "💯 Nova ocjena: "
+	ExamPrefix       = "⚠️ NAJAVLJEN ISPIT: "
+	ReadingPrefix    = "📚 Lektira: "
+	FinalGradePrefix = "🎓 ZAKLJUČNA OCJENA: "
 )
 
 // PlainMsg formats grade report as cleartext block in a string.
-func PlainMsg(username, subject string, isExam, isReading bool, descriptions, grade []string) string {
+func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := strings.Builder{}
 
-	plainAddHeader(&sb, username, subject, isExam, isReading)
+	plainAddHeader(&sb, username, subject, code)
 	plainFormatGrades(&sb, descriptions, grade)
 
 	return sb.String()
@@ -57,14 +60,17 @@ func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 // PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.
 //
 //nolint:interfacer
-func PlainFormatSubject(sb *strings.Builder, user, subject string, isExam, isReading bool) {
-	switch {
-	case isExam:
+func PlainFormatSubject(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
+	switch code {
+	case msgtypes.Exam:
 		sb.WriteString(ExamPrefix)
-	case isReading:
+	case msgtypes.Reading:
 		sb.WriteString(ReadingPrefix)
-	default:
+	case msgtypes.Grade:
 		sb.WriteString(GradePrefix)
+	case msgtypes.FinalGrade:
+		sb.WriteString(FinalGradePrefix)
+	default:
 	}
 
 	sb.WriteString(user)
@@ -73,7 +79,7 @@ func PlainFormatSubject(sb *strings.Builder, user, subject string, isExam, isRea
 }
 
 // plainAddHeader adds cleartext header containing username and subject name, and a delimiter.
-func plainAddHeader(sb *strings.Builder, user, subject string, isExam, isReading bool) {
-	PlainFormatSubject(sb, user, subject, isExam, isReading)
+func plainAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
+	PlainFormatSubject(sb, user, subject, code)
 	sb.WriteString("\n\n")
 }
