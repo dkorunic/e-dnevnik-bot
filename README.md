@@ -94,7 +94,7 @@ FLAGS
   -0, --fulldebug              log every scraped event (only with verbose mode)
   -d, --daemon                 enable daemon mode (running as a service)
   -?, --help                   display help
-  -t, --test                   send a test event (to checkWhatsAppConf if messaging works)
+  -t, --test                   send a test event (to check if messaging works)
   -l, --colorlogs              enable colorized console logs
       --version                display program version
   -j, --jitter BOOL            enable slight (up to 10%) jitter for tick intervals (default: true)
@@ -220,20 +220,6 @@ Steps required:
 2. Permissions that are needed are only **chat:write**.
 3. Chat IDs can be copied from Slack user interface, just click either on a desired username, then View full profile, then **Copy member ID**. Channel ID can be also used instead, when sending a group message.
 
-#### WhatsApp configuration
-
-```toml
-[whatsapp]
-phonenumber = "+385XXYYYYYYY"
-userids = [ "+385XXYYYYYYY@s.whatsapp.net", "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" ]
-groups = [ "group1", "group2" ]
-```
-
-Steps required:
-
-1. Open WhatsApp mobile application (iOS, Android, etc.)
-2. Phonenumber is required to pair automatically with PIN which is preferred, especially when not running interactively on your desktop. If there is no phonenumber configured, then pairing will go through with QR code 
-
 --
 
 Potrebni koraci:
@@ -264,6 +250,29 @@ Steps required:
 Potrebni koraci:
 
 1. Gmail SMTP konfiguraciju je moguće složiti koristeći odgovor sa [Google centra](https://support.google.com/a/answer/176600?hl=en) za pomoć. Svi ostali SMTP servisi se slično konfiguriraju.
+
+#### WhatsApp configuration
+
+```toml
+[whatsapp]
+phonenumber = "+385XXYYYYYYY"
+userids = [ "+385XXYYYYYYY@s.whatsapp.net", "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" ]
+groups = [ "group1", "group2" ]
+```
+
+Steps required:
+
+1. Open WhatsApp mobile application (iOS, Android, etc.)
+2. Phonenumber is required to pair automatically with PIN. If there is no phonenumber configured, then pairing will go through with QR code and that requires interactive run on your desktop. While doing an initial sync, make sure to keep your Android/iOS WhatsApp application open and active for at least 2 minutes.
+3. Userids are either a user JID ("+385XXYYYYYYY@s.whatsapp.net" form) where each number gets direct WA message, or a group chat JID ("XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" form). If you don't know a group chat JID, you can specify groups by their name in groups field, and e-dnevnik-bot will show group chat JID in a debug message. Userids are preferred way due to performance reasons.
+
+--
+
+Potrebni koraci:
+
+1. Potrebno je otvoriti WhatsApp mobilnu aplikaciju (za iOS, Android itd.)
+2. Phonenumber je potreban kad za automatsko povezivanje sa aplikacijom kroz PIN. Ako niste naveli phonenumber, onda je potrebno e-dnevnik-bota prvi put pokrenuti na desktopu i tada cete povezati sa mobilnom aplikacijom kroz QR kod. Za prvo sinkroniziranje morate Android/iOS WhatsApp aplikaciju drzati otvorenom i aktivnom barem 2 minute.
+3. Userids polja su ili korisnicki JID (u obliku "+385XXYYYYYYY@s.whatsapp.net") pa za svaki KID korisnik dobije direktnu poruku ili grupni chat JID (u obliku "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net"). Ako ne znate grupni chat JID, mozete koristiti nazive grupa u groups polju, a e-dnevnik-bot ce pri pokretanju pokazati group chat JID u debug poruci. Userids je generalno bolje koristiti zbog boljih performansi.
 
 ## HOWTO
 
