@@ -5,7 +5,7 @@ on:
       - "*"
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       packages: write
@@ -25,6 +25,8 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        with:
+          image: tonistiigi/binfmt:master
 
       - name: Checkout repo
         uses: actions/checkout@v4
