@@ -60,6 +60,7 @@ var (
 	ErrCalendarNotFound     = errors.New("unable to find Google Calendar ID")
 
 	CalendarQueueName = []byte(CalendarQueue)
+	CalendarVersion   = version.ReadVersion("google.golang.org/api")
 )
 
 //go:embed assets/calendar_credentials.json
@@ -82,8 +83,7 @@ func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name
 		return err
 	}
 
-	logger.Debug().Msgf("Started Google Calendar API messenger (%v)",
-		version.ReadVersion("google.golang.org/api"))
+	logger.Debug().Msgf("Started Google Calendar API messenger (%v)", CalendarVersion)
 
 	now := time.Now()
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))

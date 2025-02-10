@@ -55,6 +55,7 @@ var (
 
 	DiscordQueueName = []byte(DiscordQueue)
 	discordCli       *discordgo.Session
+	DiscordVersion   = version.ReadVersion("github.com/bwmarrin/discordgo")
 )
 
 // Discord sends messages through the Discord API.
@@ -82,8 +83,7 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token
 		return err
 	}
 
-	logger.Debug().Msgf("Started Discord messenger (%v)",
-		version.ReadVersion("github.com/bwmarrin/discordgo"))
+	logger.Debug().Msgf("Started Discord messenger (%v)", DiscordVersion)
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 

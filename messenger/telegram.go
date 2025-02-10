@@ -56,6 +56,7 @@ var (
 
 	TelegramQueueName = []byte(TelegramQueue)
 	telegramCli       *bot.Bot
+	TelegramVersion   = version.ReadVersion("github.com/go-telegram/bot")
 )
 
 // Telegram sends messages through the Telegram API to the specified Telegram chat IDs.
@@ -85,8 +86,7 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, apiK
 		return err
 	}
 
-	logger.Debug().Msgf("Started Telegram messenger (%v)",
-		version.ReadVersion("github.com/go-telegram/bot"))
+	logger.Debug().Msgf("Started Telegram messenger (%v)", TelegramVersion)
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 

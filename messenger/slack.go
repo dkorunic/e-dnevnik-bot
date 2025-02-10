@@ -57,6 +57,7 @@ var (
 
 	SlackQueueName = []byte(SlackQueue)
 	slackCli       *socketmode.Client
+	SlackVersion   = version.ReadVersion("github.com/slack-go/slack")
 )
 
 // Slack sends messages through the Slack API.
@@ -79,8 +80,7 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 
 	slackInit(ctx, token)
 
-	logger.Debug().Msgf("Started Slack messenger (%v)",
-		version.ReadVersion("github.com/slack-go/slack"))
+	logger.Debug().Msgf("Started Slack messenger (%v)", SlackVersion)
 
 	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
 

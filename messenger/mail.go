@@ -52,6 +52,7 @@ var (
 	ErrMailSendingMessages = errors.New("error sending mail messages")
 
 	MailQueueName = []byte(MailQueue)
+	MailVersion   = version.ReadVersion("github.com/wneessen/go-mail")
 )
 
 // Mail sends messages through the mail service to the specified recipients.
@@ -74,8 +75,7 @@ var (
 // sending rate and supports retry attempts for sending failures. It logs
 // invalid ports and sets a default port if necessary.
 func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
-	logger.Debug().Msgf("Started e-mail messenger (%v)",
-		version.ReadVersion("github.com/wneessen/go-mail"))
+	logger.Debug().Msgf("Started e-mail messenger (%v)", MailVersion)
 
 	portInt, err := strconv.Atoi(port)
 	if err != nil {

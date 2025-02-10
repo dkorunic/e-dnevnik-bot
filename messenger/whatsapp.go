@@ -79,6 +79,7 @@ var (
 
 	WhatsAppQueueName = []byte(WhatsAppQueue)
 	whatsAppCli       *whatsmeow.Client
+	WhatsAppVersion   = version.ReadVersion("go.mau.fi/whatsmeow")
 )
 
 // WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
@@ -107,8 +108,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 		return err
 	}
 
-	logger.Debug().Msgf("Started WhatsApp messenger (%v, protocol %v)",
-		version.ReadVersion("go.mau.fi/whatsmeow"),
+	logger.Debug().Msgf("Started WhatsApp messenger (%v, protocol %v)", WhatsAppVersion,
 		store.GetWAVersion().String())
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
