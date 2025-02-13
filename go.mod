@@ -7,7 +7,7 @@ toolchain go1.24.0
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/KimMachineGun/automemlimit v0.7.0
-	github.com/PuerkitoBio/goquery v1.10.1
+	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.6.0
 	github.com/blang/semver/v4 v4.0.0
@@ -18,7 +18,7 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-telegram/bot v1.14.0
 	github.com/goccy/go-json v0.10.5
-	github.com/google/go-github/v69 v69.0.0
+	github.com/google/go-github/v69 v69.1.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
@@ -41,7 +41,7 @@ require (
 	golang.org/x/oauth2 v0.26.0
 	google.golang.org/api v0.221.0
 	google.golang.org/protobuf v1.36.5
-	modernc.org/sqlite v1.34.5
+	modernc.org/sqlite v1.35.0
 )
 
 require (
