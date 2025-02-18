@@ -97,6 +97,7 @@ FLAGS
   -t, --test                   send a test event (to check if messaging works)
   -l, --colorlogs              enable colorized console logs
       --version                display program version
+      --readinglist            send reading list alerts
   -j, --jitter BOOL            enable slight (up to 10%) jitter for tick intervals (default: true)
   -f, --conffile STRING        configuration file (in TOML) (default: .e-dnevnik.toml)
   -b, --database STRING        alert database file (default: .e-dnevnik.db)
@@ -123,7 +124,8 @@ Other flags are:
 - `-g`: Google Calendar API token file path to read from and store OAuth2 token to,
 - `-p`: maximum relevance period of events (non-exams) to avoid sending alerts on events being changed retroactively,
 - `--version`: display version of the program,
-- `-j`: enables slight +-10% random jitter for interval between polls.
+- `-j`: enables slight +-10% random jitter for interval between polls,
+- `--readinglist`: enables processing reading list alerts.
 
 Bot se koristi iz tekućeg direktorija u kojem se nalazi i izvršna datoteka i pokušati će učitati datoteku `.e-dnevnik.toml` koja je u [TOML](https://github.com/toml-lang/toml) sintaksi, odnosno učitati će datoteku specificiranu kroz `-f` parametar.
 
@@ -140,7 +142,8 @@ Ostali parametri su:
 - `-g`: staza do Google Calendar [API tokena](https://developers.google.com/workspace/guides/auth-overview) gdje se sprema korisnički OAuth2 token,
 - `-p`: maksimalna vrijednost trajanja tijekom kojeg se šalju obavijesti za prošle događaje koje nastavnici retroaktivno editiraju,
 - `--version`: ispis verzije programa,
-- `-j`: omogućuje blagi +-10% random jitter za interval između buđenja bota.
+- `-j`: omogućuje blagi +-10% random jitter za interval između buđenja bota,
+- `--readinglist`: omogućuje slanje obavijesti za lektiru.
 
 ### Configuration / Konfiguracija
 

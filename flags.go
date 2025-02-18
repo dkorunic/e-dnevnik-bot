@@ -42,10 +42,10 @@ const (
 )
 
 var (
-	debug, debugEvents, daemon, help, emulation, colorLogs, version, jitter *bool
-	confFile, dbFile, cpuProfile, memProfile, calTokFile                    *string
-	tickInterval, relevancePeriod                                           *time.Duration
-	retries                                                                 *uint
+	debug, debugEvents, daemon, help, emulation, colorLogs, version, jitter, readingList *bool
+	confFile, dbFile, cpuProfile, memProfile, calTokFile                                 *string
+	tickInterval, relevancePeriod                                                        *time.Duration
+	retries                                                                              *uint
 )
 
 // parseFlags parses the command line flags and sets the corresponding variables.
@@ -59,6 +59,7 @@ func parseFlags() {
 	emulation = fs.Bool('t', "test", "send a test event (to check if messaging works)")
 	colorLogs = fs.Bool('l', "colorlogs", "enable colorized console logs")
 	version = fs.BoolLong("version", "display program version")
+	readingList = fs.BoolLong("readinglist", "send reading list alerts")
 	jitter = fs.BoolDefault('j', "jitter", true, "enable slight (up to 10%) jitter for tick intervals")
 
 	confFile = fs.String('f', "conffile", DefaultConfFile, "configuration file (in TOML)")

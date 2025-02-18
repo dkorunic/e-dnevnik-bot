@@ -18,7 +18,7 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-telegram/bot v1.14.0
 	github.com/goccy/go-json v0.10.5
-	github.com/google/go-github/v69 v69.1.0
+	github.com/google/go-github/v69 v69.2.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b

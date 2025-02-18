@@ -233,6 +233,11 @@ func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, grades
 					logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
 				}
 
+				// skip reading list events
+				if !*readingList && g.Code == msgtypes.Reading {
+					continue
+				}
+
 				// check if it is an already known alert
 				found, err := eDB.CheckAndFlagTTL(g.Username, g.Subject, g.Fields)
 				if err != nil {
