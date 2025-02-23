@@ -6,7 +6,7 @@ toolchain go1.24.0
 
 require (
 	github.com/BurntSushi/toml v1.4.0
-	github.com/KimMachineGun/automemlimit v0.7.0
+	github.com/KimMachineGun/automemlimit v0.7.1
 	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.6.0
@@ -95,7 +95,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.34.0 // indirect
 	go.opentelemetry.io/otel/trace v1.34.0 // indirect
 	golang.org/x/arch v0.14.0 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
+	golang.org/x/crypto v0.34.0 // indirect
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
