@@ -9,7 +9,7 @@ require (
 	github.com/KimMachineGun/automemlimit v0.7.1
 	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
-	github.com/avast/retry-go/v4 v4.6.0
+	github.com/avast/retry-go/v4 v4.6.1
 	github.com/blang/semver/v4 v4.0.0
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/corpix/uarand v0.2.0
