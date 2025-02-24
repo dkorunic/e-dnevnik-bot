@@ -216,7 +216,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 //   - *events.LoggedOut: removes the database file and logs a message.
 //   - *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
 //     logs a message, disconnects the client, and reconnects if possible.
-func whatsappPairingEventHandler(rawEvt interface{}) {
+func whatsappPairingEventHandler(rawEvt any) {
 	switch evt := rawEvt.(type) {
 	case *events.OfflineSyncPreview:
 		logger.Info().Msgf("WhatsApp offline sync preview: %v messages, %v receipts, %v notifications, %v app data changes",
