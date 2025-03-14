@@ -52,12 +52,22 @@ tasks:
     cmds:
       - gomajor list
 
+  update-tools:
+    cmds:
+      - go install github.com/daixiang0/gci@latest
+      - go install mvdan.cc/gofumpt@latest
+      - go install github.com/dkorunic/betteralign/cmd/betteralign@latest
+
   fmt:
     cmds:
       - go mod tidy
       - gci write .
       - gofumpt -l -w .
       - betteralign -apply ./...
+
+  modernize:
+    cmds:
+      - go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -fix -test ./...
 
   fmt-contrib:
     dir: contrib/random_delete_test
