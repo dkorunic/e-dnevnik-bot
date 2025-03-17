@@ -16,7 +16,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.6.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.10.0
-	github.com/go-telegram/bot v1.14.0
+	github.com/go-telegram/bot v1.14.1
 	github.com/goccy/go-json v0.10.5
 	github.com/google/go-github/v69 v69.2.0
 	github.com/google/renameio/v2 v2.0.0
@@ -35,13 +35,13 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.2
-	go.mau.fi/whatsmeow v0.0.0-20250311112832-01523b1e7109
+	go.mau.fi/whatsmeow v0.0.0-20250316144733-e7e263bf2175
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.28.0
 	google.golang.org/api v0.226.0
 	google.golang.org/protobuf v1.36.5
-	modernc.org/sqlite v1.36.0
+	modernc.org/sqlite v1.36.1
 )
 
 require (
@@ -86,7 +86,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	go.mau.fi/libsignal v0.1.2 // indirect
-	go.mau.fi/util v0.8.5 // indirect
+	go.mau.fi/util v0.8.6 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0 // indirect
 	go.opentelemetry.io/otel v1.35.0 // indirect
