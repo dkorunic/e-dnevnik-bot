@@ -25,7 +25,7 @@ require (
 	github.com/iguanesolutions/go-systemd/v6 v6.0.0
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
 	github.com/mattn/go-isatty v0.0.20
-	github.com/mdp/qrterminal/v3 v3.2.0
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/minio/sha256-simd v1.0.1
 	github.com/peterbourgon/ff/v4 v4.0.0-alpha.4
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
@@ -39,19 +39,19 @@ require (
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.28.0
-	google.golang.org/api v0.226.0
+	google.golang.org/api v0.227.0
 	google.golang.org/protobuf v1.36.5
 	modernc.org/sqlite v1.36.1
 )
 
 require (
 	cloud.google.com/go/auth v0.15.0 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
-	github.com/bytedance/sonic v1.13.1 // indirect
+	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
