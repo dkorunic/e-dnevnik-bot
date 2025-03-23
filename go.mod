@@ -30,7 +30,7 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-alpha.4
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/reiver/go-cast v0.0.0-20250101182008-cd84ca728c05
-	github.com/rs/zerolog v1.33.0
+	github.com/rs/zerolog v1.34.0
 	github.com/slack-go/slack v0.16.0
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
@@ -104,6 +104,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.61.13 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.9.0 // indirect
+	modernc.org/memory v1.9.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
