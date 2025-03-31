@@ -49,12 +49,12 @@ const (
 
 var (
 	ErrScrapingUser = errors.New("error scraping data for User")
-	ErrDiscord      = errors.New("Discord messenger issue")  //nolint:stylecheck
-	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:stylecheck
-	ErrSlack        = errors.New("Slack messenger issue")    //nolint:stylecheck
-	ErrMail         = errors.New("Mail messenger issue")     //nolint:stylecheck
-	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:stylecheck
-	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:stylecheck
+	ErrDiscord      = errors.New("Discord messenger issue")  //nolint:staticcheck
+	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:staticcheck
+	ErrSlack        = errors.New("Slack messenger issue")    //nolint:staticcheck
+	ErrMail         = errors.New("Mail messenger issue")     //nolint:staticcheck
+	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
+	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:staticcheck
 
 	formatHRDateOnly = "2.1."
 )
