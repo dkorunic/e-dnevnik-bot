@@ -22,17 +22,17 @@
 package main
 
 import (
-	"fmt"
+	"encoding/hex"
 	"log"
-	"math/rand"
-	"slices"
+	"time"
 
-	"filippo.io/mostly-harmless/cryptosource"
 	"github.com/dgraph-io/badger/v4"
+	"github.com/hako/durafmt"
 )
 
 const (
 	DefaultDBName = ".e-dnevnik.db"
+	DefaultTTL    = time.Hour * 9000
 )
 
 func main() {
@@ -42,8 +42,7 @@ func main() {
 	}
 	defer db.Close()
 
-	// fetch all keys
-	var keys [][]byte
+	// iterate all keys
 	err = db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.PrefetchValues = false
@@ -53,37 +52,16 @@ func main() {
 		for it.Rewind(); it.Valid(); it.Next() {
 			item := it.Item()
 			k := item.Key()
-			keys = append(keys, k)
+			e := time.Unix(int64(item.ExpiresAt()), 0)
+
+			now := time.Now()
+
+			log.Printf("Key: %v, ExpiresAt: %v, Old: %v seconds\n", hex.EncodeToString(k), e.Format(time.RFC3339), durafmt.Parse(now.Sub(e)+DefaultTTL))
 		}
 
 		return nil
 	})
 	if err != nil {
 		log.Fatalf("Could not list keys: %v\n", err)
-	}
-
-	totalKeys := len(keys)
-
-	fmt.Printf("Found total of %v keys.\n", totalKeys)
-
-	r := rand.New(cryptosource.New())
-
-	// delete two random keys
-	for range 2 {
-		randIdx := r.Intn(totalKeys)
-		randKey := keys[randIdx]
-		fmt.Printf("Deleting key number %v: %v\n", randIdx, randKey)
-
-		// delete key from keys slice
-		keys = slices.Delete(keys, randIdx, randIdx+1)
-
-		// delete k/v from DB
-		err = db.Update(func(txn *badger.Txn) error {
-			return txn.Delete(randKey)
-		})
-		if err != nil {
-			log.Fatalf("Unable to delete key: %v", err)
-		}
-
 	}
 }

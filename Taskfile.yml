@@ -36,7 +36,7 @@ tasks:
 
   update-contrib:
     cmds:
-      - for: [contrib/delete_entries, contrib/random_delete_test]
+      - for: [contrib/list_entries, contrib/random_delete_test]
         task: update-dir
         vars:
           DIR: '{{.ITEM}}'
