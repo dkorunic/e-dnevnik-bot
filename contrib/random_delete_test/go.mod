@@ -5,13 +5,13 @@ go 1.24
 toolchain go1.24.0
 
 require (
-	filippo.io/mostly-harmless/cryptosource v0.0.0-20250207164953-f7265945bb06
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20250402182923-a61c52c3dade
 	github.com/dgraph-io/badger/v4 v4.6.0
 )
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/dgraph-io/ristretto/v2 v2.1.0 // indirect
+	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
