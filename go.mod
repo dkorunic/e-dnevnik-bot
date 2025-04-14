@@ -7,7 +7,7 @@ toolchain go1.24.0
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/KimMachineGun/automemlimit v0.7.1
-	github.com/PuerkitoBio/goquery v1.10.2
+	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/blang/semver/v4 v4.0.0
@@ -16,7 +16,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.7.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.10.0
-	github.com/go-telegram/bot v1.14.1
+	github.com/go-telegram/bot v1.14.2
 	github.com/goccy/go-json v0.10.5
 	github.com/google/go-github/v70 v70.0.0
 	github.com/google/renameio/v2 v2.0.0
@@ -35,7 +35,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.2
-	go.mau.fi/whatsmeow v0.0.0-20250409130157-7d8031d8ba6f
+	go.mau.fi/whatsmeow v0.0.0-20250411192951-5ab78fadbf91
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.29.0
