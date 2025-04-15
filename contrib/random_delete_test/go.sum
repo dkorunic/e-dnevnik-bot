@@ -1,5 +1,5 @@
-filippo.io/mostly-harmless/cryptosource v0.0.0-20250410120627-44fb3e6e0b56 h1:UxyrPb5dZg7g/Qm3G4c9L24djJLLn2ZvFrIRk+YU2QM=
-filippo.io/mostly-harmless/cryptosource v0.0.0-20250410120627-44fb3e6e0b56/go.mod h1:hIhrS2FFqXOAlsXLtU3FZ3R5TMD47Mhh/8UQ+vBylQk=
+filippo.io/mostly-harmless/cryptosource v0.0.0-20250413101550-8ccd4ebf61c8 h1:Dj47GIQdJ83cheHnJiCtlPPRGU+cplnX7SIOOs5ylv8=
+filippo.io/mostly-harmless/cryptosource v0.0.0-20250413101550-8ccd4ebf61c8/go.mod h1:hIhrS2FFqXOAlsXLtU3FZ3R5TMD47Mhh/8UQ+vBylQk=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
