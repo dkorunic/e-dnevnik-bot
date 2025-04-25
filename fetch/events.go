@@ -46,29 +46,22 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 			continue
 		}
 
-		var dtstart time.Time
-		var err error
-
 		timestamp := node[EventDateStart]
 
-		if val, ok := timestamp.Params["VALUE"]; ok {
-			// RFC 5545 timestamps
-			switch val {
-			case "DATE":
-				dtstart, err = time.Parse("20060102", timestamp.Val)
-				if err != nil {
-					logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
+		dtstart, err := time.Parse("20060102T150405", timestamp.Val)
+		if err != nil {
+			dtstart, err = time.Parse("20060102", timestamp.Val)
+			if err != nil {
+				logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
 
-					continue
-				}
-			case "DATE-TIME":
-				dtstart, err = time.Parse("20060102T150405", timestamp.Val)
-				if err != nil {
-					logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
-
-					continue
-				}
+				continue
 			}
+		}
+
+		if dtstart.IsZero() {
+			logger.Debug().Msg("Skipping zero date event")
+
+			continue
 		}
 
 		d := Event{
