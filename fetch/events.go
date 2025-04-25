@@ -22,6 +22,8 @@
 package fetch
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -32,6 +34,10 @@ const (
 	EventDateStart   = "DTSTART"
 	EventDescription = "DESCRIPTION"
 	EventSummary     = "SUMMARY"
+
+	LayoutISO8601CompactZ    = "20060102T150405Z0700"
+	LayoutISO8601CompactNoTZ = "20060102T150405"
+	LayoutISO8601Short       = "20060102"
 )
 
 // ConsumeICal is a ICS data decoder that extracts DTSTART, DESCRIPTION and SUMMARY values, parsing timestamp with
@@ -48,18 +54,20 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 
 		timestamp := node[EventDateStart]
 
-		dtstart, err := time.Parse("20060102T150405", timestamp.Val)
+		dtstart, err := parseFirstDateTime([]string{
+			LayoutISO8601CompactZ,
+			LayoutISO8601CompactNoTZ,
+			LayoutISO8601Short,
+		},
+			timestamp.Val)
 		if err != nil {
-			dtstart, err = time.Parse("20060102", timestamp.Val)
-			if err != nil {
-				logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
+			logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
 
-				continue
-			}
+			continue
 		}
 
 		if dtstart.IsZero() {
-			logger.Debug().Msg("Skipping zero date event")
+			logger.Debug().Msgf("failed to parse event date %v", timestamp.Val)
 
 			continue
 		}
@@ -73,4 +81,24 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 	}
 
 	return nil
+}
+
+// parseFirstDateTime attempts to parse a timestamp string using a list of layouts.
+//
+// It takes a slice of layout strings and a timestamp value string. The function
+// trims any leading or trailing whitespace from the value and iterates over the
+// provided layouts, trying to parse the value using each one. If a layout
+// successfully parses the value, the parsed time.Time object is returned.
+// If none of the layouts can parse the value, the function returns the zero
+// value of time.Time and an error indicating the failure to parse the timestamp.
+func parseFirstDateTime(layouts []string, value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+
+	for _, layout := range layouts {
+		if dt, err := time.Parse(layout, value); err == nil {
+			return dt, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("failed to parse timestamp %v", value)
 }
