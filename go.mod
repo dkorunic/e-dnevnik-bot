@@ -8,7 +8,6 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/KimMachineGun/automemlimit v0.7.1
 	github.com/PuerkitoBio/goquery v1.10.3
-	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/blang/semver/v4 v4.0.0
 	github.com/bwmarrin/discordgo v0.28.1

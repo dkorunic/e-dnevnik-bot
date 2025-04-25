@@ -22,7 +22,8 @@
 package fetch
 
 import (
-	"github.com/araddon/dateparse"
+	"time"
+
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/jordic/goics"
 )
@@ -45,11 +46,29 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 			continue
 		}
 
-		dtstart, err := dateparse.ParseLocal(node[EventDateStart].Val)
-		if err != nil {
-			logger.Debug().Msgf("failed to parse event date %v: %v", node[EventDateStart].Val, err)
+		var dtstart time.Time
+		var err error
 
-			continue
+		timestamp := node[EventDateStart]
+
+		if val, ok := timestamp.Params["VALUE"]; ok {
+			// RFC 5545 timestamps
+			switch val {
+			case "DATE":
+				dtstart, err = time.Parse("20060102", timestamp.Val)
+				if err != nil {
+					logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
+
+					continue
+				}
+			case "DATE-TIME":
+				dtstart, err = time.Parse("20060102T150405", timestamp.Val)
+				if err != nil {
+					logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
+
+					continue
+				}
+			}
 		}
 
 		d := Event{
