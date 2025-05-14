@@ -103,7 +103,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 
 	// reconnecting and syncing the state is very expensive, so we are keeping it open
 	// and reconnecting only if needed
-	err := whatsAppInit()
+	err := whatsAppInit(ctx)
 	if err != nil {
 		return err
 	}
@@ -200,11 +200,11 @@ func processWhatsApp(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userI
 // to initialize it. If the client is initialized but not connected, it attempts
 // to disconnect and then reconnect the client. The function returns an error
 // if any step of the initialization or connection process fails.
-func whatsAppInit() error {
+func whatsAppInit(ctx context.Context) error {
 	if whatsAppCli == nil {
 		logger.Debug().Msg("Initializing WhatsApp client")
 
-		return whatsAppLogin()
+		return whatsAppLogin(ctx)
 	} else if !whatsAppCli.IsConnected() {
 		logger.Debug().Msg("Reconnecting WhatsApp client")
 
@@ -255,14 +255,14 @@ func whatsAppProcessGroups(userIDs, groups []string) []string {
 // the whatsAppEventHandler to handle events.
 //
 // If any error occurs during the process, it is logged and returned.
-func whatsAppLogin() error {
+func whatsAppLogin(ctx context.Context) error {
 	// request syncing for last 3-months
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
 
 	// set OS to Linux
 	store.DeviceProps.Os = proto.String(WhatsAppOS)
 
-	storeContainer, err := sqlstore.New("sqlite",
+	storeContainer, err := sqlstore.New(ctx, "sqlite",
 		fmt.Sprintf(WhatsAppDBConnstring, WhatsAppDBName), nil)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableConnect, err)
@@ -270,7 +270,7 @@ func whatsAppLogin() error {
 		return err
 	}
 
-	err = storeContainer.Upgrade()
+	err = storeContainer.Upgrade(ctx)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableUpgrade, err)
 
@@ -278,7 +278,7 @@ func whatsAppLogin() error {
 	}
 
 	// use only first device, we don't support multiple sessions
-	device, err := storeContainer.GetFirstDevice()
+	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableDeviceID, err)
 

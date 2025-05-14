@@ -114,7 +114,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	// set OS to Linux
 	store.DeviceProps.Os = proto.String(messenger.WhatsAppOS)
 
-	storeContainer, err := sqlstore.New("sqlite",
+	storeContainer, err := sqlstore.New(ctx, "sqlite",
 		fmt.Sprintf(messenger.WhatsAppDBConnstring, messenger.WhatsAppDBName), nil)
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableConnect, err)
@@ -123,13 +123,13 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	// make sure to close WhatsApp sqlite database after the init
 	defer storeContainer.Close()
 
-	err = storeContainer.Upgrade()
+	err = storeContainer.Upgrade(ctx)
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableUpgrade, err)
 	}
 
 	// use only first device, we don't support multiple sessions
-	device, err := storeContainer.GetFirstDevice()
+	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableDeviceID, err)
 	}
@@ -163,7 +163,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 			if evt.Event == "code" {
 				// prefer pairing through code if phone number is enabled
 				if config.WhatsApp.PhoneNumber != "" {
-					linkCode, err := whatsAppCli.PairPhone(config.WhatsApp.PhoneNumber, true,
+					linkCode, err := whatsAppCli.PairPhone(ctx, config.WhatsApp.PhoneNumber, true,
 						whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)
 					if err != nil {
 						logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailLink, err)
