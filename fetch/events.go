@@ -22,6 +22,7 @@
 package fetch
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -39,6 +40,8 @@ const (
 	LayoutISO8601CompactNoTZ = "20060102T150405"
 	LayoutISO8601Short       = "20060102"
 )
+
+var ErrParseTimestamp = errors.New("failed to parse timestamp")
 
 // ConsumeICal is a ICS data decoder that extracts DTSTART, DESCRIPTION and SUMMARY values, parsing timestamp with
 // maximum flexibility and in local timezone, returning optional error.
@@ -100,5 +103,5 @@ func parseFirstDateTime(layouts []string, value string) (time.Time, error) {
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("failed to parse timestamp %v", value)
+	return time.Time{}, fmt.Errorf("%w: %v", ErrParseTimestamp, value)
 }
