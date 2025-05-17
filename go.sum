@@ -137,8 +137,8 @@ github.com/mattn/go-isatty v0.0.19/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/mattn/go-sqlite3 v1.14.6/go.mod h1:NyWgC/yNuGj7Q9rpYnZvas74GogHl5/Z4A/KQRfk6bU=
-github.com/mattn/go-sqlite3 v1.14.24 h1:tpSp2G2KyMnnQu99ngJ47EIkWVmliIizyZBfPrBWDRM=
-github.com/mattn/go-sqlite3 v1.14.24/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
+github.com/mattn/go-sqlite3 v1.14.28 h1:ThEiQrnbtumT+QMknw63Befp/ce/nUPgBPMlRFEum7A=
+github.com/mattn/go-sqlite3 v1.14.28/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
 github.com/mdp/qrterminal/v3 v3.2.1 h1:6+yQjiiOsSuXT5n9/m60E54vdgFsw0zhADHhHLrFet4=
 github.com/mdp/qrterminal/v3 v3.2.1/go.mod h1:jOTmXvnBsMy5xqLniO0R++Jmjs2sTm9dFSuQ5kpz/SU=
 github.com/minio/sha256-simd v1.0.1 h1:6kaan5IFmwTNynnKKpDHe6FWHohJOHhCPchzK49dzMM=
@@ -202,8 +202,8 @@ github.com/wneessen/go-mail v0.6.2/go.mod h1:L/PYjPK3/2ZlNb2/FjEBIn9n1rUWjW+Toy5
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
 go.mau.fi/libsignal v0.2.0 h1:oRXj3OHhEJq51BFEM8/50UZblmWiTYH93hsNTPcbk90=
 go.mau.fi/libsignal v0.2.0/go.mod h1:tvjoDsMejgT38CXTXwqaYu8itBiY8O2Mb6biWvZBb9k=
-go.mau.fi/util v0.8.6 h1:AEK13rfgtiZJL2YsNK+W4ihhYCuukcRom8WPP/w/L54=
-go.mau.fi/util v0.8.6/go.mod h1:uNB3UTXFbkpp7xL1M/WvQks90B/L4gvbLpbS0603KOE=
+go.mau.fi/util v0.8.7 h1:ywKarPxouJQEEijTs4mPlxC7F4AWEKokEpWc+2TYy6c=
+go.mau.fi/util v0.8.7/go.mod h1:j6R3cENakc1f8HpQeFl0N15UiSTcNmIfDBNJUbL71RY=
 go.mau.fi/whatsmeow v0.0.0-20250515105332-8c870897140e h1:j0voXCIzgx7lwVdrIiw1nBufnzCb08pXb1aN1qVerXQ=
 go.mau.fi/whatsmeow v0.0.0-20250515105332-8c870897140e/go.mod h1:0b/hOeTpA38V89YTtE2yqMKfDfaffj8gMu+AswqprQI=
 go.opentelemetry.io/auto/sdk v1.1.0 h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA=
