@@ -10,7 +10,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/blang/semver/v4 v4.0.0
-	github.com/bwmarrin/discordgo v0.28.1
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/corpix/uarand v0.2.0
 	github.com/dgraph-io/badger/v4 v4.7.0
 	github.com/dustin/go-humanize v1.0.1
@@ -30,7 +30,7 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/reiver/go-cast v0.0.0-20250101182008-cd84ca728c05
 	github.com/rs/zerolog v1.34.0
-	github.com/slack-go/slack v0.16.0
+	github.com/slack-go/slack v0.17.0
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.2
