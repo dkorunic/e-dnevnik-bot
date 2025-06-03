@@ -259,7 +259,49 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 		subject = strings.Join([]string{subject, className}, " / ")
 	}
 
-	// only process readings-table
+	// process national-exam-table
+	doc.Find("div.content > div.flex-table.national-exam-table").
+		Each(func(_ int, table *goquery.Selection) {
+			var descriptions []string
+
+			// row descriptions are in div with class "row header" in each div with class "cell" in a span
+			// skip over block header
+			table.Find("div.row.header:not(.first) div.cell > span").
+				Each(func(_ int, column *goquery.Selection) {
+					txt := strings.TrimSpace(column.Text())
+					descriptions = append(descriptions, txt)
+				})
+
+			table.Find("div.row:not(.header)").
+				Each(func(_ int, row *goquery.Selection) {
+					var spans []string
+
+					// ... and in each div with class "cell" in a span
+					row.Find("div.cell > span").
+						Each(func(_ int, column *goquery.Selection) {
+							// clean excess whitespace and newlines
+							txt := strings.TrimSpace(column.Text())
+							if len(txt) > 0 {
+								txt = trimAllSpace(txt)
+							}
+
+							spans = append(spans, txt)
+						})
+
+					// we have a national-exam table entry, send it through the channel
+					if len(spans) > 0 && len(descriptions) > 0 {
+						ch <- msgtypes.Message{
+							Code:         msgtypes.NationalExam,
+							Username:     username,
+							Subject:      subject,
+							Fields:       spans,
+							Descriptions: descriptions,
+						}
+					}
+				})
+		})
+
+	// process readings-table
 	doc.Find("div.content > div.flex-table.readings-table").
 		Each(func(_ int, table *goquery.Selection) {
 			var descriptions []string

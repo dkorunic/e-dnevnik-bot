@@ -32,6 +32,7 @@ const (
 	Exam
 	Reading
 	FinalGrade
+	NationalExam
 )
 
 // Message structure holds alert subject and description as well as grades fields, as well as corresponding username.

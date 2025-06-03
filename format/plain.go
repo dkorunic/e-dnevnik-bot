@@ -28,10 +28,11 @@ import (
 )
 
 const (
-	GradePrefix      = "💯 Nova ocjena: "
-	ExamPrefix       = "⚠️ NAJAVLJEN ISPIT: "
-	ReadingPrefix    = "📚 Lektira: "
-	FinalGradePrefix = "🎓 ZAKLJUČNA OCJENA: "
+	GradePrefix        = "💯 Nova ocjena: "
+	ExamPrefix         = "⚠️ NAJAVLJEN ISPIT: "
+	ReadingPrefix      = "📚 Lektira: "
+	FinalGradePrefix   = "🎓 ZAKLJUČNA OCJENA: "
+	NationalExamPrefix = "✍️ Nacionalni ispit: "
 )
 
 // PlainMsg formats grade report as cleartext block in a string.
@@ -70,6 +71,8 @@ func PlainFormatSubject(sb *strings.Builder, user, subject string, code msgtypes
 		sb.WriteString(GradePrefix)
 	case msgtypes.FinalGrade:
 		sb.WriteString(FinalGradePrefix)
+	case msgtypes.NationalExam:
+		sb.WriteString(NationalExamPrefix)
 	default:
 	}
 
