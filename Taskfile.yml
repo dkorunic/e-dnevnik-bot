@@ -20,7 +20,6 @@ vars:
 
 env:
   CGO_ENABLED: 0
-  GOAMD64: v3
 
 tasks:
   default:
