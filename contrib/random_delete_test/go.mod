@@ -5,7 +5,7 @@ go 1.24
 toolchain go1.24.0
 
 require (
-	filippo.io/mostly-harmless/cryptosource v0.0.0-20250630003654-2dffebb57df4
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20250630125729-167fd853e1e6
 	github.com/dgraph-io/badger/v4 v4.7.0
 )
 
