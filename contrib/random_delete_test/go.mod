@@ -5,7 +5,7 @@ go 1.24
 toolchain go1.24.0
 
 require (
-	filippo.io/mostly-harmless/cryptosource v0.0.0-20250708005336-47bb8741564c
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20250709133858-cb25ed9f967b
 	github.com/dgraph-io/badger/v4 v4.7.0
 )
 
@@ -22,6 +22,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.37.0 // indirect
 	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
