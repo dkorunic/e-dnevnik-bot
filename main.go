@@ -23,7 +23,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"math/rand/v2"
 	"os"
 	"os/signal"
@@ -42,7 +41,6 @@ import (
 	"github.com/hako/durafmt"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v6/notify/watchdog"
-	"go.uber.org/automaxprocs/maxprocs"
 )
 
 const (
@@ -59,7 +57,6 @@ const (
 
 var (
 	exitWithError atomic.Bool
-	ErrMaxProc    = errors.New("failed to set GOMAXPROCS")
 	GitTag        = ""
 	GitCommit     = ""
 	GitDirty      = ""
@@ -108,14 +105,6 @@ func main() {
 		logger.Warn().Msgf("Unable to get/set GOMEMLIMIT: %v", err)
 	} else {
 		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", humanize.Bytes(uint64(limit))) //nolint:gosec
-	}
-
-	// configure GOMAXPROCS
-	undo, err := maxprocs.Set()
-	defer undo()
-
-	if err != nil {
-		logger.Warn().Msgf("%v: %v", ErrMaxProc, err)
 	}
 
 	logger.Debug().Msgf("GOMAXPROCS limit is set to: %v", runtime.GOMAXPROCS(0))

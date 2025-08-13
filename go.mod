@@ -1,8 +1,6 @@
 module github.com/dkorunic/e-dnevnik-bot
 
-go 1.24
-
-toolchain go1.24.0
+go 1.25
 
 require (
 	github.com/BurntSushi/toml v1.5.0
@@ -26,19 +24,18 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/minio/sha256-simd v1.0.1
-	github.com/peterbourgon/ff/v4 v4.0.0-alpha.4
+	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
-	github.com/reiver/go-cast v0.0.0-20250101182008-cd84ca728c05
+	github.com/reiver/go-cast v0.0.0-20250810135534-c993eee155ee
 	github.com/rs/zerolog v1.34.0
 	github.com/slack-go/slack v0.17.3
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.2
-	go.mau.fi/whatsmeow v0.0.0-20250807072145-72ce90b82194
-	go.uber.org/automaxprocs v1.6.0
+	go.mau.fi/whatsmeow v0.0.0-20250811141640-b804d10c54c2
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.30.0
-	google.golang.org/api v0.246.0
+	google.golang.org/api v0.247.0
 	google.golang.org/protobuf v1.36.7
 	modernc.org/sqlite v1.38.2
 )
@@ -79,7 +76,7 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20250721140440-ea1c0173183e // indirect
+	github.com/petermattis/goid v0.0.0-20250813065127-a731cc31b4fe // indirect
 	github.com/reiver/go-erorr v0.0.0-20240801233437-8cbde6d1fa3f // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
@@ -93,15 +90,15 @@ require (
 	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	golang.org/x/arch v0.20.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
-	golang.org/x/exp v0.0.0-20250808145144-a408d31f581a // indirect
+	golang.org/x/exp v0.0.0-20250811191247-51f88131bc50 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
 	google.golang.org/grpc v1.74.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.66.6 // indirect
+	modernc.org/libc v1.66.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
