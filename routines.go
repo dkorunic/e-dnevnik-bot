@@ -65,9 +65,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 	logger.Debug().Msg("Starting scrapers")
 
 	for _, i := range cfg.User {
-
 		wgScrape.Go(func() {
-
 			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
 			if err != nil {
 				logger.Warn().Msgf("%v %v: %v", ErrScrapingUser, i.Username, err)
@@ -88,9 +86,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 // - gradesMsg: a channel receiving messages to be sent to configured messengers.
 // - cfg: the configuration settings containing enabled services and their respective credentials.
 func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
-
 	wgMsg.Go(func() {
-
 		relay := broadcast.NewRelay[msgtypes.Message]()
 		defer relay.Close()
 
@@ -99,7 +95,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 			l := relay.Listener(broadcastBufLen)
 
 			wgMsg.Go(func() {
-
 				if err := messenger.Discord(ctx, eDB, l.Ch(), cfg.Discord.Token, cfg.Discord.UserIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
@@ -112,7 +107,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 			l := relay.Listener(broadcastBufLen)
 
 			wgMsg.Go(func() {
-
 				if err := messenger.Telegram(ctx, eDB, l.Ch(), cfg.Telegram.Token, cfg.Telegram.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
@@ -125,7 +119,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 			l := relay.Listener(broadcastBufLen)
 
 			wgMsg.Go(func() {
-
 				if err := messenger.Slack(ctx, eDB, l.Ch(), cfg.Slack.Token, cfg.Slack.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
@@ -138,7 +131,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 			l := relay.Listener(broadcastBufLen)
 
 			wgMsg.Go(func() {
-
 				if err := messenger.Mail(ctx, eDB, l.Ch(), cfg.Mail.Server, cfg.Mail.Port, cfg.Mail.Username,
 					cfg.Mail.Password, cfg.Mail.From, cfg.Mail.Subject, cfg.Mail.To, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrMail, err)
@@ -152,7 +144,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 			l := relay.Listener(broadcastBufLen)
 
 			wgMsg.Go(func() {
-
 				if err := messenger.Calendar(ctx, eDB, l.Ch(), cfg.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
 					exitWithError.Store(true)
@@ -165,7 +156,6 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 			l := relay.Listener(broadcastBufLen)
 
 			wgMsg.Go(func() {
-
 				if err := messenger.WhatsApp(ctx, eDB, l.Ch(), cfg.WhatsApp.UserIDs, cfg.WhatsApp.Groups,
 					*retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrWhatsApp, err)
@@ -189,9 +179,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 // msgDedup acts like a filter: processes all incoming messages, calls in to database check and if it hasn't been found
 // and if it is not an initial run, it will pass through to messengers for further alerting.
 func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
-
 	wgFilter.Go(func() {
-
 		if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")
 		}
@@ -270,9 +258,7 @@ func spinner() {
 // is available, it logs an informational message. This function spawns a
 // goroutine and uses a WaitGroup to synchronize with other goroutines.
 func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
-
 	wgVersion.Go(func() {
-
 		// if we don't have a tag or if it is a local source-build, we don't need to check for updates
 		if GitTag == "" || GitDirty != "" {
 			return
