@@ -32,7 +32,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.6.2
-	go.mau.fi/whatsmeow v0.0.0-20250820160106-21f5124c7602
+	go.mau.fi/whatsmeow v0.0.0-20250826144440-85e30ecab38b
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.30.0
 	google.golang.org/api v0.248.0
@@ -53,7 +53,7 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.3.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.9 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -95,7 +95,7 @@ require (
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250818200422-3122310a409c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250825161204-c5933d9347a5 // indirect
 	google.golang.org/grpc v1.75.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.66.7 // indirect
