@@ -114,7 +114,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
 	// find named groups and append to userIDs
-	userIDs = whatsAppProcessGroups(userIDs, groups)
+	userIDs = whatsAppProcessGroups(ctx, userIDs, groups)
 
 	var g msgtypes.Message
 
@@ -220,9 +220,9 @@ func whatsAppInit(ctx context.Context) error {
 // and appends the JIDs of any matching groups to the user IDs slice. If an error occurs while fetching
 // the groups, it logs the error. The function returns the updated list of user IDs which now includes
 // the JIDs of the specified groups.
-func whatsAppProcessGroups(userIDs, groups []string) []string {
+func whatsAppProcessGroups(ctx context.Context, userIDs, groups []string) []string {
 	if len(groups) > 0 {
-		g, err := whatsAppCli.GetJoinedGroups()
+		g, err := whatsAppCli.GetJoinedGroups(ctx)
 		if err != nil {
 			logger.Error().Msgf("%v %v", ErrWhatsAppUnableGroups, err)
 
