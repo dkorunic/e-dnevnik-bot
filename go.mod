@@ -14,7 +14,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.10.1
 	github.com/go-telegram/bot v1.17.0
-	github.com/goccy/go-json v0.10.5
 	github.com/google/go-github/v74 v74.0.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
@@ -32,7 +31,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.0
-	go.mau.fi/whatsmeow v0.0.0-20250915160606-03f180026b8f
+	go.mau.fi/whatsmeow v0.0.0-20250916115455-914d640cc83c
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.31.0
 	google.golang.org/api v0.249.0
@@ -43,7 +42,7 @@ require (
 require (
 	cloud.google.com/go/auth v0.16.5 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/compute/metadata v0.8.0 // indirect
+	cloud.google.com/go/compute/metadata v0.8.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
@@ -63,6 +62,7 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.27.0 // indirect
+	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/flatbuffers/go v0.0.0-20230110200425-62e4d2e5b215 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect

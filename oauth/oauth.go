@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -37,7 +38,6 @@ import (
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/goccy/go-json"
 	"github.com/google/renameio/v2/maybe"
 	"github.com/google/uuid"
 	"github.com/pkg/browser"
