@@ -10,6 +10,7 @@ import (
 )
 
 func TestFetchFailedMsgs(t *testing.T) {
+	t.Parallel()
 	// Create a temporary database for testing.
 	tmpdir, err := os.MkdirTemp("", "test.db")
 	if err != nil {

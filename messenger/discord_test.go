@@ -14,6 +14,7 @@ import (
 )
 
 func TestProcessDiscord(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"id": "12345"}`))
@@ -53,6 +54,7 @@ func TestProcessDiscord(t *testing.T) {
 }
 
 func TestDiscordInit(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

@@ -15,6 +15,7 @@ import (
 )
 
 func TestProcessSlack(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -49,6 +50,7 @@ func TestProcessSlack(t *testing.T) {
 }
 
 func TestSlackEventHandler(t *testing.T) {
+	t.Parallel()
 	evt := &socketmode.Event{
 		Type: socketmode.EventTypeConnectionError,
 		Data: "test error",

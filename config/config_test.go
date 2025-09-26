@@ -27,6 +27,7 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Parallel()
 	// Test with a valid config file.
 	_, err := LoadConfig("test_config.toml")
 	if err != nil {
@@ -59,6 +60,7 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestValidators(t *testing.T) {
+	t.Parallel()
 	// isValidPhone
 	if !isValidPhone("+1234567890") {
 		t.Error("isValidPhone() failed with a valid phone number")

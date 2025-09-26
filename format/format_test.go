@@ -30,6 +30,7 @@ import (
 )
 
 func TestFormatMessages(t *testing.T) {
+	t.Parallel()
 	username := "testuser"
 	subject := "testsubject"
 	descriptions := []string{"desc1", "desc2"}
@@ -75,6 +76,7 @@ func TestFormatMessages(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			actual := tc.formatFn(username, subject, tc.code, descriptions, grades)
 			if strings.TrimSpace(actual) != strings.TrimSpace(tc.expected) {
 				t.Errorf("expected:\n%s\ngot:\n%s", tc.expected, actual)

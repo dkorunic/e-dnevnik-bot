@@ -30,6 +30,7 @@ import (
 )
 
 func TestParseFirstDateTime(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name      string
 		value     string
@@ -63,6 +64,7 @@ func TestParseFirstDateTime(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			actual, err := parseFirstDateTime([]string{LayoutISO8601CompactZ, LayoutISO8601CompactNoTZ, LayoutISO8601Short}, tc.value)
 			if (err != nil) != tc.expectErr {
 				t.Fatalf("expected error: %v, got: %v", tc.expectErr, err)
@@ -75,6 +77,7 @@ func TestParseFirstDateTime(t *testing.T) {
 }
 
 func TestConsumeICal(t *testing.T) {
+	t.Parallel()
 	validEvent := goics.Event{
 		Data: map[string]*goics.IcsNode{
 			EventDateStart:   {Val: "20250101T120000Z"},

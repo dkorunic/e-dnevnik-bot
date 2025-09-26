@@ -29,6 +29,7 @@ import (
 )
 
 func TestDBOperations(t *testing.T) {
+	t.Parallel()
 	// Create a temporary directory path for the database, but don't create the directory itself.
 	tmpdir := filepath.Join(os.TempDir(), "test-db-for-testing")
 	// Clean up any previous test runs.

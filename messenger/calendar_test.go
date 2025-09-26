@@ -17,6 +17,7 @@ import (
 )
 
 func TestProcessCalendar(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{}`))
@@ -56,6 +57,7 @@ func TestProcessCalendar(t *testing.T) {
 }
 
 func TestGetCalendarID(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "users/me/calendarList") {
 			w.WriteHeader(http.StatusOK)

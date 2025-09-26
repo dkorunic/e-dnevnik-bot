@@ -15,6 +15,7 @@ import (
 )
 
 func TestProcessWhatsApp(t *testing.T) {
+	t.Parallel()
 	// This is difficult to unit test without a live connection.
 	// We will just call the function to ensure it doesn't panic.
 	whatsAppCli = &whatsmeow.Client{}
@@ -43,6 +44,7 @@ func TestProcessWhatsApp(t *testing.T) {
 }
 
 func TestWhatsAppEventHandler(t *testing.T) {
+	t.Parallel()
 	container, err := sqlstore.New(context.Background(), "sqlite", "file::memory:?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000", nil)
 	if err != nil {
 		t.Fatalf("failed to create sqlstore: %v", err)

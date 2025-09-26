@@ -31,6 +31,7 @@ import (
 )
 
 func TestTokenFileOperations(t *testing.T) {
+	t.Parallel()
 	// Create a temporary file for testing.
 	tmpfile, err := os.CreateTemp("", "test-token.json")
 	if err != nil {

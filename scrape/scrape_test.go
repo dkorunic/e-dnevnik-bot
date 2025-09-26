@@ -32,6 +32,7 @@ import (
 )
 
 func TestParseGrades(t *testing.T) {
+	t.Parallel()
 	html := `
 	<div class="content">
 		<div class="flex-table new-grades-table" data-action-id="Math">
@@ -68,6 +69,7 @@ func TestParseGrades(t *testing.T) {
 }
 
 func TestParseEvents(t *testing.T) {
+	t.Parallel()
 	events := fetch.Events{
 		{
 			Summary:     "History: Test",
@@ -107,6 +109,7 @@ func TestParseEvents(t *testing.T) {
 }
 
 func TestParseClasses(t *testing.T) {
+	t.Parallel()
 	html := `
 	<div class="student-list">
 		<div class="classes">
@@ -139,6 +142,7 @@ func TestParseClasses(t *testing.T) {
 }
 
 func TestParseCourses(t *testing.T) {
+	t.Parallel()
 	html := `
 	<div class="content">
 		<ul class="list">
@@ -164,6 +168,7 @@ func TestParseCourses(t *testing.T) {
 }
 
 func TestParseCourse(t *testing.T) {
+	t.Parallel()
 	html := `
 	<div class="content">
 		<div class="flex-table readings-table">
@@ -235,6 +240,7 @@ func TestParseCourse(t *testing.T) {
 }
 
 func TestTrimAllSpace(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -248,6 +254,7 @@ func TestTrimAllSpace(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := trimAllSpace(tt.input); got != tt.want {
 				t.Errorf("trimAllSpace() = %q, want %q", got, tt.want)
 			}
@@ -256,6 +263,7 @@ func TestTrimAllSpace(t *testing.T) {
 }
 
 func TestCleanEventDescription(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -267,6 +275,7 @@ func TestCleanEventDescription(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := cleanEventDescription(tt.input); got != tt.want {
 				t.Errorf("cleanEventDescription() = %q, want %q", got, tt.want)
 			}

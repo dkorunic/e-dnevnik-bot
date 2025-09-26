@@ -8,6 +8,7 @@ import (
 )
 
 func TestHTMLMsg(t *testing.T) {
+	t.Parallel()
 	username := "testuser"
 	subject := "Test Subject"
 	code := msgtypes.Grade
@@ -23,6 +24,7 @@ func TestHTMLMsg(t *testing.T) {
 }
 
 func TestHtmlAddHeader(t *testing.T) {
+	t.Parallel()
 	var sb strings.Builder
 	user := "testuser"
 	subject := "Test Subject"

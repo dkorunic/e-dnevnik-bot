@@ -8,6 +8,7 @@ import (
 )
 
 func TestMarkupMsg(t *testing.T) {
+	t.Parallel()
 	username := "testuser"
 	subject := "Test Subject"
 	code := msgtypes.Grade
@@ -23,6 +24,7 @@ func TestMarkupMsg(t *testing.T) {
 }
 
 func TestMarkupAddHeader(t *testing.T) {
+	t.Parallel()
 	var sb strings.Builder
 	user := "testuser"
 	subject := "Test Subject"

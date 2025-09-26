@@ -14,6 +14,7 @@ import (
 )
 
 func TestProcessTelegram(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -56,6 +57,7 @@ func TestProcessTelegram(t *testing.T) {
 }
 
 func TestTelegramInit(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -63,8 +65,15 @@ func TestTelegramInit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	bot.WithServerURL(server.URL)
-	err := telegramInit(context.Background(), "test-token")
+	opts := []bot.Option{
+		bot.WithServerURL(server.URL),
+	}
+	b, err := bot.New("test-token", opts...)
+	if err != nil {
+		t.Fatalf("Unable to create Telegram bot: %v", err)
+	}
+	telegramCli = b
+	err = telegramInit(context.Background(), "test-token")
 	if err != nil {
 		t.Fatalf("telegramInit() error = %v", err)
 	}

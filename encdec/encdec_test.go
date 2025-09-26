@@ -30,6 +30,7 @@ import (
 )
 
 func TestEncodeDecode(t *testing.T) {
+	t.Parallel()
 	// Prepare a sample message slice
 	originalMsgs := []msgtypes.Message{
 		{

@@ -7,6 +7,7 @@ import (
 )
 
 func TestDbExists(t *testing.T) {
+	t.Parallel()
 	// Test with a file that exists
 	tmpfile, err := os.CreateTemp("", "example")
 	if err != nil {
@@ -25,6 +26,7 @@ func TestDbExists(t *testing.T) {
 }
 
 func TestHashContent(t *testing.T) {
+	t.Parallel()
 	bucket := "test-bucket"
 	subBucket := "test-sub-bucket"
 	target := []string{"target1", "target2"}

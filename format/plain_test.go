@@ -8,6 +8,7 @@ import (
 )
 
 func TestPlainMsg(t *testing.T) {
+	t.Parallel()
 	username := "testuser"
 	subject := "Test Subject"
 	code := msgtypes.Grade
@@ -23,6 +24,7 @@ func TestPlainMsg(t *testing.T) {
 }
 
 func TestPlainFormatGrades(t *testing.T) {
+	t.Parallel()
 	var sb strings.Builder
 	descriptions := []string{"desc1", "desc2"}
 	grade := []string{"grade1", "grade2"}
@@ -38,6 +40,7 @@ func TestPlainFormatGrades(t *testing.T) {
 }
 
 func TestPlainFormatSubject(t *testing.T) {
+	t.Parallel()
 	var sb strings.Builder
 	user := "testuser"
 	subject := "Test Subject"
@@ -54,6 +57,7 @@ func TestPlainFormatSubject(t *testing.T) {
 }
 
 func TestPlainAddHeader(t *testing.T) {
+	t.Parallel()
 	var sb strings.Builder
 	user := "testuser"
 	subject := "Test Subject"

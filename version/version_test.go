@@ -6,6 +6,7 @@ import (
 )
 
 func TestReadVersion(t *testing.T) {
+	t.Parallel()
 	// Test with a known dependency
 	path := "github.com/dkorunic/e-dnevnik-bot"
 	version := ReadVersion(path)

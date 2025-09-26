@@ -27,6 +27,7 @@ import (
 )
 
 func TestDurationRandJitter(t *testing.T) {
+	t.Parallel()
 	duration := 100 * time.Second
 	min := time.Duration(float64(duration) * 0.9)
 	max := time.Duration(float64(duration) * 1.1)

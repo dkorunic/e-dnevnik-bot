@@ -13,6 +13,7 @@ import (
 )
 
 func TestProcessMail(t *testing.T) {
+	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Unable to start listener: %v", err)

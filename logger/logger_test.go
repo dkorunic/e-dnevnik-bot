@@ -7,6 +7,7 @@ import (
 )
 
 func TestOutput(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	logger := Output(&buf)
 	logger.Print("test")
@@ -16,6 +17,7 @@ func TestOutput(t *testing.T) {
 }
 
 func TestPrint(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	Logger = Logger.Output(&buf)
 	Print("test")
@@ -25,6 +27,7 @@ func TestPrint(t *testing.T) {
 }
 
 func TestPrintf(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	Logger = Logger.Output(&buf)
 	Printf("test %s", "string")
