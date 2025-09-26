@@ -154,7 +154,10 @@ func isValidTelegramChatID(id string) bool {
 // Returns:
 // - true if the string is a valid WhatsApp JID, false otherwise
 func isValidWhatsAppJID(jid string) bool {
-	_, err := types.ParseJID(jid)
+	parsedJID, err := types.ParseJID(jid)
+	if err != nil {
+		return false
+	}
 
-	return err == nil
+	return parsedJID.Server == "s.whatsapp.net" || parsedJID.Server == "g.us" || parsedJID.Server == "broadcast"
 }

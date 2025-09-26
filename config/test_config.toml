@@ -1,0 +1,32 @@
+[[user]]
+username = "test@skole.hr"
+password = "password"
+
+[telegram]
+token = "123456789:AABBCCDDEEFFGGHHIIJJKKLLMMNNOOPPQQR"
+chatids = ["-123456789"]
+
+[discord]
+token = "Mxxxxxxxxxxxxxxxxxxxxxxx.xxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+userids = ["123456789012345678"]
+
+[slack]
+token = "xoxb-1234567890-1234567890-abcedfghijklmnopqrstuvwx"
+chatids = ["C123456789"]
+
+[mail]
+server = "smtp.example.com"
+port = "587"
+username = "user"
+password = "password"
+from = "from@example.com"
+subject = "test"
+to = ["to@example.com"]
+
+[calendar]
+name = "test"
+
+[whatsapp]
+phonenumber = "+1234567890"
+userids = ["1234567890@s.whatsapp.net"]
+groups = ["Test Group"]
