@@ -31,7 +31,7 @@ func TestDurationRandJitter(t *testing.T) {
 	min := time.Duration(float64(duration) * 0.9)
 	max := time.Duration(float64(duration) * 1.1)
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		jittered := durationRandJitter(duration)
 		if jittered < min || jittered > max {
 			t.Errorf("jittered duration %v is outside the expected range [%v, %v]", jittered, min, max)
