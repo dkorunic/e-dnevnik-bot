@@ -14,7 +14,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.11.0
 	github.com/go-telegram/bot v1.17.0
-	github.com/google/go-github/v74 v74.0.0
+	github.com/google/go-github/v75 v75.0.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
@@ -31,10 +31,10 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.0
-	go.mau.fi/whatsmeow v0.0.0-20250919124702-c8bdfd36d05e
+	go.mau.fi/whatsmeow v0.0.0-20250922112717-258fd9454b95
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.31.0
-	google.golang.org/api v0.249.0
+	google.golang.org/api v0.250.0
 	google.golang.org/protobuf v1.36.9
 	modernc.org/sqlite v1.39.0
 )
@@ -42,7 +42,7 @@ require (
 require (
 	cloud.google.com/go/auth v0.16.5 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/compute/metadata v0.8.4 // indirect
+	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
@@ -82,7 +82,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/petermattis/goid v0.0.0-20250904145737-900bdf8bb490 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.54.0 // indirect
+	github.com/quic-go/quic-go v0.54.1 // indirect
 	github.com/reiver/go-erorr v0.0.0-20240801233437-8cbde6d1fa3f // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
@@ -106,7 +106,7 @@ require (
 	golang.org/x/term v0.35.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/tools v0.37.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250908214217-97024824d090 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250922171735-9219d122eba9 // indirect
 	google.golang.org/grpc v1.75.1 // indirect
 	modernc.org/libc v1.66.9 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
