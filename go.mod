@@ -30,8 +30,8 @@ require (
 	github.com/slack-go/slack v0.17.3
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
-	github.com/wneessen/go-mail v0.7.0
-	go.mau.fi/whatsmeow v0.0.0-20250922112717-258fd9454b95
+	github.com/wneessen/go-mail v0.7.1
+	go.mau.fi/whatsmeow v0.0.0-20250927223058-95e557a3b528
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.31.0
 	google.golang.org/api v0.250.0
