@@ -14,6 +14,8 @@ linters:
     - mnd
     - varnamelen
     - wrapcheck
+    - noinlineerr
+    - wsl_v5
   exclusions:
     generated: lax
     presets:
@@ -25,6 +27,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      - ".*_test\\.go$"
 formatters:
   enable:
     - gci
