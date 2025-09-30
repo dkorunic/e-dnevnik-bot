@@ -30,8 +30,8 @@ require (
 	github.com/slack-go/slack v0.17.3
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
-	github.com/wneessen/go-mail v0.7.1
-	go.mau.fi/whatsmeow v0.0.0-20250927223058-95e557a3b528
+	github.com/wneessen/go-mail v0.7.2
+	go.mau.fi/whatsmeow v0.0.0-20250929162548-7c04e9b206b1
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.31.0
 	google.golang.org/api v0.250.0
@@ -106,9 +106,9 @@ require (
 	golang.org/x/term v0.35.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/tools v0.37.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250922171735-9219d122eba9 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250929231259-57b25ae835d4 // indirect
 	google.golang.org/grpc v1.75.1 // indirect
-	modernc.org/libc v1.66.9 // indirect
+	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
