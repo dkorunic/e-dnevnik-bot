@@ -31,11 +31,11 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20250929162548-7c04e9b206b1
+	go.mau.fi/whatsmeow v0.0.0-20251002120845-b3cd0a5002d4
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.31.0
-	google.golang.org/api v0.250.0
-	google.golang.org/protobuf v1.36.9
+	google.golang.org/api v0.251.0
+	google.golang.org/protobuf v1.36.10
 	modernc.org/sqlite v1.39.0
 )
 
