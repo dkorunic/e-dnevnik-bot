@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -113,8 +114,34 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
+	userIDSize := len(userIDs)
+
 	// find named groups and append to userIDs
 	userIDs = whatsAppProcessGroups(ctx, userIDs, groups)
+
+	// rewrite config if groups are specified and userIDs have changed
+	if len(groups) > 0 && len(userIDs) > userIDSize {
+		if confFile, ok := ctx.Value("confFile").(string); ok {
+			if isWriteable(confFile) {
+				logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
+
+				cfg, err := config.LoadConfig(confFile)
+				if err != nil {
+					logger.Error().Msgf("Error loading configuration: %v", err)
+				} else {
+					cfg.WhatsApp.UserIDs = userIDs
+					cfg.WhatsApp.Groups = []string{}
+
+					err = config.SaveConfig(confFile, cfg)
+					if err != nil {
+						logger.Error().Msgf("Error saving configuration: %v", err)
+					}
+				}
+			} else {
+				logger.Info().Msg("Detected WhatsApp group with a name but rewriting configuration is impossible due to lack of permissions")
+			}
+		}
+	}
 
 	var g msgtypes.Message
 
@@ -235,7 +262,7 @@ func whatsAppProcessGroups(ctx context.Context, userIDs, groups []string) []stri
 				userIDs = append(userIDs, x.JID.String())
 
 				// debugging for users to help directly write JID to config userIDs
-				logger.Debug().Msgf("Found WhatsApp group by name %q - ID %q", x.Name, x.JID.String())
+				logger.Debug().Msgf("Found WhatsApp group by name %v - ID %v", x.Name, x.JID.String())
 			}
 		}
 	}
@@ -354,4 +381,25 @@ func whatsAppEventHandler(rawEvt any) {
 		logger.Error().Msgf("%v: code %v / expire %v", ErrWhatsAppBan, evt.Code, duration)
 	default:
 	}
+}
+
+// isWriteable checks if a file at the specified path is writable.
+//
+// It takes the following parameter:
+// - path: the path to the file to check.
+//
+// It returns true if the file is writable, false otherwise.
+//
+// It opens the file in write-only mode and checks if the open operation
+// succeeds. If it succeeds, it closes the file and returns true. If it
+// fails, it returns false.
+func isWriteable(path string) bool {
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return false
+	}
+
+	_ = f.Close()
+
+	return true
 }

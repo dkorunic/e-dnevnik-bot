@@ -123,6 +123,9 @@ func main() {
 		logger.Fatal().Msgf("Error loading configuration: %v", err)
 	}
 
+	// add config file to context
+	ctx = context.WithValue(ctx, "confFile", *confFile)
+
 	// enable CPU profiling dump on exit
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)

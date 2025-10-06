@@ -101,4 +101,8 @@ func parseFlags() {
 
 		*tickInterval = time.Hour
 	}
+
+	if *debugEvents {
+		*debug = true
+	}
 }

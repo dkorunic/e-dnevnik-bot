@@ -22,11 +22,13 @@
 package config
 
 import (
+	"bytes"
 	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/google/renameio/v2"
 )
 
 // LoadConfig attempts to load and decode configuration file in TOML format, doing a minimal sanity checking and
@@ -53,6 +55,27 @@ func LoadConfig(file string) (TomlConfig, error) {
 	return config, nil
 }
 
+// SaveConfig saves the provided configuration to the specified file in TOML format.
+//
+// Parameters:
+// - file: a string representing the path to save the configuration.
+// - config: a TomlConfig struct containing the configuration settings.
+//
+// Returns:
+// - error: an error indicating any issues encountered during the saving process.
+func SaveConfig(file string, config TomlConfig) error {
+	buf := new(bytes.Buffer)
+	if err := toml.NewEncoder(buf).Encode(config); err != nil {
+		return err
+	}
+
+	if err := renameio.WriteFile(file, buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // checkWhatsAppConf does a minimal sanity check on the WhatsApp configuration block, ensuring that:
 //
 // 1. the phone number is in international format (if specified)
@@ -74,7 +97,7 @@ func checkWhatsAppConf(config *TomlConfig) {
 		// checkWhatsAppConf if all User IDs are valid
 		for _, u := range config.WhatsApp.UserIDs {
 			if !isValidWhatsAppJID(u) {
-				logger.Fatal().Msgf("Configuration error: WhatsApp User ID %q is not valid", u)
+				logger.Fatal().Msgf("Configuration error: WhatsApp User ID %v is not valid", u)
 			}
 		}
 
@@ -121,7 +144,7 @@ func checkMailConf(config *TomlConfig) {
 		// checkWhatsAppConf if all destination mail addresses are valid
 		for _, t := range config.Mail.To {
 			if !isValidMail(t) {
-				logger.Fatal().Msgf("Configuration error: mail to %q is not in mail format", t)
+				logger.Fatal().Msgf("Configuration error: mail to %v is not in mail format", t)
 			}
 		}
 
@@ -142,7 +165,7 @@ func checkSlackConf(config *TomlConfig) {
 	if config.Slack.Token != "" {
 		// checkWhatsAppConf if token is valid
 		if !isValidSlackToken(config.Slack.Token) {
-			logger.Fatal().Msgf("Configuration error: Slack token %q is not valid", config.Slack.Token)
+			logger.Fatal().Msgf("Configuration error: Slack token %v is not valid", config.Slack.Token)
 		}
 
 		// checkWhatsAppConf if User IDs are defined
@@ -153,7 +176,7 @@ func checkSlackConf(config *TomlConfig) {
 		// checkWhatsAppConf if all chat IDs are valid
 		for _, c := range config.Slack.ChatIDs {
 			if !isValidSlackChatID(c) {
-				logger.Fatal().Msgf("Configuration error: Slack chat ID %q is not valid", c)
+				logger.Fatal().Msgf("Configuration error: Slack chat ID %v is not valid", c)
 			}
 		}
 
@@ -176,7 +199,7 @@ func checkTelegramConf(config *TomlConfig) {
 	if config.Telegram.Token != "" {
 		// checkWhatsAppConf if token is valid
 		if !isValidTelegramToken(config.Telegram.Token) {
-			logger.Fatal().Msgf("Configuration error: Telegram token %q is not valid", config.Telegram.Token)
+			logger.Fatal().Msgf("Configuration error: Telegram token %v is not valid", config.Telegram.Token)
 		}
 
 		// checkWhatsAppConf if User IDs are defined
@@ -187,7 +210,7 @@ func checkTelegramConf(config *TomlConfig) {
 		// checkWhatsAppConf if all chat IDs are valid
 		for _, c := range config.Telegram.ChatIDs {
 			if !isValidTelegramChatID(c) {
-				logger.Fatal().Msgf("Configuration error: Telegram chat ID %q is not valid", c)
+				logger.Fatal().Msgf("Configuration error: Telegram chat ID %v is not valid", c)
 			}
 		}
 
@@ -210,7 +233,7 @@ func checkDiscordConf(config *TomlConfig) {
 	if config.Discord.Token != "" {
 		// checkWhatsAppConf if token is valid
 		if !isValidDiscordToken(config.Discord.Token) {
-			logger.Fatal().Msgf("Configuration error: Discord token %q is not valid", config.Discord.Token)
+			logger.Fatal().Msgf("Configuration error: Discord token %v is not valid", config.Discord.Token)
 		}
 
 		// checkWhatsAppConf if User IDs are defined
@@ -221,7 +244,7 @@ func checkDiscordConf(config *TomlConfig) {
 		// checkWhatsAppConf if all User IDs are valid
 		for _, u := range config.Discord.UserIDs {
 			if !isValidID(u) {
-				logger.Fatal().Msgf("Configuration error: Discord User ID %q is not valid", u)
+				logger.Fatal().Msgf("Configuration error: Discord User ID %v is not valid", u)
 			}
 		}
 
@@ -251,18 +274,18 @@ func checkUserConf(config *TomlConfig) {
 	// checkWhatsAppConf if all users have username and password
 	for _, u := range config.User {
 		if u.Username == "" || u.Password == "" {
-			logger.Fatal().Msgf("Configuration error: User requires username and password: %q - %q",
+			logger.Fatal().Msgf("Configuration error: User requires username and password: %v - %v",
 				u.Username, u.Password)
 		}
 
 		// checkWhatsAppConf if username is in User@domain format
 		if !isValidUserAtDomain(u.Username) {
-			logger.Fatal().Msgf("Configuration error: username not in proper User@domain format: %q", u.Username)
+			logger.Fatal().Msgf("Configuration error: username not in proper User@domain format: %v", u.Username)
 		}
 
 		// checkWhatsAppConf if username ends with @skole.hr
 		if !strings.HasSuffix(u.Username, "@skole.hr") {
-			logger.Warn().Msgf("Configuration issue: username not ending with @skole.hr: %q", u.Username)
+			logger.Warn().Msgf("Configuration issue: username not ending with @skole.hr: %v", u.Username)
 		}
 	}
 }
