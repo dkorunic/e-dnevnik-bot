@@ -44,14 +44,14 @@ func FetchFailedMsgs(eDB *db.Edb, queueKey []byte) []msgtypes.Message {
 		return encdec.EncodeMsgs([]msgtypes.Message{})
 	})
 	if err != nil {
-		logger.Error().Msgf("Error managing failed messages list in database for %v: %v", queueKey, err)
+		logger.Error().Msgf("Error managing failed messages list for queue %v: %v", string(queueKey), err)
 
 		return []msgtypes.Message{}
 	}
 
 	failedCount := len(failedList)
 	if failedCount > 0 {
-		logger.Info().Msgf("Found %v failed messages in %v, trying to resend", failedCount, queueKey)
+		logger.Info().Msgf("Found %v failed messages in queue %v, trying to resend", failedCount, string(queueKey))
 	}
 
 	return failedList
