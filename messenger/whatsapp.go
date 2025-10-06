@@ -262,7 +262,7 @@ func whatsAppProcessGroups(ctx context.Context, userIDs, groups []string) []stri
 				userIDs = append(userIDs, x.JID.String())
 
 				// debugging for users to help directly write JID to config userIDs
-				logger.Debug().Msgf("Found WhatsApp group by name %v - ID %v", x.Name, x.JID.String())
+				logger.Debug().Msgf("Found WhatsApp group by name %v and mapped to ID %v", x.Name, x.JID.String())
 			}
 		}
 	}
