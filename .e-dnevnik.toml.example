@@ -77,7 +77,8 @@ chatids = [ "chat_id", "chat_id2" ]
 # XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net (Group ID).  Groups are actually group
 # names and will be appended to userids discovery process finds group ID. More
 # efficient way is to directly use group ID (run bot in debug mode) and append
-# to userids instead.
+# to userids instead. If bot has permissions to write to configuration file, it
+# will rewrite config and move group to userids.
 #
 #[whatsapp]
 #phonenumber = "+385XXYYYYYYY"
