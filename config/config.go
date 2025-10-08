@@ -28,7 +28,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
-	"github.com/google/renameio/v2"
+	"github.com/google/renameio/v2/maybe"
 )
 
 // LoadConfig attempts to load and decode configuration file in TOML format, doing a minimal sanity checking and
@@ -69,7 +69,7 @@ func SaveConfig(file string, config TomlConfig) error {
 		return err
 	}
 
-	if err := renameio.WriteFile(file, buf.Bytes(), 0o644); err != nil {
+	if err := maybe.WriteFile(file, buf.Bytes(), 0o644); err != nil {
 		return err
 	}
 
