@@ -31,7 +31,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20251014132254-6048f61ae25b
+	go.mau.fi/whatsmeow v0.0.0-20251016095441-02c50743e601
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.32.0
 	google.golang.org/api v0.252.0
@@ -88,8 +88,8 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.0 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.30 // indirect
-	go.mau.fi/libsignal v0.2.1-0.20251004173110-6e0a3f2435ed // indirect
-	go.mau.fi/util v0.9.2-0.20251005111801-c13b66219cee // indirect
+	go.mau.fi/libsignal v0.2.1 // indirect
+	go.mau.fi/util v0.9.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect
