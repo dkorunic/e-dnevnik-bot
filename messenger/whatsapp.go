@@ -352,13 +352,13 @@ func whatsAppEventHandler(rawEvt any) {
 		logger.Debug().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
 		if len(whatsAppCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-			_ = whatsAppCli.SendPresence(types.PresenceUnavailable)
+			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
 		}
 
 		logger.Debug().Msg("WhatsApp app state sync completed")
 	case *events.Connected, *events.PushNameSetting:
 		if len(whatsAppCli.Store.PushName) > 0 {
-			_ = whatsAppCli.SendPresence(types.PresenceUnavailable)
+			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
 		}
 	case *events.PairSuccess, *events.PairError:
 		if whatsAppCli.Store.ID == nil {

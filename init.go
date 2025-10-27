@@ -227,7 +227,7 @@ func whatsappPairingEventHandler(rawEvt any) {
 		logger.Info().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
 		if len(whatsAppCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-			_ = whatsAppCli.SendPresence(types.PresenceUnavailable)
+			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
 		}
 
 		logger.Info().Msg("WhatsApp app state sync completed")
@@ -235,7 +235,7 @@ func whatsappPairingEventHandler(rawEvt any) {
 		whatsAppSynced <- struct{}{}
 	case *events.Connected, *events.PushNameSetting:
 		if len(whatsAppCli.Store.PushName) > 0 {
-			_ = whatsAppCli.SendPresence(types.PresenceUnavailable)
+			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
 		}
 	case *events.PairSuccess, *events.PairError:
 		if whatsAppCli.Store.ID == nil {
