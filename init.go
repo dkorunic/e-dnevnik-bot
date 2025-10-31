@@ -143,8 +143,12 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Debug().Msg("Already paired with WhatsApp, skipping pairing process")
 	}
 
+	// create separate cancellable context for WhatsApp pairing QR channel
+	qrCtx, qrCancel := context.WithCancel(ctx)
+	defer qrCancel()
+
 	// prepare pairing through QR or pair code
-	ch, err := whatsAppCli.GetQRChannel(ctx)
+	ch, err := whatsAppCli.GetQRChannel(qrCtx)
 	if err != nil {
 		if !errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
 			logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailQR, err)
@@ -163,7 +167,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 			if evt.Event == "code" {
 				// prefer pairing through code if phone number is enabled
 				if config.WhatsApp.PhoneNumber != "" {
-					linkCode, err := whatsAppCli.PairPhone(ctx, config.WhatsApp.PhoneNumber, true,
+					linkCode, err := whatsAppCli.PairPhone(qrCtx, config.WhatsApp.PhoneNumber, true,
 						whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)
 					if err != nil {
 						logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailLink, err)
