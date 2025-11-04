@@ -3,7 +3,7 @@ module github.com/dkorunic/e-dnevnik-bot/contrib
 go 1.24.0
 
 require (
-	filippo.io/mostly-harmless/cryptosource v0.0.0-20251023134237-fdf06e8b4dc7
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20251031150958-c14e95229583
 	github.com/dgraph-io/badger/v4 v4.8.0
 )
 
