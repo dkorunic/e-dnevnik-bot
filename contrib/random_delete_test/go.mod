@@ -3,7 +3,7 @@ module github.com/dkorunic/e-dnevnik-bot/contrib
 go 1.24.0
 
 require (
-	filippo.io/mostly-harmless/cryptosource v0.0.0-20251031150958-c14e95229583
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20251109183519-603caaa83c58
 	github.com/dgraph-io/badger/v4 v4.8.0
 )
 
@@ -20,6 +20,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
