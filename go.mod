@@ -5,7 +5,7 @@ go 1.25
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/KimMachineGun/automemlimit v0.7.5
-	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/bwmarrin/discordgo v0.29.0
@@ -14,8 +14,8 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gin-gonic/gin v1.11.0
 	github.com/go-telegram/bot v1.17.0
-	github.com/google/go-github/v78 v78.0.0
-	github.com/google/renameio/v2 v2.0.0
+	github.com/google/go-github/v79 v79.0.0
+	github.com/google/renameio/v2 v2.0.1
 	github.com/google/uuid v1.6.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/iguanesolutions/go-systemd/v6 v6.0.0
@@ -31,7 +31,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20251110110826-a121e2b9cd1e
+	go.mau.fi/whatsmeow v0.0.0-20251116104239-3aca43070cd4
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.33.0
 	google.golang.org/api v0.256.0
@@ -90,7 +90,7 @@ require (
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.31 // indirect
 	go.mau.fi/libsignal v0.2.1 // indirect
-	go.mau.fi/util v0.9.2 // indirect
+	go.mau.fi/util v0.9.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect
