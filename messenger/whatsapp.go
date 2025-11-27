@@ -29,7 +29,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
@@ -198,15 +198,16 @@ func processWhatsApp(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userI
 		}
 
 		// retryable and cancellable attempt to send a message
-		err = retry.Do(
+		err = retry.New(
+			retry.Attempts(retries),
+			retry.Context(ctx),
+			retry.Delay(WhatsAppMinDelay),
+		).Do(
 			func() error {
 				_, err := whatsAppCli.SendMessage(ctx, target, &m)
 
 				return err
 			},
-			retry.Attempts(retries),
-			retry.Context(ctx),
-			retry.Delay(WhatsAppMinDelay),
 		)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)

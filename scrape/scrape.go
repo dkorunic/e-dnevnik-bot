@@ -25,7 +25,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -52,12 +52,13 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		defer client.CloseConnections()
 
 		// attempt to login (CSRF, SSO/SAML, etc.)
-		err = retry.Do(
+		err = retry.New(
+			retry.Attempts(retries),
+			retry.Context(ctx),
+		).Do(
 			func() error {
 				return client.Login()
 			},
-			retry.Attempts(retries),
-			retry.Context(ctx),
 		)
 		if err != nil {
 			return err
@@ -66,15 +67,16 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		var rawClasses string
 
 		// fetch classes (multiple classes possible)
-		err = retry.Do(
+		err = retry.New(
+			retry.Attempts(retries),
+			retry.Context(ctx),
+		).Do(
 			func() error {
 				var err error
 				rawClasses, err = client.GetClasses()
 
 				return err
 			},
-			retry.Attempts(retries),
-			retry.Context(ctx),
 		)
 		if err != nil {
 			return err
@@ -107,15 +109,16 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			var events fetch.Events
 
 			// fetch subjects/grades/exams
-			err = retry.Do(
+			err = retry.New(
+				retry.Attempts(retries),
+				retry.Context(ctx),
+			).Do(
 				func() error {
 					var err error
 					rawGrades, events, err = client.GetClassEvents(cID)
 
 					return err
 				},
-				retry.Attempts(retries),
-				retry.Context(ctx),
 			)
 			if err != nil {
 				return err
@@ -136,15 +139,16 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			var rawCourses string
 
 			// fetch individual courses
-			err = retry.Do(
+			err = retry.New(
+				retry.Attempts(retries),
+				retry.Context(ctx),
+			).Do(
 				func() error {
 					var err error
 					rawCourses, err = client.GetCourses()
 
 					return err
 				},
-				retry.Attempts(retries),
-				retry.Context(ctx),
 			)
 			if err != nil {
 				return err

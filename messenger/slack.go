@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -132,7 +132,11 @@ func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs 
 		rl.Take()
 
 		// retryable and cancellable attempt to send a message
-		err := retry.Do(
+		err := retry.New(
+			retry.Attempts(retries),
+			retry.Context(ctx),
+			retry.Delay(SlackMinDelay),
+		).Do(
 			func() error {
 				_, _, err := slackCli.PostMessageContext(ctx,
 					u,
@@ -142,9 +146,6 @@ func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs 
 
 				return err
 			},
-			retry.Attempts(retries),
-			retry.Context(ctx),
-			retry.Delay(SlackMinDelay),
 		)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)

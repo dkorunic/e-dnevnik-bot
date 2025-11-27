@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
@@ -158,7 +158,11 @@ func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userID
 		}
 
 		// retryable and cancellable attempt to send a message
-		err = retry.Do(
+		err = retry.New(
+			retry.Attempts(retries),
+			retry.Context(ctx),
+			retry.Delay(DiscordMinDelay),
+		).Do(
 			func() error {
 				_, err := discordCli.ChannelMessageSendEmbed(c.ID,
 					&msg,
@@ -168,9 +172,6 @@ func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userID
 
 				return err
 			},
-			retry.Attempts(retries),
-			retry.Context(ctx),
-			retry.Delay(DiscordMinDelay),
 		)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)

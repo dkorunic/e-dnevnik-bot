@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -158,15 +158,16 @@ func processCalendar(ctx context.Context, eDB *db.Edb, g msgtypes.Message, now t
 	rl.Take()
 
 	// retryable and cancellable attempt
-	err = retry.Do(
+	err = retry.New(
+		retry.Attempts(retries),
+		retry.Context(ctx),
+		retry.Delay(CalendarMinDelay),
+	).Do(
 		func() error {
 			_, err := srv.Events.Insert(calID, newEvent).Do()
 
 			return err
 		},
-		retry.Attempts(retries),
-		retry.Context(ctx),
-		retry.Delay(CalendarMinDelay),
 	)
 	if err != nil {
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)

@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -181,13 +181,14 @@ func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server st
 	rl.Take()
 
 	// retryable and cancellable attempt to send a message
-	err = retry.Do(
-		func() error {
-			return d.DialAndSend(messages...)
-		},
+	err = retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
 		retry.Delay(MailMinDelay),
+	).Do(
+		func() error {
+			return d.DialAndSend(messages...)
+		},
 	)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
