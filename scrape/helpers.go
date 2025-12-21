@@ -109,8 +109,8 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 
 // cleanEventDescription trims the exam event description, returning only the right side of the colon if it exists.
 func cleanEventDescription(summary string) string {
-	if idx := strings.Index(summary, ":"); idx != -1 {
-		return strings.TrimSpace(summary[idx+1:])
+	if _, after, ok := strings.Cut(summary, ":"); ok {
+		return strings.TrimSpace(after)
 	}
 
 	return summary

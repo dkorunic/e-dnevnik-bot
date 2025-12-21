@@ -3,7 +3,7 @@ module github.com/dkorunic/e-dnevnik-bot/contrib
 go 1.24.0
 
 require (
-	filippo.io/mostly-harmless/cryptosource v0.0.0-20251205230325-916fb086dd98
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20251219143815-2eff4d368baf
 	github.com/dgraph-io/badger/v4 v4.9.0
 )
 
@@ -13,7 +13,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/google/flatbuffers v25.9.23+incompatible // indirect
+	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
