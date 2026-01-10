@@ -15,7 +15,7 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/go-telegram/bot v1.17.0
 	github.com/google/go-github/v81 v81.0.0
-	github.com/google/renameio/v2 v2.0.1
+	github.com/google/renameio/v2 v2.0.2
 	github.com/google/uuid v1.6.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/iguanesolutions/go-systemd/v6 v6.0.0
@@ -102,8 +102,8 @@ require (
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/term v0.38.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/term v0.39.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251222181119-0a764e51fe1b // indirect
 	google.golang.org/grpc v1.78.0 // indirect
 	modernc.org/libc v1.67.4 // indirect
