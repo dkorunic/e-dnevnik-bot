@@ -43,16 +43,19 @@ import (
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v6/notify/watchdog"
 )
 
+type contextKey string
+
 const (
-	chanBufLen      = 500             // broadcast channel buffer length
-	exitDelay       = 5 * time.Second // sleep time before giving up on cancellation
-	testUsername    = "korisnik@test.domena"
-	testSubject     = "Ovo je testni predmet"
-	testDescription = "Testni opis"
-	testField       = "Testna vrijednost"
-	maxMemRatio     = 0.9
-	scheduledActive = "Scheduled run in progress"
-	scheduledSleep  = "Scheduled run completed, will sleep now"
+	chanBufLen                 = 500             // broadcast channel buffer length
+	exitDelay                  = 5 * time.Second // sleep time before giving up on cancellation
+	testUsername               = "korisnik@test.domena"
+	testSubject                = "Ovo je testni predmet"
+	testDescription            = "Testni opis"
+	testField                  = "Testna vrijednost"
+	maxMemRatio                = 0.9
+	scheduledActive            = "Scheduled run in progress"
+	scheduledSleep             = "Scheduled run completed, will sleep now"
+	confFileKey     contextKey = "confFile"
 )
 
 var (
@@ -124,7 +127,7 @@ func main() {
 	}
 
 	// add config file to context
-	ctx = context.WithValue(ctx, "confFile", *confFile)
+	ctx = context.WithValue(ctx, confFileKey, *confFile)
 
 	// enable CPU profiling dump on exit
 	if *cpuProfile != "" {

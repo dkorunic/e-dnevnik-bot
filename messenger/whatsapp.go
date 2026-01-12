@@ -50,15 +50,18 @@ import (
 	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
+type contextKey string
+
 const (
-	WhatsAppDBName       = ".e-dnevnik.sqlite"
-	WhatsAppDBConnstring = "file:%v?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000"
-	WhatsAppDisplayName  = "Chrome (Linux)"
-	WhatsAppOS           = "Linux"
-	WhatsAppAPILimit     = 10 // 10 req/min per user/IP
-	WhatsAppWindow       = 1 * time.Minute
-	WhatsAppMinDelay     = WhatsAppWindow / WhatsAppAPILimit
-	WhatsAppQueue        = "whatsapp-queue"
+	WhatsAppDBName                  = ".e-dnevnik.sqlite"
+	WhatsAppDBConnstring            = "file:%v?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000"
+	WhatsAppDisplayName             = "Chrome (Linux)"
+	WhatsAppOS                      = "Linux"
+	WhatsAppAPILimit                = 10 // 10 req/min per user/IP
+	WhatsAppWindow                  = 1 * time.Minute
+	WhatsAppMinDelay                = WhatsAppWindow / WhatsAppAPILimit
+	WhatsAppQueue                   = "whatsapp-queue"
+	confFileKey          contextKey = "confFile"
 )
 
 var (
@@ -121,7 +124,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 
 	// rewrite config if groups are specified and userIDs have changed
 	if len(groups) > 0 && len(userIDs) > userIDSize {
-		if confFile, ok := ctx.Value("confFile").(string); ok {
+		if confFile, ok := ctx.Value(confFileKey).(string); ok {
 			if isWriteable(confFile) {
 				logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
 

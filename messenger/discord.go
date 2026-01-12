@@ -125,7 +125,7 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token
 // It returns no value and has no side effects except for error logging.
 func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as rich message with embedded data
-	fields := make([]*discordgo.MessageEmbedField, 0)
+	fields := make([]*discordgo.MessageEmbedField, 0, len(g.Fields))
 	for ii := range g.Fields {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   g.Descriptions[ii],

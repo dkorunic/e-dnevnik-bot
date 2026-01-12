@@ -152,8 +152,7 @@ func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server st
 		return
 	}
 
-	//nolint:prealloc
-	var messages []*mail.Msg
+	messages := make([]*mail.Msg, 0, len(to))
 
 	// bulk send to all recipients
 	for _, u := range to {
