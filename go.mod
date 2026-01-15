@@ -31,7 +31,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260114161722-117540e59fcf
+	go.mau.fi/whatsmeow v0.0.0-20260115125149-20f0273af4c4
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.34.0
 	google.golang.org/api v0.260.0
@@ -104,9 +104,9 @@ require (
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260112192933-99fd39fd28a9 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260114163908-3f89685c29c3 // indirect
 	google.golang.org/grpc v1.78.0 // indirect
-	modernc.org/libc v1.67.4 // indirect
+	modernc.org/libc v1.67.5 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
