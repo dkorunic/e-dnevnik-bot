@@ -123,6 +123,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 	userIDs = whatsAppProcessGroups(ctx, userIDs, groups)
 
 	// rewrite config if groups are specified and userIDs have changed
+	//nolint:nestif
 	if len(groups) > 0 && len(userIDs) > userIDSize {
 		if confFile, ok := ctx.Value(confFileKey).(string); ok {
 			if isWriteable(confFile) {

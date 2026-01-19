@@ -5,9 +5,9 @@ go 1.25
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/KimMachineGun/automemlimit v0.7.5
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/avast/retry-go/v5 v5.0.0
-	github.com/blang/semver/v4 v4.0.0
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/corpix/uarand v0.2.0
 	github.com/dgraph-io/badger/v4 v4.9.0
@@ -36,7 +36,7 @@ require (
 	golang.org/x/oauth2 v0.34.0
 	google.golang.org/api v0.260.0
 	google.golang.org/protobuf v1.36.11
-	modernc.org/sqlite v1.44.1
+	modernc.org/sqlite v1.44.2
 )
 
 require (

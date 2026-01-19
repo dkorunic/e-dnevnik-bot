@@ -25,10 +25,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/blang/semver/v4"
+	"github.com/Masterminds/semver/v3"
 	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -38,6 +41,7 @@ import (
 	"github.com/google/go-github/v81/github"
 	"github.com/teivah/broadcast"
 	"github.com/tj/go-spin"
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -48,13 +52,14 @@ const (
 )
 
 var (
-	ErrScrapingUser = errors.New("error scraping data for User")
-	ErrDiscord      = errors.New("Discord messenger issue")  //nolint:staticcheck
-	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:staticcheck
-	ErrSlack        = errors.New("Slack messenger issue")    //nolint:staticcheck
-	ErrMail         = errors.New("Mail messenger issue")     //nolint:staticcheck
-	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
-	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:staticcheck
+	ErrScrapingUser    = errors.New("error scraping data for User")
+	ErrDiscord         = errors.New("Discord messenger issue")  //nolint:staticcheck
+	ErrTelegram        = errors.New("Telegram messenger issue") //nolint:staticcheck
+	ErrSlack           = errors.New("Slack messenger issue")    //nolint:staticcheck
+	ErrMail            = errors.New("Mail messenger issue")     //nolint:staticcheck
+	ErrCalendar        = errors.New("Google Calendar issue")    //nolint:staticcheck
+	ErrWhatsApp        = errors.New("WhatsApp issue")           //nolint:staticcheck
+	ErrNoValidReleases = errors.New("no valid SemVer releases found")
 
 	formatHRDateOnly = "2.1."
 )
@@ -253,10 +258,11 @@ func spinner() {
 	}
 }
 
-// versionCheck checks for updates by comparing the current version of the
-// application with the latest version available on GitHub. If a newer version
-// is available, it logs an informational message. This function spawns a
-// goroutine and uses a WaitGroup to synchronize with other goroutines.
+// versionCheck checks for newer versions of e-dnevnik-bot on GitHub.
+// It uses the git tag information to compare the current version with the latest version.
+// If a newer version is available, it prints a message indicating how many releases are behind.
+// NOTE: This function is only run if the program is not running from a local source-build (i.e. if GitTag is not empty and GitDirty is empty).
+// It does not check for updates if the program is running from a local source-build, as the user is expected to be aware of the latest version.
 func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	wgVersion.Go(func() {
 		// if we don't have a tag or if it is a local source-build, we don't need to check for updates
@@ -264,15 +270,15 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		var currentTag, latestTag semver.Version
+		var currentTag, latestTag *semver.Version
 
 		var err error
 
 		// semver-parse current version
 		if GitTag[0] == 'v' {
-			currentTag, err = semver.Parse(GitTag[1:])
+			currentTag, err = semver.NewVersion(GitTag[1:])
 		} else {
-			currentTag, err = semver.Parse(GitTag)
+			currentTag, err = semver.NewVersion(GitTag)
 		}
 
 		if err != nil {
@@ -281,7 +287,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		client := github.NewClient(nil)
+		client := githubClient(ctx)
 
 		// get latest release from GitHub
 		latestRelease, _, err := client.Repositories.GetLatestRelease(ctx, githubOrg, githubRepo)
@@ -294,9 +300,9 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 		// semver-parse latest version
 		tagName := *latestRelease.TagName
 		if tagName[0] == 'v' {
-			latestTag, err = semver.Parse(tagName[1:])
+			latestTag, err = semver.NewVersion(tagName[1:])
 		} else {
-			latestTag, err = semver.Parse(tagName)
+			latestTag, err = semver.NewVersion(tagName)
 		}
 
 		if err != nil {
@@ -307,7 +313,110 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 
 		// alert if there is a newer version
 		if latestTag.Compare(currentTag) == 1 {
-			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v", latestTag)
+			releasedVersions, err := fetchReleasedVersions(ctx, client, githubOrg, githubRepo)
+			if err != nil {
+				logger.Error().Msgf("Failed to fetch releases: %v", err)
+
+				return
+			}
+
+			sort.Sort(semver.Collection(releasedVersions))
+			behind := countNewerVersions(currentTag, releasedVersions)
+
+			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v, you are %v releases behind", latestTag, behind)
 		}
 	})
+}
+
+// githubClient returns a new GitHub client for the given context.
+//
+// If the GITHUB_TOKEN environment variable is not set, the client will be created without authentication.
+//
+// Parameters:
+// - ctx: the context.Context for the HTTP client.
+//
+// Returns:
+// - *github.Client: the GitHub client.
+func githubClient(ctx context.Context) *github.Client {
+	token := os.Getenv("GITHUB_TOKEN")
+	if token == "" {
+		return github.NewClient(nil)
+	}
+
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token},
+	)
+	tc := oauth2.NewClient(ctx, ts)
+
+	return github.NewClient(tc)
+}
+
+// fetchReleasedVersions fetches all released versions of a given GitHub repository and returns them as a slice of *semver.Version.
+//
+// It takes the following parameters:
+// - ctx: the context.Context for the HTTP client.
+// - client: the *github.Client for the GitHub API.
+// - owner: the string representing the owner of the repository.
+// - repo: the string representing the name of the repository.
+//
+// The function returns the following:
+// - []*semver.Version: a slice of *semver.Version representing all released versions of the repository.
+// - error: an error if any occurred during the execution of the function.
+func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, repo string) ([]*semver.Version, error) {
+	var versions []*semver.Version
+
+	opt := &github.ListOptions{PerPage: 100}
+
+	for {
+		releases, resp, err := client.Repositories.ListReleases(ctx, owner, repo, opt)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, r := range releases {
+			if r.TagName == nil {
+				continue
+			}
+
+			tag := strings.TrimPrefix(*r.TagName, "v")
+
+			v, err := semver.NewVersion(tag)
+			if err != nil {
+				continue
+			}
+
+			versions = append(versions, v)
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+
+		opt.Page = resp.NextPage
+	}
+
+	if len(versions) == 0 {
+		return nil, ErrNoValidReleases
+	}
+
+	return versions, nil
+}
+
+// countNewerVersions counts the number of versions in the versions slice that are newer than the current version.
+//
+// It takes the following parameters:
+// - current: the current version to compare with.
+// - versions: a slice of versions to count.
+//
+// It returns the number of versions that are newer than the current version.
+func countNewerVersions(current *semver.Version, versions []*semver.Version) int {
+	count := 0
+
+	for _, v := range versions {
+		if v.GreaterThan(current) {
+			count++
+		}
+	}
+
+	return count
 }
