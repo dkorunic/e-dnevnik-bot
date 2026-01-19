@@ -270,18 +270,9 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		var currentTag, latestTag *semver.Version
-
-		var err error
-
 		// semver-parse current version
-		if GitTag[0] == 'v' {
-			currentTag, err = semver.NewVersion(GitTag[1:])
-		} else {
-			currentTag, err = semver.NewVersion(GitTag)
-		}
-
-		if err != nil {
+		currentTag, err := semver.NewVersion(strings.TrimPrefix(GitTag, "v"))
+		if err != nil || currentTag == nil {
 			logger.Error().Msgf("Unable to parse current version of e-dnevnik-bot: %v", err)
 
 			return
@@ -291,22 +282,16 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 
 		// get latest release from GitHub
 		latestRelease, _, err := client.Repositories.GetLatestRelease(ctx, githubOrg, githubRepo)
-		if err != nil {
-			logger.Error().Msgf("Unable to check latest version of e-dnevnik-bot: %v", err)
+		if err != nil || latestRelease == nil {
+			logger.Error().Msgf("Unable to check for latest release of e-dnevnik-bot: %v", err)
 
 			return
 		}
 
 		// semver-parse latest version
-		tagName := *latestRelease.TagName
-		if tagName[0] == 'v' {
-			latestTag, err = semver.NewVersion(tagName[1:])
-		} else {
-			latestTag, err = semver.NewVersion(tagName)
-		}
-
-		if err != nil {
-			logger.Error().Msgf("Unable to parse latest version of e-dnevnik-bot: %v", err)
+		latestTag, err := semver.NewVersion(strings.TrimPrefix(*latestRelease.TagName, "v"))
+		if err != nil || latestTag == nil {
+			logger.Error().Msgf("Unable to parse latest release of e-dnevnik-bot: %v", err)
 
 			return
 		}
@@ -315,7 +300,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 		if latestTag.Compare(currentTag) == 1 {
 			releasedVersions, err := fetchReleasedVersions(ctx, client, githubOrg, githubRepo)
 			if err != nil {
-				logger.Error().Msgf("Failed to fetch releases: %v", err)
+				logger.Error().Msgf("Failed to fetch releases of e-dnevnik-bot: %v", err)
 
 				return
 			}
@@ -378,9 +363,7 @@ func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, re
 				continue
 			}
 
-			tag := strings.TrimPrefix(*r.TagName, "v")
-
-			v, err := semver.NewVersion(tag)
+			v, err := semver.NewVersion(strings.TrimPrefix(*r.TagName, "v"))
 			if err != nil {
 				continue
 			}
