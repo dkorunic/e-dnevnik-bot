@@ -29,7 +29,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -37,7 +36,8 @@ import (
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/renameio/v2/maybe"
 	"github.com/google/uuid"
 	"github.com/pkg/browser"
@@ -143,15 +143,13 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	// oauth config auth callback uri
 	config.RedirectURL = authURL + CallBackURL
 
-	// gin router setup
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(gin.Recovery())
-	r.Use(LoggingMiddleware())
+	// chi router setup
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
+	r.Use(LoggingMiddleware)
 
 	// setup template engine
 	t := template.Must(template.ParseFS(contentFS, "templates/*html"))
-	r.SetHTMLTemplate(t)
 
 	// HTTP server setup
 	s := http.Server{
@@ -167,45 +165,45 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 
 	// root handler: /
-	r.GET("/", func(c *gin.Context) {
-		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-		c.Header("Pragma", "no-cache")
-		c.Header("Expires", "0")
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 
-		c.HTML(http.StatusOK, "index.html", gin.H{
+		if err := t.ExecuteTemplate(w, "index.html", map[string]interface{}{
 			"authURL": authCodeURL,
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 
 	// callback handler: /callback
-	r.GET(CallBackURL, func(c *gin.Context) {
-		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-		c.Header("Pragma", "no-cache")
-		c.Header("Expires", "0")
+	r.Get(CallBackURL, func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 
-		if receivedState := c.Query("state"); receivedState != authReqState.String() {
-			c.HTML(http.StatusBadRequest, "failure.html", gin.H{"error": ErrInvalidCallbackState})
+		if receivedState := req.URL.Query().Get("state"); receivedState != authReqState.String() {
+			w.WriteHeader(http.StatusBadRequest)
+			if err := t.ExecuteTemplate(w, "failure.html", map[string]interface{}{"error": ErrInvalidCallbackState}); err != nil {
+				logger.Error().Msgf("template execution failed: %v", err)
+			}
 			close(tokChan)
 
 			return
 		}
 
-		tokChan <- c.Query("code")
+		tokChan <- req.URL.Query().Get("code")
 		close(tokChan)
 
-		c.HTML(http.StatusOK, "success.html", gin.H{})
+		if err := t.ExecuteTemplate(w, "success.html", map[string]interface{}{}); err != nil {
+			logger.Error().Msgf("template execution failed: %v", err)
+		}
 	})
 
 	// favicon handler: /favicon.ico
-	r.GET("/favicon.ico", func(c *gin.Context) {
-		c.FileFromFS(".", func() http.FileSystem {
-			sub, err := fs.Sub(contentFS, "assets/favicon.ico")
-			if err != nil {
-				return http.FS(nil)
-			}
-
-			return http.FS(sub)
-		}())
+	r.Get("/favicon.ico", func(w http.ResponseWriter, req *http.Request) {
+		http.ServeFileFS(w, req, contentFS, "assets/favicon.ico")
 	})
 
 	go func() {
@@ -293,17 +291,21 @@ func saveToken(tokenPath string, token *oauth2.Token) error {
 
 // LoggingMiddleware is a middleware function that logs HTTP server requests.
 //
-// It takes a gin.Context as a parameter and logs the method, URI, status, client IP, and duration of the request.
-// It does not return any values.
-func LoggingMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
+// It takes a http.Handler as a parameter and logs the method, URI, status, client IP, and duration of the request.
+// It returns a http.Handler.
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
 
-		c.Next()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+		next.ServeHTTP(ww, r)
 
 		reqDuration := time.Since(startTime)
 
+		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+
 		logger.Debug().Msgf("OAuth HTTP server request: method: %v, uri: %v, status: %v, client ip: %v, duration: %v",
-			c.Request.Method, c.Request.URL, c.Writer.Status(), c.ClientIP(), reqDuration)
-	}
+			r.Method, r.URL.RequestURI(), ww.Status(), clientIP, reqDuration)
+	})
 }

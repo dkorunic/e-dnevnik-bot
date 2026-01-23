@@ -79,8 +79,8 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	}
 
 	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
-		// check if we are running under a terminal
-		if isTerminal() {
+		// check if we are not running under a terminal
+		if !isTerminal() {
 			logger.Error().Msg("Google Calendar API token file not found and first run requires running under a terminal. Disabling Calendar integration.")
 
 			config.CalendarEnabled = false
