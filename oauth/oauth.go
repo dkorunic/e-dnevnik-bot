@@ -165,7 +165,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 
 	// root handler: /
-	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
@@ -185,9 +185,11 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 		if receivedState := req.URL.Query().Get("state"); receivedState != authReqState.String() {
 			w.WriteHeader(http.StatusBadRequest)
+
 			if err := t.ExecuteTemplate(w, "failure.html", map[string]any{"error": ErrInvalidCallbackState}); err != nil {
 				logger.Error().Msgf("template execution failed: %v", err)
 			}
+
 			close(tokChan)
 
 			return
