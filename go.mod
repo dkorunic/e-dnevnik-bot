@@ -13,7 +13,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.9.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.4
-	github.com/go-telegram/bot v1.17.0
+	github.com/go-telegram/bot v1.18.0
 	github.com/google/go-github/v81 v81.0.0
 	github.com/google/renameio/v2 v2.0.2
 	github.com/google/uuid v1.6.0
@@ -31,7 +31,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260122001212-37568b947bd4
+	go.mau.fi/whatsmeow v0.0.0-20260123132415-83db04703aee
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.34.0
 	google.golang.org/api v0.262.0
