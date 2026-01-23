@@ -170,7 +170,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 
-		if err := t.ExecuteTemplate(w, "index.html", map[string]interface{}{
+		if err := t.ExecuteTemplate(w, "index.html", map[string]any{
 			"authURL": authCodeURL,
 		}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -185,7 +185,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 		if receivedState := req.URL.Query().Get("state"); receivedState != authReqState.String() {
 			w.WriteHeader(http.StatusBadRequest)
-			if err := t.ExecuteTemplate(w, "failure.html", map[string]interface{}{"error": ErrInvalidCallbackState}); err != nil {
+			if err := t.ExecuteTemplate(w, "failure.html", map[string]any{"error": ErrInvalidCallbackState}); err != nil {
 				logger.Error().Msgf("template execution failed: %v", err)
 			}
 			close(tokChan)
@@ -196,7 +196,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		tokChan <- req.URL.Query().Get("code")
 		close(tokChan)
 
-		if err := t.ExecuteTemplate(w, "success.html", map[string]interface{}{}); err != nil {
+		if err := t.ExecuteTemplate(w, "success.html", map[string]any{}); err != nil {
 			logger.Error().Msgf("template execution failed: %v", err)
 		}
 	})
