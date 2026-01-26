@@ -27,11 +27,12 @@ import (
 	"net/http/cookiejar"
 	"time"
 
-	"github.com/corpix/uarand"
+	fakeua "github.com/lib4u/fake-useragent"
 )
 
 const (
-	Timeout = 60 * time.Second // site can get really slow sometimes
+	Timeout  = 60 * time.Second // site can get really slow sometimes
+	ChromeUA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 )
 
 // NewClientWithContext creates new *Client, initializing HTTP Cookie Jar, context and username with password.
@@ -58,7 +59,9 @@ func NewClientWithContext(ctx context.Context, username, password string) (*Clie
 // Login attempts get CSRF Token and do SSO/SAML authentication with random User-Agent per session.
 func (c *Client) Login() error {
 	// generate random User-Agent per fetch dialog
-	c.userAgent = uarand.GetRandom()
+	ua, _ := fakeua.New()
+	ua.SetFallback(ChromeUA)
+	c.userAgent = ua.Filter().Chrome().Platform(fakeua.Desktop).Get()
 
 	// get secret CSRF Token from /
 	if err := c.getCSRFToken(); err != nil {

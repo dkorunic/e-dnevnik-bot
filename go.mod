@@ -9,7 +9,6 @@ require (
 	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/avast/retry-go/v5 v5.0.0
 	github.com/bwmarrin/discordgo v0.29.0
-	github.com/corpix/uarand v0.2.0
 	github.com/dgraph-io/badger/v4 v4.9.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.4
@@ -20,6 +19,7 @@ require (
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/iguanesolutions/go-systemd/v6 v6.0.0
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
+	github.com/lib4u/fake-useragent v1.0.6
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/minio/sha256-simd v1.0.1
@@ -31,7 +31,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260123132415-83db04703aee
+	go.mau.fi/whatsmeow v0.0.0-20260126151050-583635ac92ab
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.34.0
 	google.golang.org/api v0.262.0
@@ -85,7 +85,7 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260122232226-8e98ce8d340d // indirect
 	google.golang.org/grpc v1.78.0 // indirect
-	modernc.org/libc v1.67.6 // indirect
+	modernc.org/libc v1.67.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
