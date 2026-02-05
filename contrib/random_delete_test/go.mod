@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	filippo.io/mostly-harmless/cryptosource v0.0.0-20260119143509-b2ecb2035670
-	github.com/dgraph-io/badger/v4 v4.9.0
+	github.com/dgraph-io/badger/v4 v4.9.1
 )
 
 require (

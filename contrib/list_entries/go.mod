@@ -3,7 +3,7 @@ module github.com/dkorunic/e-dnevnik-bot/contrib/list_entries
 go 1.24.0
 
 require (
-	github.com/dgraph-io/badger/v4 v4.9.0
+	github.com/dgraph-io/badger/v4 v4.9.1
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 )
 
