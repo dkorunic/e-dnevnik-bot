@@ -37,7 +37,7 @@ const (
 	DefaultDBPath       = ".e-dnevnik.db"  // default BadgerDB folder
 	DefaultTTL          = time.Hour * 9000 // a bit more than 1 year TTL
 	DefaultDiscardRatio = 0.5              // recommended discard ratio from Badger docs
-	FiveHundredMB       = 500 * 1024 * 1024
+	OneGiB              = 1 << 30
 )
 
 // Edb holds e-dnevnik structure including Bardger struct.
@@ -69,21 +69,23 @@ func New(filePath string) (*Edb, error) {
 			WithNumMemtables(2).            // 2 memtables (default 5)
 			WithNumCompactors(2).           // 2 compactors (default 4)
 			WithValueThreshold(256)         // 256B threshold (default 1MB)
-	}
+	} else {
+		// retrieve currently active memory limit
+		limit := debug.SetMemoryLimit(-1)
 
-	// adapt for low memory environment
-	limit := debug.SetMemoryLimit(-1)
-	if limit > 0 && limit <= FiveHundredMB {
-		logger.Info().Msgf("Detected low (%v) memory environment, tuning DB for lower memory usage", humanize.Bytes(uint64(limit)))
+		// adapt for low memory environment
+		if limit > 0 && limit < OneGiB {
+			logger.Info().Msgf("Detected low (%v) memory environment, tuning DB for lower memory usage", humanize.Bytes(uint64(limit)))
 
-		opts = badger.DefaultOptions(filePath).
-			WithValueLogFileSize(16 << 20). // 16MB vlog files (default 1GB)
-			WithMemTableSize(4 << 20).      // 4MB memtables (default 64MB)
-			WithBlockCacheSize(8 << 20).    // 8MB block cache (default 256MB)
-			WithIndexCacheSize(0).          // Disable index cache
-			WithNumMemtables(2).            // 2 memtables (default 5)
-			WithNumCompactors(2).           // 2 compactors (default 4)
-			WithValueThreshold(1024)        // 1KB threshold (default 1MB)
+			opts = badger.DefaultOptions(filePath).
+				WithValueLogFileSize(16 << 20). // 16MB vlog files (default 1GB)
+				WithMemTableSize(4 << 20).      // 4MB memtables (default 64MB)
+				WithBlockCacheSize(8 << 20).    // 8MB block cache (default 256MB)
+				WithIndexCacheSize(0).          // Disable index cache
+				WithNumMemtables(2).            // 2 memtables (default 5)
+				WithNumCompactors(2).           // 2 compactors (default 4)
+				WithValueThreshold(1024)        // 1KB threshold (default 1MB)
+		}
 	}
 
 	db, err := badger.Open(opts.WithLogger(nil)) // disable Badger verbose logging
