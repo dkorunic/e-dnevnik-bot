@@ -129,7 +129,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	for ii := range g.Fields {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   g.Descriptions[ii],
-			Value:  g.Fields[ii],
+			Value:  truncateWithEllipsis(g.Fields[ii], 1024),
 			Inline: true,
 		})
 	}

@@ -19,45 +19,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package sqlitedb
+package messenger
 
-import (
-	"bytes"
-	"errors"
-	"os"
-
-	"github.com/minio/sha256-simd"
-)
-
-// dbExists checks if the path exists on the filesystem and returns boolean.
-func dbExists(filePath string) bool {
-	_, err := os.Lstat(filePath)
-
-	return !errors.Is(err, os.ErrNotExist)
-}
-
-// hashContent creates SHA-256 hash from (bucket, subBucket, []target) concatenated strings and returns []byte result.
-func hashContent(bucket, subBucket string, target []string) []byte {
-	// get total length of all strings
-	totalLen := len(bucket) + len(subBucket)
-	for i := range target {
-		totalLen += len(target[i])
+// truncateWithEllipsis truncates a string with ellipsis at the end
+// if it's longer than max runes. It returns the original string if it's
+// not longer than max runes.
+//
+// Parameters:
+//
+//	s - the string to truncate
+//	max - the maximum number of runes the string should have
+//
+// Returns:
+//
+//	the truncated string or the original string if it's not longer than max runes.
+func truncateWithEllipsis(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
 	}
-
-	var sb bytes.Buffer
-
-	// pre-allocate buffer
-	sb.Grow(totalLen)
-
-	sb.WriteString(bucket)
-	sb.WriteString(subBucket)
-
-	for i := range target {
-		sb.WriteString(target[i])
-	}
-
-	// calculate SHA-256 using SIMD AVX512 or SHA Extensions where possible
-	targetHash256 := sha256.Sum256(sb.Bytes())
-
-	return targetHash256[:]
+	return string(runes[:max-3]) + "..."
 }
