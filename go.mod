@@ -1,6 +1,6 @@
 module github.com/dkorunic/e-dnevnik-bot
 
-go 1.25
+go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -31,10 +31,10 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260129212019-7787ab952245
+	go.mau.fi/whatsmeow v0.0.0-20260210142427-8e7b838d2481
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.35.0
-	google.golang.org/api v0.265.0
+	google.golang.org/api v0.266.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.45.0
 )
