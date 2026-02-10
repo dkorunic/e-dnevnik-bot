@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
 	"go.uber.org/ratelimit"
@@ -40,7 +40,7 @@ func TestProcessSlack(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := db.New(tmpdir)
+	eDB, err := sqlitedb.New(tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}

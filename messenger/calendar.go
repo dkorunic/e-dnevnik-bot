@@ -30,11 +30,11 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/oauth"
 	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/version"
 	"go.uber.org/ratelimit"
 	"golang.org/x/oauth2"
@@ -77,7 +77,7 @@ var credentialFS embed.FS
 // - retries: the number of times to retry sending a message in case of failure.
 //
 // It returns an error indicating any failures that occurred during the process.
-func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name, tokFile string, retries uint) error {
+func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, name, tokFile string, retries uint) error {
 	srv, calID, err := InitCalendar(ctx, tokFile, name)
 	if err != nil {
 		return err
@@ -126,7 +126,7 @@ func Calendar(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, name
 // - retries: the number of retry attempts for inserting a Google Calendar event
 //
 // It returns an error indicating any issues encountered during the execution of the function.
-func processCalendar(ctx context.Context, eDB *db.Edb, g msgtypes.Message, now time.Time, rl ratelimit.Limiter,
+func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, now time.Time, rl ratelimit.Limiter,
 	srv *calendar.Service, calID string, retries uint,
 ) {
 	var err error

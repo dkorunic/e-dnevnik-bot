@@ -33,11 +33,11 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/dkorunic/e-dnevnik-bot/config"
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/scrape"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/google/go-github/v82/github"
 	"github.com/teivah/broadcast"
 	"github.com/tj/go-spin"
@@ -90,7 +90,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 // - wgMsg: a WaitGroup to synchronize the completion of message sending.
 // - gradesMsg: a channel receiving messages to be sent to configured messengers.
 // - cfg: the configuration settings containing enabled services and their respective credentials.
-func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
+func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Go(func() {
 		relay := broadcast.NewRelay[msgtypes.Message]()
 		defer relay.Close()
@@ -183,7 +183,7 @@ func msgSend(ctx context.Context, eDB *db.Edb, wgMsg *sync.WaitGroup, gradesMsg 
 
 // msgDedup acts like a filter: processes all incoming messages, calls in to database check and if it hasn't been found
 // and if it is not an initial run, it will pass through to messengers for further alerting.
-func msgDedup(ctx context.Context, eDB *db.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
+func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Go(func() {
 		if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")

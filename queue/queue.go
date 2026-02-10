@@ -24,9 +24,9 @@ package queue
 import (
 	"errors"
 
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
 
 var ErrQueueing = errors.New("problem with persistent queue")
@@ -39,7 +39,7 @@ var ErrQueueing = errors.New("problem with persistent queue")
 // exist, it will be created.
 //
 // If any of the operations fail, the function returns an error.
-func StoreFailedMsgs(eDB *db.Edb, key []byte, g msgtypes.Message) error {
+func StoreFailedMsgs(eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
 	return eDB.FetchAndStore(key, func(old []byte) ([]byte, error) {
 		msgs, _ := encdec.DecodeMsgs(old)
 		msgs = append(msgs, g)

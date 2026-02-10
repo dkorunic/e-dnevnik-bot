@@ -29,11 +29,11 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/version"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -72,7 +72,7 @@ var (
 // The function formats the message as HTML and attempts to send it to each chat ID.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, apiKey string, chatIDs []string, retries uint) error {
+func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, apiKey string, chatIDs []string, retries uint) error {
 	if apiKey == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
@@ -128,7 +128,7 @@ func Telegram(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, apiK
 // The function formats the message as HTML and attempts to send it to each chat ID.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func processTelegram(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
+func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as HTML
 	m := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 

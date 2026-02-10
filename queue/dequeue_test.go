@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
 
 func TestFetchFailedMsgs(t *testing.T) {
@@ -18,7 +18,7 @@ func TestFetchFailedMsgs(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := db.New(tmpdir)
+	eDB, err := sqlitedb.New(tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}

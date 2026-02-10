@@ -28,11 +28,11 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/version"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
@@ -69,7 +69,7 @@ var (
 // chatIDs: the IDs of the recipients.
 // retries: the number of retries in case of failure.
 // error: an error if there was a problem sending the message.
-func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token string, chatIDs []string, retries uint) error {
+func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, token string, chatIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
@@ -123,7 +123,7 @@ func Slack(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token s
 // The function formats the message as Markup and attempts to send it to each chat ID.
 // It logs errors for sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func processSlack(ctx context.Context, eDB *db.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
+func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as Markup
 	m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 

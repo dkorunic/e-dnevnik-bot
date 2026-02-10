@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package db
+package sqlitedb
 
 import (
 	"bytes"
@@ -30,19 +30,25 @@ import (
 
 func TestDBOperations(t *testing.T) {
 	t.Parallel()
-	// Create a temporary directory path for the database, but don't create the directory itself.
-	tmpdir := filepath.Join(os.TempDir(), "test-db-for-testing")
+	// Create a temporary file path for the database
+	tmpFile := filepath.Join(os.TempDir(), "test-db-for-testing.db")
 	// Clean up any previous test runs.
-	os.RemoveAll(tmpdir)
-	defer os.RemoveAll(tmpdir)
+	os.Remove(tmpFile)
+	defer os.Remove(tmpFile)
 
 	// Test database creation.
-	eDB, err := New(tmpdir)
+	eDB, err := New(tmpFile)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
 
 	// Test Existing() on a new database.
+	// Note: dbExists logic is: checks if file exists BEFORE opening.
+	// In New():
+	// isExisting := dbExists(filePath)
+	// db, err := sql.Open(...)
+	// ...
+	// So if file didn't exist, isExisting should be false.
 	if eDB.Existing() {
 		t.Error("Existing() should be false for a new database")
 	}
@@ -105,7 +111,7 @@ func TestDBOperations(t *testing.T) {
 	}
 
 	// Test Existing() on an existing database.
-	eDB, err = New(tmpdir)
+	eDB, err = New(tmpFile)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}

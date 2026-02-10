@@ -22,8 +22,8 @@
 package main
 
 import (
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
 
 // openDB opens application database and returns handle to it.
@@ -38,8 +38,9 @@ import (
 //
 // The application database is stored in a file in the current working directory
 // with the name given by the `dbFile` flag.
-func openDB(file string) *db.Edb {
-	eDB, err := db.New(file)
+// TODO: should pass the context parameter
+func openDB(file string) *sqlitedb.Edb {
+	eDB, err := sqlitedb.New(file)
 	if err != nil {
 		logger.Fatal().Msgf("Unable to open application database: %v", err)
 	}
@@ -48,7 +49,7 @@ func openDB(file string) *db.Edb {
 }
 
 // closeDB closes the application database.
-func closeDB(eDB *db.Edb) {
+func closeDB(eDB *sqlitedb.Edb) {
 	if err := eDB.Close(); err != nil {
 		logger.Fatal().Msgf("Unable to close application database: %v", err)
 	}

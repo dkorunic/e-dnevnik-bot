@@ -19,49 +19,45 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package main
+package sqlitedb
 
 import (
-	"encoding/hex"
-	"log"
-	"time"
+	"bytes"
+	"errors"
+	"os"
 
-	"github.com/dgraph-io/badger/v4"
-	"github.com/hako/durafmt"
+	"github.com/minio/sha256-simd"
 )
 
-const (
-	DefaultDBName = ".e-dnevnik.db"
-	DefaultTTL    = time.Hour * 9000
-)
+// dbExists checks if the path exists on the filesystem and returns boolean.
+func dbExists(filePath string) bool {
+	_, err := os.Lstat(filePath)
 
-func main() {
-	db, err := badger.Open(badger.DefaultOptions(DefaultDBName).WithLogger(nil))
-	if err != nil {
-		log.Fatalf("Could not open database: %v\n", err)
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+// hashContent creates SHA-256 hash from (bucket, subBucket, []target) concatenated strings and returns []byte result.
+func hashContent(bucket, subBucket string, target []string) []byte {
+	// get total length of all strings
+	totalLen := len(bucket) + len(subBucket)
+	for i := range target {
+		totalLen += len(target[i])
 	}
-	defer db.Close()
 
-	// iterate all keys
-	err = db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = false
-		it := txn.NewIterator(opts)
-		defer it.Close()
+	var sb bytes.Buffer
 
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-			k := item.Key()
-			e := time.Unix(int64(item.ExpiresAt()), 0)
+	// pre-allocate buffer
+	sb.Grow(totalLen)
 
-			now := time.Now()
+	sb.WriteString(bucket)
+	sb.WriteString(subBucket)
 
-			log.Printf("Key: %v, ExpiresAt: %v, Old: %v seconds\n", hex.EncodeToString(k), e.Format(time.RFC3339), durafmt.Parse(now.Sub(e)+DefaultTTL))
-		}
-
-		return nil
-	})
-	if err != nil {
-		log.Fatalf("Could not list keys: %v\n", err)
+	for i := range target {
+		sb.WriteString(target[i])
 	}
+
+	// calculate SHA-256 using SIMD AVX512 or SHA Extensions where possible
+	targetHash256 := sha256.Sum256(sb.Bytes())
+
+	return targetHash256[:]
 }

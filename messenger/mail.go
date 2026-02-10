@@ -28,11 +28,11 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/version"
 	mail "github.com/wneessen/go-mail"
 	"go.uber.org/ratelimit"
@@ -74,7 +74,7 @@ var (
 // through the mail service. It uses a rate limiter to control the message
 // sending rate and supports retry attempts for sending failures. It logs
 // invalid ports and sets a default port if necessary.
-func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
+func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
 	logger.Debug().Msgf("Started e-mail messenger (%v)", MailVersion)
 
 	portInt, err := strconv.Atoi(port)
@@ -131,7 +131,7 @@ func Mail(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, server, 
 // alternative parts, establishes a dialer, and sends the message to all recipients.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func processMail(ctx context.Context, eDB *db.Edb, g msgtypes.Message, server string, portInt int, username string,
+func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, server string, portInt int, username string,
 	password string, to []string, from, subject string, rl ratelimit.Limiter, retries uint,
 ) {
 	// format message, have both text/plain and text/html alternative

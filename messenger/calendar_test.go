@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"go.uber.org/ratelimit"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
@@ -47,7 +47,7 @@ func TestProcessCalendar(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := db.New(tmpdir)
+	eDB, err := sqlitedb.New(tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}

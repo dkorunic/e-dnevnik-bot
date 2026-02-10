@@ -22,10 +22,10 @@
 package queue
 
 import (
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
 
 // FetchFailedMsgs fetches failed messages from a persistent queue identified by key
@@ -34,7 +34,7 @@ import (
 // The function assumes the database and the key are valid. If the key doesn't exist, it will be created.
 //
 // If any of the operations fail, the function will log an error and return an empty list.
-func FetchFailedMsgs(eDB *db.Edb, queueKey []byte) []msgtypes.Message {
+func FetchFailedMsgs(eDB *sqlitedb.Edb, queueKey []byte) []msgtypes.Message {
 	var failedList []msgtypes.Message
 
 	// fetch failed messages list, store empty list

@@ -30,11 +30,11 @@ import (
 
 	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/version"
 	"go.uber.org/ratelimit"
 )
@@ -69,7 +69,7 @@ var (
 // - retries: the number of times to retry sending a message in case of failure.
 //
 // It returns an error indicating any failures that occurred during the process.
-func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token string, userIDs []string, retries uint) error {
+func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, token string, userIDs []string, retries uint) error {
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
@@ -123,7 +123,7 @@ func Discord(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, token
 // - retries: the number of retry attempts to send the message
 //
 // It returns no value and has no side effects except for error logging.
-func processDiscord(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as rich message with embedded data
 	fields := make([]*discordgo.MessageEmbedField, 0, len(g.Fields))
 	for ii := range g.Fields {

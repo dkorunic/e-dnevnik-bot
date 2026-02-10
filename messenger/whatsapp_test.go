@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
@@ -34,7 +34,7 @@ func TestProcessWhatsApp(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := db.New(tmpdir)
+	eDB, err := sqlitedb.New(tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}

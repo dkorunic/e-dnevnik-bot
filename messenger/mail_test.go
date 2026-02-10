@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"go.uber.org/ratelimit"
 )
 
@@ -48,7 +48,7 @@ func TestProcessMail(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := db.New(tmpdir)
+	eDB, err := sqlitedb.New(tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}

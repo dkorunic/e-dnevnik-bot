@@ -31,11 +31,11 @@ import (
 
 	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/config"
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/queue"
+	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/version"
 	"github.com/hako/durafmt"
 	"go.mau.fi/whatsmeow"
@@ -100,7 +100,7 @@ var (
 // processes all new messages and sends them to the specified user IDs or groups.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, userIDs, groups []string, retries uint) error {
+func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, userIDs, groups []string, retries uint) error {
 	if len(userIDs) == 0 && len(groups) == 0 {
 		return ErrWhatsAppEmptyUserIDs
 	}
@@ -185,7 +185,7 @@ func WhatsApp(ctx context.Context, eDB *db.Edb, ch <-chan msgtypes.Message, user
 // It formats the message as Markup and attempts to send it to each user ID.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func processWhatsApp(ctx context.Context, eDB *db.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as Markup
 	mRaw := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 	m := waE2E.Message{Conversation: proto.String(mRaw)}

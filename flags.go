@@ -27,7 +27,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/db"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/hako/durafmt"
 	"github.com/peterbourgon/ff/v4"
@@ -39,6 +38,7 @@ const (
 	DefaultCalendarToken = "calendar_token.json" // default Google Calendar token file
 	DefaultTickInterval  = 1 * time.Hour         // default (and minimal permitted value) is 1 tick per 1h
 	DefaultRetries       = 3                     // default retry attempts
+	DefaultDBPath        = ".e-dnevnik.db"       // default BadgerDB folder or SQLite DB
 )
 
 var (
@@ -63,7 +63,7 @@ func parseFlags() {
 	jitter = fs.BoolDefault('j', "jitter", true, "enable slight (up to 10%) jitter for tick intervals")
 
 	confFile = fs.String('f', "conffile", DefaultConfFile, "configuration file (in TOML)")
-	dbFile = fs.String('b', "database", db.DefaultDBPath, "alert database file")
+	dbFile = fs.String('b', "database", DefaultDBPath, "alert database file")
 	calTokFile = fs.String('g', "calendartoken", DefaultCalendarToken, "Google Calendar token file")
 	cpuProfile = fs.String('c', "cpuprofile", "", "CPU profile output file")
 	memProfile = fs.String('m', "memprofile", "", "memory profile output file")
