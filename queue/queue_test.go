@@ -22,6 +22,7 @@
 package queue
 
 import (
+	"context"
 	"os"
 	"reflect"
 	"testing"
@@ -39,7 +40,7 @@ func TestStoreAndFetchFailedMsgs(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := sqlitedb.New(tmpdir)
+	eDB, err := sqlitedb.New(context.Background(), tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,17 +51,17 @@ func TestStoreAndFetchFailedMsgs(t *testing.T) {
 	msg2 := msgtypes.Message{Subject: "Test Subject 2", Descriptions: []string{"Test Body 2"}}
 
 	// Store the first message.
-	if err := StoreFailedMsgs(eDB, key, msg1); err != nil {
+	if err := StoreFailedMsgs(context.Background(), eDB, key, msg1); err != nil {
 		t.Fatalf("StoreFailedMsgs failed: %v", err)
 	}
 
 	// Store the second message.
-	if err := StoreFailedMsgs(eDB, key, msg2); err != nil {
+	if err := StoreFailedMsgs(context.Background(), eDB, key, msg2); err != nil {
 		t.Fatalf("StoreFailedMsgs failed: %v", err)
 	}
 
 	// Fetch the messages.
-	fetchedMsgs := FetchFailedMsgs(eDB, key)
+	fetchedMsgs := FetchFailedMsgs(context.Background(), eDB, key)
 	expectedMsgs := []msgtypes.Message{msg1, msg2}
 
 	if !reflect.DeepEqual(fetchedMsgs, expectedMsgs) {
@@ -68,7 +69,7 @@ func TestStoreAndFetchFailedMsgs(t *testing.T) {
 	}
 
 	// Fetch again to ensure the queue is empty.
-	fetchedMsgs = FetchFailedMsgs(eDB, key)
+	fetchedMsgs = FetchFailedMsgs(context.Background(), eDB, key)
 	if len(fetchedMsgs) != 0 {
 		t.Errorf("queue should be empty after fetching, but it's not. Got: %v", fetchedMsgs)
 	}

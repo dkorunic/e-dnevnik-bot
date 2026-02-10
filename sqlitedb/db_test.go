@@ -23,6 +23,7 @@ package sqlitedb
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,7 +38,7 @@ func TestDBOperations(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	// Test database creation.
-	eDB, err := New(tmpFile)
+	eDB, err := New(context.Background(), tmpFile)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestDBOperations(t *testing.T) {
 	}
 
 	// Test CheckAndFlagTTL on a new key.
-	found, err := eDB.CheckAndFlagTTL("test-bucket", "test-sub-bucket", []string{"test-target"})
+	found, err := eDB.CheckAndFlagTTL(context.Background(), "test-bucket", "test-sub-bucket", []string{"test-target"})
 	if err != nil {
 		t.Fatalf("CheckAndFlagTTL() failed: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestDBOperations(t *testing.T) {
 	}
 
 	// Test CheckAndFlagTTL on an existing key.
-	found, err = eDB.CheckAndFlagTTL("test-bucket", "test-sub-bucket", []string{"test-target"})
+	found, err = eDB.CheckAndFlagTTL(context.Background(), "test-bucket", "test-sub-bucket", []string{"test-target"})
 	if err != nil {
 		t.Fatalf("CheckAndFlagTTL() failed: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestDBOperations(t *testing.T) {
 
 	// Test FetchAndStore on a new key.
 	key := []byte("test-key")
-	err = eDB.FetchAndStore(key, func(old []byte) ([]byte, error) {
+	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
 		if old != nil {
 			t.Errorf("old value should be nil for a new key, but got %v", old)
 		}
@@ -84,7 +85,7 @@ func TestDBOperations(t *testing.T) {
 	}
 
 	// Test FetchAndStore on an existing key.
-	err = eDB.FetchAndStore(key, func(old []byte) ([]byte, error) {
+	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
 		if !bytes.Equal(old, []byte("new-value")) {
 			t.Errorf("unexpected old value: got %v, want %v", old, []byte("new-value"))
 		}
@@ -95,7 +96,7 @@ func TestDBOperations(t *testing.T) {
 	}
 
 	// Verify the updated value.
-	err = eDB.FetchAndStore(key, func(old []byte) ([]byte, error) {
+	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
 		if !bytes.Equal(old, []byte("updated-value")) {
 			t.Errorf("unexpected old value: got %v, want %v", old, []byte("updated-value"))
 		}
@@ -111,7 +112,7 @@ func TestDBOperations(t *testing.T) {
 	}
 
 	// Test Existing() on an existing database.
-	eDB, err = New(tmpFile)
+	eDB, err = New(context.Background(), tmpFile)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}

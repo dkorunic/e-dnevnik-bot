@@ -93,7 +93,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(eDB, TelegramQueueName) {
+	for _, g = range queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -165,7 +165,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
 			// store failed message
-			if err := queue.StoreFailedMsgs(eDB, TelegramQueueName, g); err != nil {
+			if err := queue.StoreFailedMsgs(ctx, eDB, TelegramQueueName, g); err != nil {
 				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 

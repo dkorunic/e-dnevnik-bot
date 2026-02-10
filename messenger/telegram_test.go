@@ -47,7 +47,7 @@ func TestProcessTelegram(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := sqlitedb.New(tmpdir)
+	eDB, err := sqlitedb.New(context.Background(), tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}

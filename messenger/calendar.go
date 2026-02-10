@@ -91,7 +91,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(eDB, CalendarQueueName) {
+	for _, g = range queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -173,7 +173,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
 		// store failed message
-		if err = queue.StoreFailedMsgs(eDB, CalendarQueueName, g); err != nil {
+		if err = queue.StoreFailedMsgs(ctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 

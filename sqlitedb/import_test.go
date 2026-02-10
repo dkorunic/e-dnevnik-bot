@@ -23,6 +23,7 @@ package sqlitedb
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -66,14 +67,14 @@ func TestImportFromBadger(t *testing.T) {
 	os.Remove(sqlitePath)
 	defer os.Remove(sqlitePath)
 
-	sdb, err := New(sqlitePath)
+	sdb, err := New(context.Background(), sqlitePath)
 	if err != nil {
 		t.Fatalf("Failed to open sqlite: %v", err)
 	}
 	defer sdb.Close()
 
 	// Run Import
-	if err := sdb.ImportFromBadger(badgerDir); err != nil {
+	if err := sdb.ImportFromBadger(context.Background(), badgerDir); err != nil {
 		t.Fatalf("ImportFromBadger failed: %v", err)
 	}
 

@@ -27,7 +27,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -43,10 +42,7 @@ var (
 )
 
 // ImportFromBadger imports all data from a BadgerDB database into the current Edb.
-func (db *Edb) ImportFromBadger(badgerPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-
+func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 	if badgerPath == "" {
 		badgerPath = ".e-dnevnik.db" // Default from db package
 	}

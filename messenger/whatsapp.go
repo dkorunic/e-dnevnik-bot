@@ -150,7 +150,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	var g msgtypes.Message
 
 	// process failed messages
-	for _, g = range queue.FetchFailedMsgs(eDB, WhatsAppQueueName) {
+	for _, g = range queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -217,7 +217,7 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
 
 			// store failed message
-			if err := queue.StoreFailedMsgs(eDB, WhatsAppQueueName, g); err != nil {
+			if err := queue.StoreFailedMsgs(ctx, eDB, WhatsAppQueueName, g); err != nil {
 				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 

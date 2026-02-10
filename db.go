@@ -22,6 +22,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
@@ -38,9 +40,8 @@ import (
 //
 // The application database is stored in a file in the current working directory
 // with the name given by the `dbFile` flag.
-// TODO: should pass the context parameter
-func openDB(file string) *sqlitedb.Edb {
-	eDB, err := sqlitedb.New(file)
+func openDB(ctx context.Context, file string) *sqlitedb.Edb {
+	eDB, err := sqlitedb.New(ctx, file)
 	if err != nil {
 		logger.Fatal().Msgf("Unable to open application database: %v", err)
 	}

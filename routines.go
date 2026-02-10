@@ -208,7 +208,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				}
 
 				// check if it is an already known alert
-				found, err := eDB.CheckAndFlagTTL(g.Username, g.Subject, g.Fields)
+				found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
 				if err != nil {
 					logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
 				}

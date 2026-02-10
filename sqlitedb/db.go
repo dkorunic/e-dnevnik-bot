@@ -32,7 +32,7 @@ import (
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
 const (
@@ -54,10 +54,7 @@ type Edb struct {
 }
 
 // New opens a new database, flagging if the database already preexisting.
-func New(filePath string) (*Edb, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultDbTimeout)
-	defer cancel()
-
+func New(ctx context.Context, filePath string) (*Edb, error) {
 	if filePath == "" {
 		filePath = DefaultDBPath
 	}
@@ -97,13 +94,13 @@ func New(filePath string) (*Edb, error) {
 	edb := &Edb{db: db, isExisting: isExisting}
 
 	// Check if old BadgerDB directory exists and convert data
-	edb, err = badgerDB2Sqlite(origFilePath, edb)
+	edb, err = badgerDB2Sqlite(ctx, origFilePath, edb)
 	if err != nil {
 		return edb, err
 	}
 
 	// Perform initial cleanup of expired keys
-	edb.cleanup()
+	edb.cleanup(ctx)
 
 	return edb, nil
 }
@@ -112,13 +109,12 @@ func New(filePath string) (*Edb, error) {
 // and if so, imports all data into the given Edb and removes the old
 // BadgerDB directory.
 // Returns the Edb with imported data and an error if any occurred.
-// TODO: should pass the context parameter
-func badgerDB2Sqlite(origFilePath string, edb *Edb) (*Edb, error) {
+func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, error) {
 	fid, err := os.Stat(origFilePath)                         // check if it is BadgerDB directory
 	fim, err2 := os.Stat(path.Join(origFilePath, "MANIFEST")) // check if there is MANIFEST file inside
 
 	if err == nil && fid.IsDir() && err2 == nil && fim.Mode().IsRegular() {
-		err = edb.ImportFromBadger(origFilePath)
+		err = edb.ImportFromBadger(ctx, origFilePath)
 		if err != nil {
 			_ = edb.Close()
 
@@ -128,6 +124,7 @@ func badgerDB2Sqlite(origFilePath string, edb *Edb) (*Edb, error) {
 		edb.isExisting = true
 
 		logger.Info().Msgf("Removing BadgerDB directory post-import: %v", origFilePath)
+
 		err = os.RemoveAll(origFilePath)
 		if err != nil {
 			return edb, fmt.Errorf("%w: %w", ErrDeleteBadgerDB, err)
@@ -153,11 +150,7 @@ func (db *Edb) Close() error {
 // If the key already exists, the function returns (true, nil). If the key doesn't
 // exist, the function marks the key and returns (false, nil) on success or
 // (false, error) on error.
-// TODO: should pass the context parameter
-func (db *Edb) CheckAndFlagTTL(bucket, subBucket string, target []string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultDbTimeout)
-	defer cancel()
-
+func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, target []string) (bool, error) {
 	// SHA256 hash of (bucket, subBucket, []target)
 	key := hashContent(bucket, subBucket, target)
 
@@ -205,11 +198,7 @@ func (db *Edb) Existing() bool {
 // 4. Stores the result in the database with the same key and a TTL of 1+ year.
 //
 // If any of the steps fail, it will return an error.
-// TODO: should pass the context parameter
-func (db *Edb) FetchAndStore(key []byte, f func(old []byte) ([]byte, error)) error {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultDbTimeout)
-	defer cancel()
-
+func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte) ([]byte, error)) error {
 	tx, err := db.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -264,13 +253,9 @@ func (db *Edb) FetchAndStore(key []byte, f func(old []byte) ([]byte, error)) err
 }
 
 // cleanup removes expired keys.
-// TODO: should pass the context parameter
-func (db *Edb) cleanup() {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultDbTimeout)
-	defer cancel()
-
+func (db *Edb) cleanup(ctx context.Context) {
 	_, err := db.db.ExecContext(ctx, "DELETE FROM kv WHERE expires_at IS NOT NULL AND expires_at < ?", time.Now().Unix())
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to cleanup expired keys")
+		logger.Error().Msgf("Failed to cleanup expired keys: %v", err)
 	}
 }

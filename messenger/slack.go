@@ -87,7 +87,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(eDB, SlackQueueName) {
+	for _, g = range queue.FetchFailedMsgs(ctx, eDB, SlackQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -151,7 +151,7 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 			logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
 			// store failed message
-			if err := queue.StoreFailedMsgs(eDB, SlackQueueName, g); err != nil {
+			if err := queue.StoreFailedMsgs(ctx, eDB, SlackQueueName, g); err != nil {
 				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 

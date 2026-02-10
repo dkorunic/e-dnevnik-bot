@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestFetchFailedMsgs(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := sqlitedb.New(tmpdir)
+	eDB, err := sqlitedb.New(context.Background(), tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,12 +32,12 @@ func TestFetchFailedMsgs(t *testing.T) {
 	encodedMsgs, _ := encdec.EncodeMsgs(msgs)
 
 	// Store some messages in the queue
-	eDB.FetchAndStore(queueKey, func(old []byte) ([]byte, error) {
+	eDB.FetchAndStore(context.Background(), queueKey, func(old []byte) ([]byte, error) {
 		return encodedMsgs, nil
 	})
 
 	// Fetch the messages
-	failedMsgs := FetchFailedMsgs(eDB, queueKey)
+	failedMsgs := FetchFailedMsgs(context.Background(), eDB, queueKey)
 	if len(failedMsgs) != 1 {
 		t.Fatalf("FetchFailedMsgs() len = %d, want 1", len(failedMsgs))
 	}

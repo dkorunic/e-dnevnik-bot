@@ -90,7 +90,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(eDB, DiscordQueueName) {
+	for _, g = range queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -177,7 +177,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
 			// store failed message
-			if err := queue.StoreFailedMsgs(eDB, DiscordQueueName, g); err != nil {
+			if err := queue.StoreFailedMsgs(ctx, eDB, DiscordQueueName, g); err != nil {
 				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 			}
 

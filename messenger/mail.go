@@ -89,7 +89,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 	var g msgtypes.Message
 
 	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(eDB, MailQueueName) {
+	for _, g = range queue.FetchFailedMsgs(ctx, eDB, MailQueueName) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -193,7 +193,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ser
 		logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
 		// store failed message
-		if err := queue.StoreFailedMsgs(eDB, MailQueueName, g); err != nil {
+		if err := queue.StoreFailedMsgs(ctx, eDB, MailQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 

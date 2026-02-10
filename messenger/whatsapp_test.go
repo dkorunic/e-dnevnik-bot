@@ -11,7 +11,7 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
 	"go.uber.org/ratelimit"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
 func TestProcessWhatsApp(t *testing.T) {
@@ -34,7 +34,7 @@ func TestProcessWhatsApp(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	eDB, err := sqlitedb.New(tmpdir)
+	eDB, err := sqlitedb.New(context.Background(), tmpdir)
 	if err != nil {
 		t.Fatal(err)
 	}

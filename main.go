@@ -241,7 +241,7 @@ func main() {
 			versionCheck(ctx, &wgVersion)
 
 			// open KV store
-			eDB := openDB(*dbFile)
+			eDB := openDB(ctx, *dbFile)
 
 			// subjects/grades/exams scraper routines
 			scrapers(ctx, &wgScrape, gradesScraped, cfg)
@@ -336,7 +336,7 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 
 	var wgMsg sync.WaitGroup
 
-	eDB := openDB(*dbFile)
+	eDB := openDB(ctx, *dbFile)
 
 	msgSend(ctx, eDB, &wgMsg, gradesMsg, config)
 

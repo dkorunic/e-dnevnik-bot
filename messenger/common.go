@@ -28,15 +28,16 @@ package messenger
 // Parameters:
 //
 //	s - the string to truncate
-//	max - the maximum number of runes the string should have
+//	m - the maximum number of runes the string should have
 //
 // Returns:
 //
 //	the truncated string or the original string if it's not longer than max runes.
-func truncateWithEllipsis(s string, max int) string {
+func truncateWithEllipsis(s string, m int) string {
 	runes := []rune(s)
-	if len(runes) <= max {
+	if len(runes) <= m {
 		return s
 	}
-	return string(runes[:max-3]) + "..."
+
+	return string(runes[:m-3]) + "..."
 }
