@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -56,6 +57,13 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 	// Open BadgerDB
 	opts := badger.DefaultOptions(badgerPath).
 		WithLogger(nil) // Disable badger logging
+
+	// BadgerDB adapt for 32-bit architecture
+	if strconv.IntSize == 32 {
+		logger.Info().Msg("Detected 32-bit environment, tuning DB for lower memory usage")
+
+		opts.ValueLogFileSize = 1 << 20 //nolint:mnd
+	}
 
 	bdb, err := badger.Open(opts)
 	if err != nil {
