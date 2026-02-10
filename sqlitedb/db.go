@@ -179,11 +179,8 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	expiry := time.Now().Add(DefaultEntryTTL).Unix()
 
 	_, err = db.db.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)", key, []byte(""), expiry)
-	if err != nil {
-		return false, err
-	}
 
-	return false, nil
+	return false, err
 }
 
 // Existing returns if the database was freshly initialized.
