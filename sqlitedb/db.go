@@ -36,9 +36,8 @@ import (
 )
 
 const (
-	DefaultDBPath    = ".e-dnevnik.db"
-	DefaultTTL       = time.Hour * 9000 // a bit more than 1 year TTL
-	DefaultDbTimeout = time.Second * 60
+	DefaultDBPath = ".e-dnevnik.db"
+	DefaultTTL    = time.Hour * 9000 // a bit more than 1 year TTL
 )
 
 var (
@@ -121,9 +120,10 @@ func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, 
 			return edb, err
 		}
 
+		// New database has been populated with data
 		edb.isExisting = true
 
-		logger.Info().Msgf("Removing BadgerDB directory post-import: %v", origFilePath)
+		logger.Info().Msgf("Removing BadgerDB directory post-import at %v", origFilePath)
 
 		err = os.RemoveAll(origFilePath)
 		if err != nil {
@@ -156,11 +156,11 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 
 	var expiresAt sql.NullInt64
 
-	// check if key exists
+	// Check if key exists
 	err := db.db.QueryRowContext(ctx, "SELECT expires_at FROM kv WHERE key = ?", key).Scan(&expiresAt)
 	if err == nil {
 		// Key found
-		// Check if expired
+		// ... Check if expired
 		if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() {
 			// Expired, treat as not found (and we will update/overwrite it below)
 		} else {
@@ -214,11 +214,7 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 		return err
 	}
 
-	// If expired, treat as empty value?
-	// Existing db implementation:
-	// "find key -- doesn't return error if key doesn't exist"
-	// "copy value (if it exists)"
-	// Badger handles TTL automatically, so Get returns KeyNotFound if expired.
+	// If expired, treat as not found
 	if err == nil {
 		if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() {
 			val = nil // Treat as not found/empty
@@ -227,23 +223,13 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 		val = nil // Not found
 	}
 
-	// call conversion function
+	// Call conversion function
 	newVal, err := f(val)
 	if err != nil {
 		return err
 	}
 
-	// store new value with no TTL (expires_at = NULL)
-	// "Stores the result in the database with the same key and a TTL of 1+ year." -> Wait, doc comment says 1+ year, but db code says "no TTL".
-	// In db.go:
-	// // store new value with no TTL
-	// return txn.Set(key, newVal)
-	// But CheckAndFlagTTL sets DefaultTTL.
-	// I will follow the code comment "store new value with no TTL" which usually means persistent.
-	// Or maybe I should stick to what the previous code did.
-	// badger.Txn.Set(key, val) sets it without TTL (unless inherited? No, badger doesn't inherit TTL on overwrite unless explicitly set).
-	// So I will set expires_at to NULL.
-
+	// Store new value with no TTL (expires_at = NULL)
 	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, newVal)
 	if err != nil {
 		return err
