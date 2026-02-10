@@ -36,8 +36,9 @@ import (
 )
 
 const (
-	DefaultDBPath = ".e-dnevnik.db"
-	DefaultTTL    = time.Hour * 9000 // a bit more than 1 year TTL
+	DefaultDBPath    = ".e-dnevnik.db"
+	DefaultEntryTTL  = time.Hour * 9000 // a bit more than 1 year TTL
+	DefaultDBOptions = "?_pragma=journal_mode(DELETE)&_pragma=synchronous(FULL)&_pragma=busy_timeout(8000)"
 )
 
 var (
@@ -69,8 +70,11 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	logger.Debug().Msgf("Opening database: %v", filePath)
 
+	// Add DB options
+	sqlitePath := strings.Join([]string{"file:", filePath, DefaultDBOptions}, "")
+
 	// Open database
-	db, err := sql.Open("sqlite", filePath)
+	db, err := sql.Open("sqlite", sqlitePath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSqliteOpen, err)
 	}
@@ -172,7 +176,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	}
 
 	// Key not found or expired. Insert/Update with TTL.
-	expiry := time.Now().Add(DefaultTTL).Unix()
+	expiry := time.Now().Add(DefaultEntryTTL).Unix()
 
 	_, err = db.db.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)", key, []byte(""), expiry)
 	if err != nil {
