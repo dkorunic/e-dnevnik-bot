@@ -52,7 +52,7 @@ import (
 type contextKey string
 
 const (
-	WhatsAppDBName                  = ".e-dnevnik.sqlite"
+	WhatsAppDBName                  = ".e-dnevnik.wa.sqlite"
 	WhatsAppDBConnstring            = "file:%v?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000"
 	WhatsAppDisplayName             = "Chrome (Linux)"
 	WhatsAppOS                      = "Linux"

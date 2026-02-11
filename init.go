@@ -48,6 +48,7 @@ import (
 
 const (
 	initialWhatsAppDelay = 2 * time.Minute // 2 minutes sleep after successful sync
+	WhatsAppDBOldName    = ".e-dnevnik.sqlite"
 )
 
 var (
@@ -106,6 +107,11 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
+	}
+
+	// rename old WhatsApp database if it exists
+	if fi, err := os.Stat(WhatsAppDBOldName); err == nil && fi.Mode().IsRegular() {
+		_ = os.Rename(".e-dnevnik.sqlite", messenger.WhatsAppDBName)
 	}
 
 	// request syncing for last 3-months
