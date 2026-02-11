@@ -165,7 +165,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	if err == nil {
 		// Key found
 		// ... Check if expired
-		if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() {
+		if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() { //nolint:revive
 			// Expired, treat as not found (and we will update/overwrite it below)
 		} else {
 			return true, nil

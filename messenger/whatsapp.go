@@ -46,7 +46,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"go.uber.org/ratelimit"
-	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
@@ -187,8 +186,8 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 // It uses rate limiting and supports retries with delay.
 func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as Markup
-	mRaw := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
-	m := waE2E.Message{Conversation: proto.String(mRaw)}
+	mRaw := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields) //nolint:staticcheck
+	m := waE2E.Message{Conversation: new(mRaw)}
 
 	// send to all recipients: channels and nicknames are permitted
 	for _, u := range userIDs {
@@ -289,10 +288,10 @@ func whatsAppProcessGroups(ctx context.Context, userIDs, groups []string) []stri
 // If any error occurs during the process, it is logged and returned.
 func whatsAppLogin(ctx context.Context) error {
 	// request syncing for last 3-months
-	store.DeviceProps.RequireFullSync = proto.Bool(false)
+	store.DeviceProps.RequireFullSync = new(false)
 
 	// set OS to Linux
-	store.DeviceProps.Os = proto.String(WhatsAppOS)
+	store.DeviceProps.Os = new(WhatsAppOS)
 
 	storeContainer, err := sqlstore.New(ctx, "sqlite",
 		fmt.Sprintf(WhatsAppDBConnstring, WhatsAppDBName), nil)

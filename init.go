@@ -109,7 +109,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	}
 
 	// request syncing for last 3-months
-	store.DeviceProps.RequireFullSync = proto.Bool(false)
+	store.DeviceProps.RequireFullSync = new(false)
 
 	// set OS to Linux
 	store.DeviceProps.Os = proto.String(messenger.WhatsAppOS)
