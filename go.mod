@@ -31,7 +31,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260210142427-8e7b838d2481
+	go.mau.fi/whatsmeow v0.0.0-20260211193157-7b33f6289f98
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.35.0
 	google.golang.org/api v0.266.0
@@ -78,7 +78,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.40.0 // indirect
 	go.opentelemetry.io/otel/trace v1.40.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/exp v0.0.0-20260209203927-2842357ff358 // indirect
+	golang.org/x/exp v0.0.0-20260211191109-2735e65f0518 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/term v0.40.0 // indirect
