@@ -27,8 +27,8 @@ import (
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
-	"github.com/reiver/go-cast"
 	"github.com/rs/zerolog"
+	"github.com/spf13/cast"
 )
 
 // initLog sets the global log level to the level specified by the -v
@@ -49,7 +49,7 @@ func initLog() {
 	} else {
 		if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
 			if l, err := strconv.Atoi(v); err == nil {
-				if l8, err := cast.Int8(l); err == nil {
+				if l8, err := cast.ToInt8E(l); err == nil {
 					logLevel = zerolog.Level(l8)
 				}
 			}

@@ -29,14 +29,14 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-	"github.com/reiver/go-cast"
+	"github.com/spf13/cast"
 )
 
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
 	err := func() error {
-		r64, err := cast.Int64(retries)
+		r64, err := cast.ToInt64E(retries)
 		if err != nil {
 			r64 = 1
 		}
