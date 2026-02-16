@@ -355,7 +355,7 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 //
 // The jitter is a random fraction of the duration x, and is uniformly
 // distributed in the range [0.9, 1.1]. The randomness is generated using the
-// crypto/rand package, which is safe for generating random numbers.
+// math/rand/v2 package.
 func durationRandJitter(x time.Duration) time.Duration {
 	//nolint:gosec,mnd
 	return time.Duration(int64(x) / 100 * (rand.Int64N(21) + 90))

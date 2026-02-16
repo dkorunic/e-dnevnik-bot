@@ -88,20 +88,20 @@ func SaveConfig(file string, config TomlConfig) error {
 // the whatsAppEnabled field of the TomlConfig object to true.
 func checkWhatsAppConf(config *TomlConfig) {
 	if len(config.WhatsApp.UserIDs) > 0 || len(config.WhatsApp.Groups) > 0 {
-		// checkWhatsAppConf if phone number is valid
+		// check if phone number is valid
 		if config.WhatsApp.PhoneNumber != "" && !isValidPhone(config.WhatsApp.PhoneNumber) {
 			logger.Fatal().Msgf("WhatsApp phone number %s is not in international format",
 				config.WhatsApp.PhoneNumber)
 		}
 
-		// checkWhatsAppConf if all User IDs are valid
+		// check if all User IDs are valid
 		for _, u := range config.WhatsApp.UserIDs {
 			if !isValidWhatsAppJID(u) {
 				logger.Fatal().Msgf("Configuration error: WhatsApp User ID %v is not valid", u)
 			}
 		}
 
-		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending checkWhatsAppConf during initialization)")
+		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
 
 		// sort group names for binary search in WhatsApp messenger
 		slices.SortStableFunc(config.WhatsApp.Groups, strings.Compare)
@@ -132,16 +132,16 @@ func checkCalendarConf(config *TomlConfig) {
 // mailEnabled field of the TomlConfig object to true.
 func checkMailConf(config *TomlConfig) {
 	if config.Mail.Server != "" {
-		// checkWhatsAppConf if any of mail destinations (TO) are defined
+		// check if any of mail destinations (TO) are defined
 		if len(config.Mail.To) == 0 {
 			logger.Fatal().Msg("Configuration error: no mail to addresses defined")
 		}
 
-		logger.Info().Msg("Configuration: mail messenger enabled (pending checkWhatsAppConf during initialization)")
+		logger.Info().Msg("Configuration: mail messenger enabled")
 
-		// no need to checkWhatsAppConf mail FROM since it can be anything
+		// no need to check mail FROM since it can be anything
 
-		// checkWhatsAppConf if all destination mail addresses are valid
+		// check if all destination mail addresses are valid
 		for _, t := range config.Mail.To {
 			if !isValidMail(t) {
 				logger.Fatal().Msgf("Configuration error: mail to %v is not in mail format", t)
@@ -161,19 +161,19 @@ func checkMailConf(config *TomlConfig) {
 // If all conditions are met, the program will log an info message about Slack integration being enabled and will set the
 // slackEnabled field of the TomlConfig object to true.
 func checkSlackConf(config *TomlConfig) {
-	// checkWhatsAppConf if Slack token is defined
+	// check if Slack token is defined
 	if config.Slack.Token != "" {
-		// checkWhatsAppConf if token is valid
+		// check if token is valid
 		if !isValidSlackToken(config.Slack.Token) {
 			logger.Fatal().Msgf("Configuration error: Slack token %v is not valid", config.Slack.Token)
 		}
 
-		// checkWhatsAppConf if User IDs are defined
+		// check if User IDs are defined
 		if len(config.Slack.ChatIDs) == 0 {
 			logger.Fatal().Msg("Configuration error: Slack chat IDs not defined")
 		}
 
-		// checkWhatsAppConf if all chat IDs are valid
+		// check if all chat IDs are valid
 		for _, c := range config.Slack.ChatIDs {
 			if !isValidSlackChatID(c) {
 				logger.Fatal().Msgf("Configuration error: Slack chat ID %v is not valid", c)
@@ -195,19 +195,19 @@ func checkSlackConf(config *TomlConfig) {
 // If all conditions are met, the program will log an info message about Telegram integration being enabled and will set the
 // telegramEnabled field of the TomlConfig object to true.
 func checkTelegramConf(config *TomlConfig) {
-	// checkWhatsAppConf if Telegram token is defined
+	// check if Telegram token is defined
 	if config.Telegram.Token != "" {
-		// checkWhatsAppConf if token is valid
+		// check if token is valid
 		if !isValidTelegramToken(config.Telegram.Token) {
 			logger.Fatal().Msgf("Configuration error: Telegram token %v is not valid", config.Telegram.Token)
 		}
 
-		// checkWhatsAppConf if User IDs are defined
+		// check if User IDs are defined
 		if len(config.Telegram.ChatIDs) == 0 {
 			logger.Fatal().Msg("Configuration error: Telegram chat IDs not defined")
 		}
 
-		// checkWhatsAppConf if all chat IDs are valid
+		// check if all chat IDs are valid
 		for _, c := range config.Telegram.ChatIDs {
 			if !isValidTelegramChatID(c) {
 				logger.Fatal().Msgf("Configuration error: Telegram chat ID %v is not valid", c)
@@ -229,19 +229,19 @@ func checkTelegramConf(config *TomlConfig) {
 // If all conditions are met, the program will log an info message about Discord integration being enabled and will set the
 // discordEnabled field of the TomlConfig object to true.
 func checkDiscordConf(config *TomlConfig) {
-	// checkWhatsAppConf if Discord token is defined
+	// check if Discord token is defined
 	if config.Discord.Token != "" {
-		// checkWhatsAppConf if token is valid
+		// check if token is valid
 		if !isValidDiscordToken(config.Discord.Token) {
 			logger.Fatal().Msgf("Configuration error: Discord token %v is not valid", config.Discord.Token)
 		}
 
-		// checkWhatsAppConf if User IDs are defined
+		// check if User IDs are defined
 		if len(config.Discord.UserIDs) == 0 {
 			logger.Fatal().Msg("Configuration error: Discord User IDs not defined")
 		}
 
-		// checkWhatsAppConf if all User IDs are valid
+		// check if all User IDs are valid
 		for _, u := range config.Discord.UserIDs {
 			if !isValidID(u) {
 				logger.Fatal().Msgf("Configuration error: Discord User ID %v is not valid", u)
@@ -266,24 +266,24 @@ func checkDiscordConf(config *TomlConfig) {
 //
 // If all conditions are met, the program will log an info message about User configuration being enabled.
 func checkUserConf(config *TomlConfig) {
-	// checkWhatsAppConf if users are defined
+	// check if users are defined
 	if len(config.User) == 0 {
 		logger.Fatal().Msg("Configuration error: No users defined")
 	}
 
-	// checkWhatsAppConf if all users have username and password
+	// check if all users have username and password
 	for _, u := range config.User {
 		if u.Username == "" || u.Password == "" {
 			logger.Fatal().Msgf("Configuration error: User requires username and password: %v - %v",
 				u.Username, u.Password)
 		}
 
-		// checkWhatsAppConf if username is in User@domain format
+		// check if username is in User@domain format
 		if !isValidUserAtDomain(u.Username) {
 			logger.Fatal().Msgf("Configuration error: username not in proper User@domain format: %v", u.Username)
 		}
 
-		// checkWhatsAppConf if username ends with @skole.hr
+		// check if username ends with @skole.hr
 		if !strings.HasSuffix(u.Username, "@skole.hr") {
 			logger.Warn().Msgf("Configuration issue: username not ending with @skole.hr: %v", u.Username)
 		}

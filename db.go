@@ -33,11 +33,6 @@ import (
 // If there is a problem while opening the database, it will log the error and
 // exit the program.
 //
-// The database is opened with default settings, which are:
-//   - setting value log file size to 1 MB (default is 1 GB, which is too much for
-//     this application)
-//   - setting discard ratio to 0.5 (recommended by Badger)
-//
 // The application database is stored in a file in the current working directory
 // with the name given by the `dbFile` flag.
 func openDB(ctx context.Context, file string) *sqlitedb.Edb {

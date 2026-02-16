@@ -45,7 +45,7 @@ func DecodeMsgs(val []byte) ([]msgtypes.Message, error) {
 
 // EncodeMsgs encodes a given list of messages using GOB encoding and returns
 // the []byte representation of the messages. If there is an error during encoding,
-// the function logs the error and returns it.
+// the function returns it.
 func EncodeMsgs(msgs []msgtypes.Message) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	enc := gob.NewEncoder(buf)

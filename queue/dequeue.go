@@ -31,7 +31,7 @@ import (
 )
 
 // FetchFailedMsgs fetches failed messages from a persistent queue identified by key
-// and attempts to send them again. The function returns the list of failed messages.
+// so they can be resent. The function returns the list of failed messages.
 //
 // The function assumes the database and the key are valid. If the key doesn't exist, it will be created.
 //

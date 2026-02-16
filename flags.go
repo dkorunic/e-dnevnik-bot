@@ -38,7 +38,7 @@ const (
 	DefaultCalendarToken = "calendar_token.json" // default Google Calendar token file
 	DefaultTickInterval  = 1 * time.Hour         // default (and minimal permitted value) is 1 tick per 1h
 	DefaultRetries       = 3                     // default retry attempts
-	DefaultDBPath        = ".e-dnevnik.db"       // default BadgerDB folder or SQLite DB
+	DefaultDBPath        = ".e-dnevnik.db"       // default SQLite DB
 )
 
 var (
