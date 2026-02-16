@@ -99,7 +99,7 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 
 // checkWhatsApp checks the WhatsApp configuration and enables or disables the WhatsApp integration based on the existence of the WhatsApp device ID.
 //
-// It will request syncing for the last 3-months and print the QR code if the WhatsApp device ID is not found in the database. It will also handle the pairing process if the WhatsApp device ID is found.
+// It will request syncing for the last 3-months and print the QR code if the WhatsApp device ID is not found in the database. It will also handle the pairing process if the WhatsApp device ID is not found.
 //
 // Parameters:
 // - ctx: the context object for cancellation and timeout.

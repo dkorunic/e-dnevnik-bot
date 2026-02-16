@@ -248,6 +248,8 @@ func parseCourses(rawCourses string) (fetch.Courses, error) {
 	return courses, nil
 }
 
+// parseCourse extracts course information (national exams, readings, final grades) from raw string
+// and sends messages to a message channel, optionally returning an error.
 func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiClass bool, className, subject string) error {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawCourse))
 	if err != nil {

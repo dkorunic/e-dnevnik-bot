@@ -32,7 +32,7 @@ import (
 
 const (
 	Timeout  = 60 * time.Second // site can get really slow sometimes
-	ChromeUA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+	ChromeUA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36" // ChromeUA is a user agent string mimicking Chrome on Android.
 )
 
 // NewClientWithContext creates new *Client, initializing HTTP Cookie Jar, context and username with password.

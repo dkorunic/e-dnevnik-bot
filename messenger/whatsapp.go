@@ -49,6 +49,7 @@ import (
 	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
+// contextKey is a string alias used for context keys to avoid collisions.
 type contextKey string
 
 const (

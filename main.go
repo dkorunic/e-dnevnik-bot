@@ -43,6 +43,7 @@ import (
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v6/notify/watchdog"
 )
 
+// contextKey is a string alias used for context keys to avoid collisions.
 type contextKey string
 
 const (
