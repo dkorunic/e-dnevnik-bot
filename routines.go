@@ -38,7 +38,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/scrape"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v83/github"
 	"github.com/teivah/broadcast"
 	"github.com/tj/go-spin"
 	"golang.org/x/oauth2"
