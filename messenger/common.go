@@ -40,7 +40,13 @@ func truncateWithEllipsis(s string, m int) string {
 		return s
 	}
 
-	runes := []rune(s)
+	count := 0
+	for i := range s {
+		if count == m-3 {
+			return s[:i] + "..."
+		}
+		count++
+	}
 
-	return string(runes[:m-3]) + "..."
+	return s
 }
