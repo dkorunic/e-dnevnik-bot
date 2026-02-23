@@ -395,7 +395,6 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 // trimAllSpace removes all leading, trailing, and repeated spaces from the input string.
 // It returns a single-space separated string.
 func trimAllSpace(s string) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-
+	// s = strings.ReplaceAll(s, "\n", " ")
 	return strings.Join(strings.Fields(s), " ")
 }
