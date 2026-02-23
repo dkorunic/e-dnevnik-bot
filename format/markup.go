@@ -30,6 +30,7 @@ import (
 // MarkupMsg formats grade report as preformatted Markup block in a string.
 func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := strings.Builder{}
+	sb.Grow(len(username) + len(subject) + 256)
 
 	markupAddHeader(&sb, username, subject, code)
 

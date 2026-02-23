@@ -21,6 +21,8 @@
 
 package messenger
 
+import "unicode/utf8"
+
 // truncateWithEllipsis truncates a string with ellipsis at the end
 // if it's longer than max runes. It returns the original string if it's
 // not longer than max runes.
@@ -34,10 +36,11 @@ package messenger
 //
 //	the truncated string or the original string if it's not longer than max runes.
 func truncateWithEllipsis(s string, m int) string {
-	runes := []rune(s)
-	if len(runes) <= m {
+	if utf8.RuneCountInString(s) <= m {
 		return s
 	}
+
+	runes := []rune(s)
 
 	return string(runes[:m-3]) + "..."
 }

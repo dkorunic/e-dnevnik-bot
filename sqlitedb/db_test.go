@@ -32,7 +32,7 @@ import (
 func TestDBOperations(t *testing.T) {
 	t.Parallel()
 	// Create a temporary file path for the database
-	tmpFile := filepath.Join(os.TempDir(), "test-db-for-testing.db")
+	tmpFile := filepath.Join(os.TempDir(), "test-db-for-testing.db.sqlite")
 	// Clean up any previous test runs.
 	os.Remove(tmpFile)
 	defer os.Remove(tmpFile)

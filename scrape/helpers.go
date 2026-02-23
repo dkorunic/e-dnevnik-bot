@@ -396,11 +396,47 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 // trimAllSpace removes all leading, trailing, and repeated spaces from the input string.
 // It returns a single-space separated string.
 func trimAllSpace(s string) string {
+	needsMod := false
+	inSpace := false
+	firstNonSpace := false
+
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			if !firstNonSpace {
+				// Leading space
+				needsMod = true
+
+				break
+			}
+
+			if inSpace || r != ' ' {
+				// Consecutive space or non-standard space
+				needsMod = true
+
+				break
+			}
+
+			inSpace = true
+		} else {
+			firstNonSpace = true
+			inSpace = false
+		}
+	}
+
+	if !needsMod && inSpace {
+		// Trailing space
+		needsMod = true
+	}
+
+	if !needsMod {
+		return s
+	}
+
 	var b strings.Builder
 
 	b.Grow(len(s))
 
-	var inSpace bool
+	inSpace = false
 
 	for _, r := range s {
 		if unicode.IsSpace(r) {
