@@ -41,7 +41,15 @@ const (
 	LayoutISO8601Short       = "20060102"
 )
 
-var ErrParseTimestamp = errors.New("failed to parse timestamp")
+var (
+	ErrParseTimestamp = errors.New("failed to parse timestamp")
+
+	dateLayouts = []string{
+		LayoutISO8601CompactZ,
+		LayoutISO8601CompactNoTZ,
+		LayoutISO8601Short,
+	}
+)
 
 // ConsumeICal is a ICS data decoder that extracts DTSTART, DESCRIPTION and SUMMARY values, parsing timestamp with
 // maximum flexibility and in local timezone, returning optional error.
@@ -57,12 +65,7 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 
 		timestamp := node[EventDateStart]
 
-		dtstart, err := parseFirstDateTime([]string{
-			LayoutISO8601CompactZ,
-			LayoutISO8601CompactNoTZ,
-			LayoutISO8601Short,
-		},
-			timestamp.Val)
+		dtstart, err := parseFirstDateTime(dateLayouts, timestamp.Val)
 		if err != nil {
 			logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
 

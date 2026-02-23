@@ -23,6 +23,7 @@ package scrape
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
@@ -61,31 +62,31 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 				subject = strings.Join([]string{subject, className}, " / ")
 			}
 
-			var descriptions []string
-
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
-			table.Find("div.row.header div.cell > span").
-				Each(func(_ int, column *goquery.Selection) {
-					txt := strings.TrimSpace(column.Text())
-					descriptions = append(descriptions, txt)
-				})
+			headerCells := table.Find("div.row.header div.cell > span")
+			descriptions := make([]string, 0, headerCells.Length())
+
+			headerCells.Each(func(_ int, column *goquery.Selection) {
+				txt := strings.TrimSpace(column.Text())
+				descriptions = append(descriptions, txt)
+			})
 
 			// grades are in each div with class "row" (header rows excluded) ...
 			table.Find("div.row:not(.header)").
 				Each(func(_ int, row *goquery.Selection) {
-					var spans []string
+					spanCells := row.Find("div.cell > span")
+					spans := make([]string, 0, spanCells.Length())
 
 					// ... and in each div with class "cell" in a span
-					row.Find("div.cell > span").
-						Each(func(_ int, column *goquery.Selection) {
-							// clean excess whitespace and newlines
-							txt := strings.TrimSpace(column.Text())
-							if len(txt) > 0 {
-								txt = trimAllSpace(txt)
-							}
+					spanCells.Each(func(_ int, column *goquery.Selection) {
+						// clean excess whitespace and newlines
+						txt := strings.TrimSpace(column.Text())
+						if len(txt) > 0 {
+							txt = trimAllSpace(txt)
+						}
 
-							spans = append(spans, txt)
-						})
+						spans = append(spans, txt)
+					})
 
 					// once we have a single grade with all required fields, send it through the channel
 					ch <- msgtypes.Message{
@@ -264,31 +265,31 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 	// process national-exam-table
 	doc.Find("div.content > div.flex-table.national-exam-table").
 		Each(func(_ int, table *goquery.Selection) {
-			var descriptions []string
-
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			// skip over block header
-			table.Find("div.row.header:not(.first) div.cell > span").
-				Each(func(_ int, column *goquery.Selection) {
-					txt := strings.TrimSpace(column.Text())
-					descriptions = append(descriptions, txt)
-				})
+			headerCells := table.Find("div.row.header:not(.first) div.cell > span")
+			descriptions := make([]string, 0, headerCells.Length())
+
+			headerCells.Each(func(_ int, column *goquery.Selection) {
+				txt := strings.TrimSpace(column.Text())
+				descriptions = append(descriptions, txt)
+			})
 
 			table.Find("div.row:not(.header)").
 				Each(func(_ int, row *goquery.Selection) {
-					var spans []string
+					spanCells := row.Find("div.cell > span")
+					spans := make([]string, 0, spanCells.Length())
 
 					// ... and in each div with class "cell" in a span
-					row.Find("div.cell > span").
-						Each(func(_ int, column *goquery.Selection) {
-							// clean excess whitespace and newlines
-							txt := strings.TrimSpace(column.Text())
-							if len(txt) > 0 {
-								txt = trimAllSpace(txt)
-							}
+					spanCells.Each(func(_ int, column *goquery.Selection) {
+						// clean excess whitespace and newlines
+						txt := strings.TrimSpace(column.Text())
+						if len(txt) > 0 {
+							txt = trimAllSpace(txt)
+						}
 
-							spans = append(spans, txt)
-						})
+						spans = append(spans, txt)
+					})
 
 					// we have a national-exam table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
@@ -306,31 +307,31 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 	// process readings-table
 	doc.Find("div.content > div.flex-table.readings-table").
 		Each(func(_ int, table *goquery.Selection) {
-			var descriptions []string
-
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			// skip over block header
-			table.Find("div.row.header:not(.first) div.cell > span").
-				Each(func(_ int, column *goquery.Selection) {
-					txt := strings.TrimSpace(column.Text())
-					descriptions = append(descriptions, txt)
-				})
+			headerCells := table.Find("div.row.header:not(.first) div.cell > span")
+			descriptions := make([]string, 0, headerCells.Length())
+
+			headerCells.Each(func(_ int, column *goquery.Selection) {
+				txt := strings.TrimSpace(column.Text())
+				descriptions = append(descriptions, txt)
+			})
 
 			table.Find("div.row:not(.header)").
 				Each(func(_ int, row *goquery.Selection) {
-					var spans []string
+					spanCells := row.Find("div.cell > span")
+					spans := make([]string, 0, spanCells.Length())
 
 					// ... and in each div with class "cell" in a span
-					row.Find("div.cell > span").
-						Each(func(_ int, column *goquery.Selection) {
-							// clean excess whitespace and newlines
-							txt := strings.TrimSpace(column.Text())
-							if len(txt) > 0 {
-								txt = trimAllSpace(txt)
-							}
+					spanCells.Each(func(_ int, column *goquery.Selection) {
+						// clean excess whitespace and newlines
+						txt := strings.TrimSpace(column.Text())
+						if len(txt) > 0 {
+							txt = trimAllSpace(txt)
+						}
 
-							spans = append(spans, txt)
-						})
+						spans = append(spans, txt)
+					})
 
 					// we have a readings table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
@@ -354,28 +355,28 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 	// process final grades
 	doc.Find("div.content > div.flex-table.s.grades-table > div.row.final-grade").
 		Each(func(_ int, row *goquery.Selection) {
-			var descriptions []string
-
 			// first cell is a description ("ZAKLJUČENO")
-			row.Find("div.cell.bold.first > span").
-				Each(func(_ int, column *goquery.Selection) {
-					txt := strings.TrimSpace(column.Text())
-					descriptions = append(descriptions, txt)
-				})
+			descCells := row.Find("div.cell.bold.first > span")
+			descriptions := make([]string, 0, descCells.Length())
 
-			var spans []string
+			descCells.Each(func(_ int, column *goquery.Selection) {
+				txt := strings.TrimSpace(column.Text())
+				descriptions = append(descriptions, txt)
+			})
 
 			// following cells are final grades
-			row.Find("div.cell:not(.bold.first) > span").
-				Each(func(_ int, column *goquery.Selection) {
-					// clean excess whitespace and newlines
-					txt := strings.TrimSpace(column.Text())
+			spanCells := row.Find("div.cell:not(.bold.first) > span")
+			spans := make([]string, 0, spanCells.Length())
 
-					// it can be empty (ie. divisor)
-					if len(txt) > 0 {
-						spans = append(spans, txt)
-					}
-				})
+			spanCells.Each(func(_ int, column *goquery.Selection) {
+				// clean excess whitespace and newlines
+				txt := strings.TrimSpace(column.Text())
+
+				// it can be empty (ie. divisor)
+				if len(txt) > 0 {
+					spans = append(spans, txt)
+				}
+			})
 
 			// send only if we have a final grade
 			if len(spans) > 0 && len(descriptions) > 0 {
@@ -395,6 +396,27 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 // trimAllSpace removes all leading, trailing, and repeated spaces from the input string.
 // It returns a single-space separated string.
 func trimAllSpace(s string) string {
-	// s = strings.ReplaceAll(s, "\n", " ")
-	return strings.Join(strings.Fields(s), " ")
+	var b strings.Builder
+
+	b.Grow(len(s))
+
+	var inSpace bool
+
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			if b.Len() > 0 {
+				inSpace = true
+			}
+		} else {
+			if inSpace {
+				b.WriteByte(' ')
+
+				inSpace = false
+			}
+
+			b.WriteRune(r)
+		}
+	}
+
+	return b.String()
 }

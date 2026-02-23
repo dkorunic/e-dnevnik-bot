@@ -22,7 +22,6 @@
 package sqlitedb
 
 import (
-	"bytes"
 	"errors"
 	"os"
 
@@ -44,20 +43,18 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 		totalLen += len(target[i])
 	}
 
-	var sb bytes.Buffer
-
 	// pre-allocate buffer
-	sb.Grow(totalLen)
+	buf := make([]byte, 0, totalLen)
 
-	sb.WriteString(bucket)
-	sb.WriteString(subBucket)
+	buf = append(buf, bucket...)
+	buf = append(buf, subBucket...)
 
 	for i := range target {
-		sb.WriteString(target[i])
+		buf = append(buf, target[i]...)
 	}
 
 	// calculate SHA-256 using SIMD AVX512 or SHA Extensions where possible
-	targetHash256 := sha256.Sum256(sb.Bytes())
+	targetHash256 := sha256.Sum256(buf)
 
 	return targetHash256[:]
 }
