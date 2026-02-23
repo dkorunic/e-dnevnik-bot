@@ -38,6 +38,7 @@ const (
 // PlainMsg formats grade report as cleartext block in a string.
 func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := strings.Builder{}
+	sb.Grow(len(username) + len(subject) + 256)
 
 	plainAddHeader(&sb, username, subject, code)
 	plainFormatGrades(&sb, descriptions, grade)

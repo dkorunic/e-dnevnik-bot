@@ -59,7 +59,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 
 			// if multiclass, append class name to subject
 			if multiClass {
-				subject = strings.Join([]string{subject, className}, " / ")
+				subject = subject + " / " + className
 			}
 
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
@@ -133,7 +133,7 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 
 		// if multiclass, append class name to subject
 		if multiClass {
-			subject = strings.Join([]string{subject, className}, " / ")
+			subject = subject + " / " + className
 		}
 
 		// send each event through channel
@@ -259,7 +259,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 
 	// if multiclass, append class name to subject
 	if multiClass {
-		subject = strings.Join([]string{subject, className}, " / ")
+		subject = subject + " / " + className
 	}
 
 	// process national-exam-table
@@ -349,7 +349,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 	// final grades need additional subject suffix to have unique content for hash (which in case of multicass=false
 	// was not added yet)
 	if !multiClass {
-		subject = strings.Join([]string{subject, className}, " / ")
+		subject = subject + " / " + className
 	}
 
 	// process final grades

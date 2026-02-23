@@ -250,7 +250,7 @@ func (c *Client) getCourses() (string, error) {
 // The function also handles context cancellation and returns the context's
 // error in such a case.
 func (c *Client) getCourse(dest string) (string, error) {
-	dest = strings.Join([]string{BaseURL, dest}, "")
+	dest = BaseURL + dest
 
 	return c.getGeneric(dest)
 }

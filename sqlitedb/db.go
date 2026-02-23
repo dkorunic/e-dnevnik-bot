@@ -22,6 +22,7 @@
 package sqlitedb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -38,7 +39,7 @@ import (
 const (
 	DefaultDBPath    = ".e-dnevnik.db"
 	DefaultEntryTTL  = time.Hour * 9000 // a bit more than 1 year TTL
-	DefaultDBOptions = "?_pragma=journal_mode(DELETE)&_pragma=synchronous(FULL)&_pragma=busy_timeout(8000)"
+	DefaultDBOptions = "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(8000)"
 )
 
 var (
@@ -63,7 +64,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	// Add .sqlite suffix if not present
 	if !strings.HasSuffix(filePath, ".sqlite") {
-		filePath = strings.Join([]string{filePath, ".sqlite"}, "")
+		filePath += ".sqlite"
 	}
 
 	isExisting := dbExists(filePath)
@@ -71,7 +72,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	logger.Debug().Msgf("Opening database: %v", filePath)
 
 	// Add DB options
-	sqlitePath := strings.Join([]string{"file:", filePath, DefaultDBOptions}, "")
+	sqlitePath := "file:" + filePath + DefaultDBOptions
 
 	// Open database
 	db, err := sql.Open("sqlite", sqlitePath)
@@ -228,6 +229,11 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	newVal, err := f(val)
 	if err != nil {
 		return err
+	}
+
+	// Skip db update if the value has not changed
+	if bytes.Equal(val, newVal) {
+		return tx.Commit()
 	}
 
 	// Store new value with no TTL (expires_at = NULL)

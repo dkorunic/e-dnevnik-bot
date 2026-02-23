@@ -26,7 +26,6 @@ import (
 	"embed"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -145,7 +144,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	// create an all day event
 	newEvent := &calendar.Event{
-		Summary: strings.Join([]string{g.Username, g.Subject}, CalendarExamSep),
+		Summary: g.Username + CalendarExamSep + g.Subject,
 		Start: &calendar.EventDateTime{
 			Date: g.Timestamp.Format(time.DateOnly),
 		},

@@ -23,7 +23,6 @@ package version
 
 import (
 	"runtime/debug"
-	"strings"
 )
 
 // ReadVersion takes a string path as an argument and returns a string in the format "path@version".
@@ -35,7 +34,7 @@ func ReadVersion(path string) string {
 	if ok {
 		for _, d := range i.Deps {
 			if d.Path == path {
-				return strings.Join([]string{path, d.Version}, "@")
+				return path + "@" + d.Version
 			}
 		}
 	}
