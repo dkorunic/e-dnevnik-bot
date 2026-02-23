@@ -47,8 +47,8 @@ import (
 type contextKey string
 
 const (
-	chanBufLen                 = 500             // broadcast channel buffer length
-	exitDelay                  = 5 * time.Second // sleep time before giving up on cancellation
+	chanBufLen                 = 500              // broadcast channel buffer length
+	exitDelay                  = 10 * time.Second // sleep time before giving up on cancellation
 	testUsername               = "korisnik@test.domena"
 	testSubject                = "Ovo je testni predmet"
 	testDescription            = "Testni opis"
