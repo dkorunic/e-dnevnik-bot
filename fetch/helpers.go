@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/andybalholm/cascadia"
 	"github.com/jordic/goics"
 )
 
@@ -48,6 +49,9 @@ var (
 	ErrCSRFToken        = errors.New("could not find CSRF token")
 	ErrNilBody          = errors.New("client body is nil")
 	ErrInvalidLogin     = errors.New("unable to login")
+
+	selCsrfToken  = cascadia.MustCompile(`form > input[name="csrf_token"]`)
+	selLoginAlert = cascadia.MustCompile("#page-wrapper > div.flash-messages > div.alert > p")
 )
 
 // getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
@@ -89,7 +93,7 @@ func (c *Client) getCSRFToken() error {
 	var csrfTokenExists bool
 
 	// csrf_token is hidden in the input form
-	doc.Find(`form > input[name="csrf_token"]`).
+	doc.FindMatcher(selCsrfToken).
 		Each(func(_ int, s *goquery.Selection) {
 			c.csrfToken, csrfTokenExists = s.Attr("value")
 		})
@@ -151,7 +155,7 @@ func (c *Client) doSAMLRequest() error {
 	}
 
 	// check if this is a login error
-	alertSel := doc.FindMatcher(goquery.Single("#page-wrapper > div.flash-messages > div.alert > p"))
+	alertSel := doc.FindMatcher(selLoginAlert)
 	if alertSel.Length() > 0 {
 		return fmt.Errorf("%w: %v", ErrInvalidLogin, alertSel.Text())
 	}
