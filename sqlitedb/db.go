@@ -50,8 +50,10 @@ var (
 
 // Edb holds e-dnevnik structure including sql.DB struct.
 type Edb struct {
-	db         *sql.DB
-	isExisting bool // already created/initialized db
+	db            *sql.DB
+	stmtCheckKey  *sql.Stmt
+	stmtInsertKey *sql.Stmt
+	isExisting    bool // already created/initialized db
 }
 
 // New opens a new database, flagging if the database already preexisting.
@@ -96,6 +98,22 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	}
 
 	edb := &Edb{db: db, isExisting: isExisting}
+
+	// Prepare statements
+	edb.stmtCheckKey, err = db.PrepareContext(ctx, "SELECT expires_at FROM kv WHERE key = ?")
+	if err != nil {
+		_ = db.Close()
+
+		return nil, fmt.Errorf("could not prepare check key statement: %w", err)
+	}
+
+	edb.stmtInsertKey, err = db.PrepareContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)")
+	if err != nil {
+		_ = edb.stmtCheckKey.Close()
+		_ = db.Close()
+
+		return nil, fmt.Errorf("could not prepare insert key statement: %w", err)
+	}
 
 	// Check if old BadgerDB directory exists and convert data
 	edb, err = badgerDB2Sqlite(ctx, origFilePath, edb)
@@ -143,6 +161,14 @@ func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, 
 func (db *Edb) Close() error {
 	logger.Debug().Msg("Closing database")
 
+	if db.stmtCheckKey != nil {
+		_ = db.stmtCheckKey.Close()
+	}
+
+	if db.stmtInsertKey != nil {
+		_ = db.stmtInsertKey.Close()
+	}
+
 	return db.db.Close()
 }
 
@@ -162,7 +188,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	var expiresAt sql.NullInt64
 
 	// Check if key exists
-	err := db.db.QueryRowContext(ctx, "SELECT expires_at FROM kv WHERE key = ?", key).Scan(&expiresAt)
+	err := db.stmtCheckKey.QueryRowContext(ctx, key).Scan(&expiresAt)
 	if err == nil {
 		// Key found
 		// ... Check if expired
@@ -179,7 +205,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	// Key not found or expired. Insert/Update with TTL.
 	expiry := time.Now().Add(DefaultEntryTTL).Unix()
 
-	_, err = db.db.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)", key, []byte(""), expiry)
+	_, err = db.stmtInsertKey.ExecContext(ctx, key, []byte(""), expiry)
 
 	return false, err
 }

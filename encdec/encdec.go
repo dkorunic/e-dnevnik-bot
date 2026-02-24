@@ -32,6 +32,10 @@ import (
 // slice of msgtypes.Message, and returns the decoded slice and any
 // decoding error.
 func DecodeMsgs(val []byte) ([]msgtypes.Message, error) {
+	if len(val) == 0 {
+		return []msgtypes.Message{}, nil
+	}
+
 	buf := bytes.NewBuffer(val)
 	dec := gob.NewDecoder(buf)
 
@@ -47,6 +51,10 @@ func DecodeMsgs(val []byte) ([]msgtypes.Message, error) {
 // the []byte representation of the messages. If there is an error during encoding,
 // the function returns it.
 func EncodeMsgs(msgs []msgtypes.Message) ([]byte, error) {
+	if len(msgs) == 0 {
+		return []byte{}, nil
+	}
+
 	buf := bytes.NewBuffer(nil)
 	enc := gob.NewEncoder(buf)
 

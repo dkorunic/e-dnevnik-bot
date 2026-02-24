@@ -45,6 +45,7 @@ func truncateWithEllipsis(s string, m int) string {
 		if count == m-3 {
 			return s[:i] + "..."
 		}
+
 		count++
 	}
 

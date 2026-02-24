@@ -26,6 +26,7 @@ import (
 	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/andybalholm/cascadia"
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -36,6 +37,26 @@ const (
 	DateDescription  = "Datum ispita" // exam date field description
 	EventSummary     = "Predmet"      // exam summary field description (typically a subject name)
 	EventDescription = "Napomena"     // exam remark field description (typically a target of the exam)
+)
+
+var (
+	selNewGradesTable             = cascadia.MustCompile("div.content > div.flex-table.new-grades-table")
+	selRowHeaderCellSpan          = cascadia.MustCompile("div.row.header div.cell > span")
+	selRowNotHeader               = cascadia.MustCompile("div.row:not(.header)")
+	selCellSpan                   = cascadia.MustCompile("div.cell > span")
+	selStudentListClasses         = cascadia.MustCompile("div.student-list > div.classes")
+	selClassMenuVerticalClassInfo = cascadia.MustCompile("div.class-menu-vertical:not(div.past-schoolyear) > div.class-info")
+	selClassSpanBold              = cascadia.MustCompile("div.class > span.bold")
+	selClassSpanSchoolyear        = cascadia.MustCompile("div.class > span.class-schoolyear")
+	selSchoolSpanSchoolName       = cascadia.MustCompile("div.school > div > span.school-name")
+	selContentUlListLiA           = cascadia.MustCompile("div.content > ul.list > li > a")
+	selCourseInfoSpan             = cascadia.MustCompile("div.course-info > span")
+	selNationalExamTable          = cascadia.MustCompile("div.content > div.flex-table.national-exam-table")
+	selRowHeaderNotFirstCellSpan  = cascadia.MustCompile("div.row.header:not(.first) div.cell > span")
+	selReadingsTable              = cascadia.MustCompile("div.content > div.flex-table.readings-table")
+	selFinalGradeRow              = cascadia.MustCompile("div.content > div.flex-table.s.grades-table > div.row.final-grade")
+	selCellBoldFirstSpan          = cascadia.MustCompile("div.cell.bold.first > span")
+	selCellNotBoldFirstSpan       = cascadia.MustCompile("div.cell:not(.bold.first) > span")
 )
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
@@ -49,7 +70,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 	var parsedGrades int
 
 	// each subject has a div with class "flex-table new-grades-table"
-	doc.Find("div.content > div.flex-table.new-grades-table").
+	doc.FindMatcher(selNewGradesTable).
 		Each(func(_ int, table *goquery.Selection) {
 			// subject name is in data-action-id attribute
 			subject, subjectOK := table.Attr("data-action-id")
@@ -63,7 +84,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 			}
 
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
-			headerCells := table.Find("div.row.header div.cell > span")
+			headerCells := table.FindMatcher(selRowHeaderCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
 			headerCells.Each(func(_ int, column *goquery.Selection) {
@@ -72,9 +93,9 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiCl
 			})
 
 			// grades are in each div with class "row" (header rows excluded) ...
-			table.Find("div.row:not(.header)").
+			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
-					spanCells := row.Find("div.cell > span")
+					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
 					// ... and in each div with class "cell" in a span
@@ -171,10 +192,10 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 	var classes fetch.Classes
 
 	// fetch all active classes
-	doc.Find("div.student-list > div.classes").
+	doc.FindMatcher(selStudentListClasses).
 		Each(func(_ int, row *goquery.Selection) {
 			// div active classes are class-menu-vertical and not past-schoolyear
-			row.Find("div.class-menu-vertical:not(div.past-schoolyear) > div.class-info").
+			row.FindMatcher(selClassMenuVerticalClassInfo).
 				Each(func(_ int, column *goquery.Selection) {
 					var c fetch.Class
 
@@ -187,19 +208,19 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 					}
 
 					// class name
-					column.Find("div.class > span.bold").
+					column.FindMatcher(selClassSpanBold).
 						Each(func(_ int, span *goquery.Selection) {
 							c.Name = strings.TrimSpace(span.Text())
 						})
 
 					// class year
-					column.Find("div.class > span.class-schoolyear").
+					column.FindMatcher(selClassSpanSchoolyear).
 						Each(func(_ int, span *goquery.Selection) {
 							c.Year = strings.TrimSpace(span.Text())
 						})
 
 					// class school
-					column.Find("div.school > div > span.school-name").
+					column.FindMatcher(selSchoolSpanSchoolName).
 						Each(func(_ int, span *goquery.Selection) {
 							c.School = strings.TrimSpace(span.Text())
 						})
@@ -227,7 +248,7 @@ func parseCourses(rawCourses string) (fetch.Courses, error) {
 	var courses fetch.Courses
 
 	// list containing URLs for each course (but don't contain https schema or domain)
-	doc.Find("div.content > ul.list > li > a").
+	doc.FindMatcher(selContentUlListLiA).
 		Each(func(_ int, row *goquery.Selection) {
 			href, hrefOK := row.Attr("href")
 			if !hrefOK {
@@ -235,7 +256,7 @@ func parseCourses(rawCourses string) (fetch.Courses, error) {
 			}
 
 			// and a course name
-			span := row.Find("div.course-info > span")
+			span := row.FindMatcher(selCourseInfoSpan)
 			if span.Length() > 0 {
 				courseName := strings.TrimSpace(span.First().Text())
 
@@ -263,11 +284,11 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 	}
 
 	// process national-exam-table
-	doc.Find("div.content > div.flex-table.national-exam-table").
+	doc.FindMatcher(selNationalExamTable).
 		Each(func(_ int, table *goquery.Selection) {
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			// skip over block header
-			headerCells := table.Find("div.row.header:not(.first) div.cell > span")
+			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
 			headerCells.Each(func(_ int, column *goquery.Selection) {
@@ -275,9 +296,9 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 				descriptions = append(descriptions, txt)
 			})
 
-			table.Find("div.row:not(.header)").
+			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
-					spanCells := row.Find("div.cell > span")
+					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
 					// ... and in each div with class "cell" in a span
@@ -305,11 +326,11 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 		})
 
 	// process readings-table
-	doc.Find("div.content > div.flex-table.readings-table").
+	doc.FindMatcher(selReadingsTable).
 		Each(func(_ int, table *goquery.Selection) {
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			// skip over block header
-			headerCells := table.Find("div.row.header:not(.first) div.cell > span")
+			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
 			headerCells.Each(func(_ int, column *goquery.Selection) {
@@ -317,9 +338,9 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 				descriptions = append(descriptions, txt)
 			})
 
-			table.Find("div.row:not(.header)").
+			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
-					spanCells := row.Find("div.cell > span")
+					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
 					// ... and in each div with class "cell" in a span
@@ -353,10 +374,10 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 	}
 
 	// process final grades
-	doc.Find("div.content > div.flex-table.s.grades-table > div.row.final-grade").
+	doc.FindMatcher(selFinalGradeRow).
 		Each(func(_ int, row *goquery.Selection) {
 			// first cell is a description ("ZAKLJUČENO")
-			descCells := row.Find("div.cell.bold.first > span")
+			descCells := row.FindMatcher(selCellBoldFirstSpan)
 			descriptions := make([]string, 0, descCells.Length())
 
 			descCells.Each(func(_ int, column *goquery.Selection) {
@@ -365,7 +386,7 @@ func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiCl
 			})
 
 			// following cells are final grades
-			spanCells := row.Find("div.cell:not(.bold.first) > span")
+			spanCells := row.FindMatcher(selCellNotBoldFirstSpan)
 			spans := make([]string, 0, spanCells.Length())
 
 			spanCells.Each(func(_ int, column *goquery.Selection) {

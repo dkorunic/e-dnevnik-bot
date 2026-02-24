@@ -45,7 +45,7 @@ import (
 )
 
 const (
-	broadcastBufLen    = 10                     // events to broadcast for sending at once
+	broadcastBufLen    = 100                    // events to broadcast for sending at once
 	spinnerRotateDelay = 100 * time.Millisecond // spinner delay
 	githubOrg          = "dkorunic"
 	githubRepo         = "e-dnevnik-bot"
