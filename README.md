@@ -32,42 +32,42 @@
 
 ## About
 
-e-Dnevnik bot is a self-hosting alerting system which reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) which regularly polls for new information (ie. new grades for all lecture subjects, new scheduled exams, etc).
+e-Dnevnik bot is a self-hosted alerting system that reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) portal and regularly polls for new information (e.g. new grades for all subjects, newly scheduled exams, etc.).
 
-Bot is able to login as multiple AAI/AOSI users from skole.hr and check for new information for all of them either in a single-run or as a service, doing polls in regular intervals (ie. hourly). All new alerts (previously not seen) will be alerted on. This bot is able to send alerts through the following message systems and/or services:
+The bot can log in as multiple AAI/AOSI users from the skole.hr domain and check for new information for all of them, either as a one-shot run or as a long-running service that polls at regular intervals (e.g. hourly). All new, previously unseen events will trigger an alert. The bot can deliver alerts through the following messaging systems and services:
 
 - [Discord](https://discord.com/)
 - [Telegram](https://telegram.org/)
 - [Slack](https://slack.com/)
 - [WhatsApp](https://www.whatsapp.com/)
-- regular e-mail (ie. Gmail SMTP, etc.)
+- Regular e-mail (e.g. Gmail SMTP, etc.)
 - [Google Calendar](https://calendar.google.com/) (exam events only)
 
-Each alert can be broadcasted through multiple services and each of those services can have multiple recipients. All and any authentication information remains on your PC and/or server alone.
+Each alert can be broadcast through multiple services simultaneously, and each service can have multiple recipients. All authentication credentials remain exclusively on your PC or server.
 
-**Important update on May 2023: e-Dnevnik bot will most likely not be able to pull information if it is not being hosted inside Croatia as CARNet has implemented firewall denying access outside HR IP space.** This will cause total lack of connectivity when trying to setup bot to run on various popular VM and VPS providers such as Oracle Cloud, Contabo, AWS, Azure, GitHub Actions etc. We strongly suggest DIY self hosting at home and/or your office.
+**Important note (May 2023): e-Dnevnik bot will not be able to fetch data unless it is hosted inside Croatia, as CARNet has implemented a firewall that blocks access from non-Croatian IP addresses.** This affects all popular cloud VM and VPS providers such as Oracle Cloud, Contabo, AWS, Azure, and GitHub Actions. Self-hosting at home or in a local office is strongly recommended.
 
 ## Privacy policy
 
-Bot uses Google's Application Programming Interface (API) Services to enable adding School Exam events to your Google Calendar.
+The bot uses Google's Application Programming Interface (API) Services to add school exam events to your Google Calendar.
 
-Use of information received from Google APIs will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the [Limited Use requirements](https://support.google.com/cloud/answer/9110914#explain-types&zippy=%2Ccould-you-explain-the-limited-use-requirements-from-the-google-api-services-user-data-policy).
+Use of information received from Google APIs complies with the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the [Limited Use requirements](https://support.google.com/cloud/answer/9110914#explain-types&zippy=%2Ccould-you-explain-the-limited-use-requirements-from-the-google-api-services-user-data-policy).
 
-Your Google information is used by the application to provide or improve user-facing features that are prominent to your user experience. We do not collect or store any of your data, nor we track your usage in any way. All of your authorization data (ie. Google API token) is stored locally with the application and does not leave your premises.
+Your Google information is used solely to provide the user-facing calendar integration feature. No data is collected, stored remotely, or tracked in any way. All authorization data (e.g. the Google API token) is stored locally alongside the application and never leaves your premises.
 
 ## Requirements
 
-Bot needs:
+The bot requires:
 
-- a folder to run from as well as some (very small) amount of disk space for the database: 1 MiB of disk space for ~50 grades,
-- AAI/AOSI logins belonging to skole.hr domain for e-Dnevnik,
-- one or more Discord, Telegram, Slack, WhatsApp, e-mail or Google Calendar accounts/targets.
+- A working directory and a small amount of disk space for the database: approximately 1 MiB for ~50 grades,
+- AAI/AOSI credentials belonging to the skole.hr domain for e-Dnevnik,
+- One or more Discord, Telegram, Slack, WhatsApp, e-mail, or Google Calendar accounts/targets.
 
-Bot will be most likely able to run on any embedded device and on any supported operating system, as it uses ~20-25MB RSS during regular operation as a service.
+The bot runs on virtually any embedded device and any supported operating system, using approximately 20–25 MB of RSS memory during normal service operation.
 
 ## Installation
 
-Just download the binary from the [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) page as well as the [configuration file](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
+Download the binary from the [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) page along with the [example configuration file](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
 
 ### Usage
 
@@ -95,27 +95,27 @@ FLAGS
   -r, --retries UINT           number of retry attempts on error (default: 3)
 ```
 
-Typically bot will run from current working directory and attempt to load [TOML](https://github.com/toml-lang/toml) configuration from `.e-dnevnik.toml` file or the file specified with `-f` flag.
+By default, the bot runs from the current working directory and loads its [TOML](https://github.com/toml-lang/toml) configuration from `.e-dnevnik.toml`, or from the file specified with the `-f` flag.
 
-Other flags are:
+Other flags:
 
-- `-b`: alert database file path used to mark seen alerts (default is `.e-dnevnik.db`); note that the `.sqlite` extension is automatically appended, so the actual file on disk will be `.e-dnevnik.db.sqlite`,
-- `-d`: enable daemon mode aka service mode where bot works continously, waking up on regular intervals (specified with `-i`) and by default this is disabled,
-- `-f`: configuration file path to configure usernames, passwords and various messaging services (in [TOML](https://github.com/toml-lang/toml) format),
-- `-i`: interval between polls when in daemon/service mode (at minimum 1h, default 1h),
-- `-r`: retries between unsuccessful attempts to scrape and/or send alerts (default 3),
+- `-b`: path to the alert database file used to track seen alerts (default: `.e-dnevnik.db`); note that the `.sqlite` extension is appended automatically, so the actual file on disk will be `.e-dnevnik.db.sqlite`,
+- `-d`: enables daemon/service mode, where the bot runs continuously and wakes up at regular intervals (specified with `-i`); disabled by default,
+- `-f`: path to the configuration file containing usernames, passwords, and messaging service settings (in [TOML](https://github.com/toml-lang/toml) format),
+- `-i`: interval between polls in daemon/service mode (minimum 1h, default 1h),
+- `-r`: number of retry attempts on scraping or delivery failures (default: 3),
 - `-t`: sends a test message to all configured messaging services,
-- `-v`: enables verbose/debug messages for more insight into bot operation and by default this is disabled,
+- `-v`: enables verbose/debug logging for detailed insight into bot operation; disabled by default,
 - `-l`: enables colorized console logging with JSON output disabled,
-- `-g`: Google Calendar API token file path to read from and store OAuth2 token to,
-- `-p`: maximum relevance period of events (non-exams) to avoid sending alerts on events being changed retroactively,
-- `--version`: display version of the program,
-- `-j`: enables slight +-10% random jitter for interval between polls,
-- `--readinglist`: enables processing reading list alerts.
+- `-g`: path to the Google Calendar API token file for reading and storing the OAuth2 token,
+- `-p`: maximum relevance period for non-exam events, to avoid sending alerts for retroactively changed entries,
+- `--version`: displays the program version,
+- `-j`: enables a ±10% random jitter on the poll interval,
+- `--readinglist`: enables processing and alerting on reading list events.
 
 ### Configuration
 
-Configuration has several blocks. User configuration can be repeated as many times as needed, while Telegram, Discord, Slack and e-mail configuration blocks can be appear only once, but they can be all enabled and disabled as needed. Targets (User IDs, Chat IDs and To) are defined as arrays and permit as many receivers as needed. Alerts are broadcasted to all of chat services or e-mail service at once.
+The configuration file consists of several blocks. The user block can be repeated as many times as needed. The Telegram, Discord, Slack, and e-mail blocks can each appear only once, but all can be enabled or disabled independently. Recipient lists (user IDs, chat IDs, and `to` addresses) are defined as arrays and support any number of entries. Alerts are broadcast to all enabled messaging services simultaneously.
 
 #### User configuration
 
@@ -125,7 +125,7 @@ username = "ime.prezime@skole.hr"
 password = "lozinka"
 ```
 
-It is possible to specify as many of user blocks as needed and they will all get processed in parallel.
+As many `[[user]]` blocks as needed can be specified; all users are processed in parallel.
 
 #### Telegram configuration
 
@@ -137,8 +137,8 @@ chatids = [ "chat_id", "chat_id2" ]
 
 Steps required:
 
-1. Create a Telegram bot by following the official [Telegram bot HOWTO](https://core.telegram.org/bots#3-how-do-i-create-a-bot), which amounts to messaging BotFather and doing a few simple steps.
-2. When you create a bot, you will need to message it directly from each Telegram account you plan to configure for the bot to message and find Chat IDs, typically by using [https://api.telegram.org/botTOKEN/getUpdates](https://api.telegram.org/botTOKEN/getUpdates) and replacing **TOKEN** with the Bot Token you got from step 1.
+1. Create a Telegram bot by following the official [Telegram bot guide](https://core.telegram.org/bots#3-how-do-i-create-a-bot), which involves messaging BotFather and completing a few simple steps.
+2. After creating the bot, message it from each Telegram account you want to receive notifications. Then retrieve the Chat IDs, typically via [https://api.telegram.org/botTOKEN/getUpdates](https://api.telegram.org/botTOKEN/getUpdates), replacing **TOKEN** with the bot token obtained in step 1.
 
 #### Discord configuration
 
@@ -150,9 +150,9 @@ userids = [ "user_id", "user_id2" ]
 
 Steps required:
 
-1. Create a Discord bot by following the [Discord bot HOWTO](https://discordpy.readthedocs.io/en/stable/discord.html). This step requires both creating a bot and inviting it to your server.
-2. Permissions neded should be set only to **Send Messages** and nothing else,
-3. You can find User IDs by [enabling](https://www.remote.tools/remote-work/how-to-find-discord-id) **Developer Mode** in your Discord client after messaging your bot.
+1. Create a Discord bot by following the [Discord bot guide](https://discordpy.readthedocs.io/en/stable/discord.html). This involves both creating the bot and inviting it to your server.
+2. The only permission needed is **Send Messages**.
+3. User IDs can be found by [enabling](https://www.remote.tools/remote-work/how-to-find-discord-id) **Developer Mode** in your Discord client and then messaging your bot.
 
 #### Slack configuration
 
@@ -164,9 +164,9 @@ chatids = [ "chat_id", "chat_id2" ]
 
 Steps required:
 
-1. Create a Slack bot by following the [official Slack bot HOWTO](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
-2. Permissions that are needed are only **chat:write**.
-3. Chat IDs can be copied from Slack user interface, just click either on a desired username, then View full profile, then **Copy member ID**. Channel ID can be also used instead, when sending a group message.
+1. Create a Slack bot by following the [official Slack bot guide](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
+2. The only OAuth scope required is **chat:write**.
+3. To find a member's Chat ID, click their username in Slack, select **View full profile**, then **Copy member ID**. A channel ID can also be used to send messages to a group channel.
 
 #### Mail/SMTP configuration
 
@@ -183,7 +183,7 @@ to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
 
 Steps required:
 
-1. Gmail SMTP configuration can be set up by following Gmail [Help Center answer](https://support.google.com/a/answer/176600?hl=en). Other SMTP services follow the similar, self-explanatory configuration.
+1. For Gmail, follow the [Gmail Help Center guide](https://support.google.com/a/answer/176600?hl=en) to configure SMTP access. Other SMTP providers follow a similar, self-explanatory setup.
 
 #### WhatsApp configuration
 
@@ -196,10 +196,10 @@ groups = [ "group1", "group2" ]
 
 Steps required:
 
-1. Open WhatsApp mobile application (iOS, Android, etc.)
-2. Phonenumber is required to pair automatically with PIN. If there is no phonenumber configured, then pairing will go through with QR code and that requires interactive run on your desktop. While doing an initial sync, make sure to keep your Android/iOS WhatsApp application open and active for at least 2 minutes.
-3. Userids are either a user JID ("+385XXYYYYYYY@s.whatsapp.net" form) where each number gets direct WA message, or a group chat JID ("XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" form). If you don't know a group chat JID, you can specify groups by their name in groups field, and e-dnevnik-bot will show group chat JID in a debug message. Userids are preferred way due to performance reasons.
-4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, include this file in your persistent volume mount so the pairing survives container restarts.
+1. Open the WhatsApp mobile application (iOS, Android, etc.).
+2. A phone number is required for automatic pairing via PIN. If no phone number is configured, pairing falls back to a QR code, which requires an interactive run on a desktop. During the initial sync, keep your Android/iOS WhatsApp application open and active for at least 2 minutes.
+3. Entries in `userids` are either a personal JID (in the form `+385XXYYYYYYY@s.whatsapp.net`, for direct messages) or a group chat JID (in the form `XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net`). If you do not know a group's JID, you can specify groups by name in the `groups` field; the bot will print the group's JID in a debug message. Using `userids` directly is preferred for performance reasons.
+4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, include this file in your persistent volume mount so that the pairing survives container restarts.
 
 #### Google Calendar configuration
 
@@ -218,7 +218,7 @@ Steps required:
 
 ### Integration with Systemd
 
-To have minimal [systemd](https://systemd.io/) configuration with the service running as user `ubuntu` inside `/home/ubuntu/e-dnevnik` directory, the following file should be saved to `/etc/systemd/system/e-dnevnik.service`:
+For a minimal [systemd](https://systemd.io/) setup running the service as user `ubuntu` inside `/home/ubuntu/e-dnevnik`, save the following file to `/etc/systemd/system/e-dnevnik.service`:
 
 ```
 # /etc/systemd/system/e-dnevnik.service
@@ -241,7 +241,7 @@ Group=ubuntu
 WantedBy=multi-user.target
 ```
 
-Steps to enable would be as usual:
+Then enable the service with the usual commands:
 
 ```shell
 systemctl daemon-reload
@@ -249,11 +249,11 @@ systemctl enable --now e-dnevnik
 systemctl status e-dnevnik
 ```
 
-Note that e-dnevnik-bot supports Systemd [sd_notify](https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html), `Type=notify` and `WatchdogSec=` features from version **0.13.0** onwards, prior versions are only compatible with `Type=simple`.
+Note: e-dnevnik-bot supports the systemd [sd_notify](https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html), `Type=notify`, and `WatchdogSec=` features from version **0.13.0** onwards. Earlier versions are only compatible with `Type=simple`.
 
 ### Running as a Docker container
 
-We have up to date [Docker Hub](https://hub.docker.com/r/dkorunic/e-dnevnik-bot) builds that can be used to run bot as Linux amd64/arm64/arm containers. To set this up, we need a persistent directory named `ednevnik` on host in a local folder containing configuration file `.e-dnevnik-toml`. That same directory will also store persistent alerts database named `.e-dnevnik.db` as well, and we will do a classic volume mount from host to container:
+Up-to-date images for Linux amd64/arm64/arm are available on [Docker Hub](https://hub.docker.com/r/dkorunic/e-dnevnik-bot). To set this up, create a persistent directory named `ednevnik` in your working directory, place the configuration file there, and mount it into the container:
 
 ```shell
 cd some/workdir
@@ -277,11 +277,11 @@ docker run --detach \
 
 ### Running using Docker Compose
 
-In order to use `docker compose` you need to have [Docker Compose installed](https://docs.docker.com/compose/install/).
+To use `docker compose`, first ensure [Docker Compose is installed](https://docs.docker.com/compose/install/).
 
 #### Step 1: Define services in a Compose file
 
-Create a ednevnik file called `docker-compose.yml` in your project directory (ie. `~/docker-compose/ednevnik`):
+Create a `docker-compose.yml` file in your project directory (e.g. `~/docker-compose/ednevnik`):
 
 ```bash
 user@server:~/docker-compose$ mkdir ednevnik
@@ -289,7 +289,7 @@ user@server:~/docker-compose$ cd ednevnik
 user@server:~/docker-compose$ editor docker-compose.yml
 ```
 
-and paste the following to the `docker-compose.yml` file:
+Paste the following into `docker-compose.yml`:
 
 ```yaml
 version: "3"
@@ -310,7 +310,7 @@ services:
 
 #### Step 2: Create persistent directory and download configuration file
 
-In your project directory create a directory called `ednevnik` which will be persistent directory and follow the instructions from [Running as a Docker container](#configuration--konfiguracija) in order to download and configure `.e-dnevnik.toml` configuration file.
+Inside the project directory, create a directory called `ednevnik` for persistent storage, then download and edit the configuration file:
 
 ```bash
 user@server:~/docker-compose/ednevnik$ mkdir ednevnik
@@ -323,15 +323,15 @@ user@server:~/docker-compose/ednevnik$ editor ednevnik/.e-dnevnik.toml
 
 #### Step 3: How to run and stop docker compose
 
-In project directory where `docker-compose.yml` is located run docker compose command as follows:
+From the project directory where `docker-compose.yml` is located, start the service with:
 
 ```bash
 user@server:~/docker-compose/ednevnik$ docker compose up -d
 ```
 
-Option `-d` or `--detach` means detached mode and will run containers in the background
+The `-d` / `--detach` flag runs the containers in the background.
 
-In order to stop docker run following command:
+To stop the service, run:
 
 ```bash
 user@server:~/docker-compose/ednevnik$ docker compose down
@@ -341,7 +341,7 @@ user@server:~/docker-compose/ednevnik$ docker compose down
 
 > **Warning:** CARNet has implemented a firewall that blocks access to e-Dnevnik from non-Croatian IP addresses. GitHub Actions runners use IP addresses outside Croatia, so this integration will **fail to scrape data**. It is kept here for reference only. For reliable operation, self-host the bot on hardware located in Croatia.
 
-This great and simple integration has been created by Luka Kladaric [@allixsenos](https://twitter.com/allixsenos), thanks Luka! Link to his original Gist is [here](https://gist.github.com/allixsenos/f12977de767f32450f435ec2f33b93f0) and a copy is below:
+This integration was originally created by Luka Kladaric [@allixsenos](https://twitter.com/allixsenos) — thanks, Luka! The original Gist is [here](https://gist.github.com/allixsenos/f12977de767f32450f435ec2f33b93f0); a copy is reproduced below:
 
 ```yaml
 name: e-imenik run
@@ -399,7 +399,7 @@ jobs:
           commit_author: GitHub Actions <actions@github.com>
 ```
 
-This Github Actions recipe runs every 6 hours and upon each run will checkout the database, render the configuration file, run the bot and commit the database back, taking care of the persistency.
+This GitHub Actions workflow runs every 6 hours. On each run it checks out the repository (which includes the database), renders the configuration file from secrets, runs the bot, and commits the updated database back to the repository, providing persistence across runs.
 
 ## Star History
 
