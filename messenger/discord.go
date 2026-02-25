@@ -55,6 +55,7 @@ var (
 
 	DiscordQueueName = []byte(DiscordQueue)
 	discordCli       *discordgo.Session
+	discordChannels  map[string]string // cached DM channel IDs per user ID
 	DiscordVersion   = version.ReadVersion("github.com/bwmarrin/discordgo")
 )
 
@@ -147,15 +148,26 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	for _, u := range userIDs {
 		rl.Take()
 
-		// create a new user/private channel if needed
-		c, err := discordCli.UserChannelCreate(u,
-			discordgo.WithContext(ctx),
-			discordgo.WithRetryOnRatelimit(true),
-			discordgo.WithRestRetries(1))
-		if err != nil {
-			logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
+		// resolve DM channel ID, creating only on first use per recipient
+		channelID, ok := discordChannels[u]
 
-			break
+		var err error
+
+		if !ok {
+			var c *discordgo.Channel
+
+			c, err = discordCli.UserChannelCreate(u,
+				discordgo.WithContext(ctx),
+				discordgo.WithRetryOnRatelimit(true),
+				discordgo.WithRestRetries(1))
+			if err != nil {
+				logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
+
+				break
+			}
+
+			channelID = c.ID
+			discordChannels[u] = channelID
 		}
 
 		// retryable and cancellable attempt to send a message
@@ -165,7 +177,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			retry.Delay(DiscordMinDelay),
 		).Do(
 			func() error {
-				_, err := discordCli.ChannelMessageSendEmbed(c.ID,
+				_, err := discordCli.ChannelMessageSendEmbed(channelID,
 					&msg,
 					discordgo.WithContext(ctx),
 					discordgo.WithRetryOnRatelimit(true),
@@ -210,6 +222,8 @@ func discordInit(token string) error {
 		discordCli.ShouldReconnectOnError = true
 		discordCli.ShouldRetryOnRateLimit = true
 		discordCli.MaxRestRetries = 1
+
+		discordChannels = make(map[string]string)
 
 		// create a Discord websocket
 		return discordCli.Open()

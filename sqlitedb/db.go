@@ -187,12 +187,14 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 
 	var expiresAt sql.NullInt64
 
+	now := time.Now()
+
 	// Check if key exists
 	err := db.stmtCheckKey.QueryRowContext(ctx, key).Scan(&expiresAt)
 	if err == nil {
 		// Key found
 		// ... Check if expired
-		if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() { //nolint:revive
+		if expiresAt.Valid && expiresAt.Int64 < now.Unix() { //nolint:revive
 			// Expired, treat as not found (and we will update/overwrite it below)
 		} else {
 			return true, nil
@@ -203,7 +205,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	}
 
 	// Key not found or expired. Insert/Update with TTL.
-	expiry := time.Now().Add(DefaultEntryTTL).Unix()
+	expiry := now.Add(DefaultEntryTTL).Unix()
 
 	_, err = db.stmtInsertKey.ExecContext(ctx, key, []byte(""), expiry)
 
