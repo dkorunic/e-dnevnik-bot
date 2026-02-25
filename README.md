@@ -1,5 +1,3 @@
-# e-dnevnik-bot
-
 [![GitHub license](https://img.shields.io/github/license/dkorunic/e-dnevnik-bot)](https://github.com/dkorunic/e-dnevnik-bot/blob/master/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/dkorunic/e-dnevnik-bot)](https://github.com/dkorunic/e-dnevnik-bot/releases/latest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/dkorunic/e-dnevnik-bot)](https://goreportcard.com/report/github.com/dkorunic/e-dnevnik-bot)
@@ -7,7 +5,7 @@
 
 ![](gopher.png)
 
-## About / Opće informacije
+## About
 
 e-Dnevnik bot is a self-hosting alerting system which reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) which regularly polls for new information (ie. new grades for all lecture subjects, new scheduled exams, etc).
 
@@ -18,26 +16,11 @@ Bot is able to login as multiple AAI/AOSI users from skole.hr and check for new 
 - [Slack](https://slack.com/)
 - [WhatsApp](https://www.whatsapp.com/)
 - regular e-mail (ie. Gmail SMTP, etc.)
+- [Google Calendar](https://calendar.google.com/) (exam events only)
 
 Each alert can be broadcasted through multiple services and each of those services can have multiple recipients. All and any authentication information remains on your PC and/or server alone.
 
 **Important update on May 2023: e-Dnevnik bot will most likely not be able to pull information if it is not being hosted inside Croatia as CARNet has implemented firewall denying access outside HR IP space.** This will cause total lack of connectivity when trying to setup bot to run on various popular VM and VPS providers such as Oracle Cloud, Contabo, AWS, Azure, GitHub Actions etc. We strongly suggest DIY self hosting at home and/or your office.
-
---
-
-e-Dnevnik je bot i obavjesni sustav koji se izvršava u potpunosti kod krajnjeg korisnika, a zamišljen je kao nadogradnja na [CARNet e-Dnevnik](https://ocjene.skole.hr/). Korisnik pri tome više ne mora redovno otvarati e-Dnevnik u potrazi za novim informacijama. Bot može jednokratno ili u redovnim intervalima dohvaćati nove informacije o predmetima (nove ocjene i novi zakazani ispiti).
-
-Bot se može autenticirati kao različiti AAI/AOSI korisnici iz skole.hr domene, te može provjeravati informacije bilo jednokratno, bilo kao servis koji povlači informacije u redovnim intervalima. Bot će poslati sve obavijesti za sve nove događaje koji do sad nisu prikazani, a može ih slati kroz različite sustave slanja poruka:
-
-- [Discord](https://discord.com/)
-- [Telegram](https://telegram.org/)
-- [Slack](https://slack.com/)
-- [WhatsApp](https://www.whatsapp.com/)
-- standardni e-mail (npr. Gmail SMTP)
-
-Svaka ta poruka će se proslijediti kroz jedan ili više servisa i svaki navedeni servis može imati konfiguranog jednog ili više primatelja. Autentikacijski podaci za sve navedeno ostaju isključivo lokalno i ne napuštaju vaše računalo i/ili server.
-
-**Važna napomena, svibanj 2023: e-Dnevnik bot najvjerojatnije neće moći dohvaćati informacije ako je smješten izvan Hrvatske, s obzirom da je CARNet uveo blokiranje pristupa izvan HR IP prostora.** Ovo će uzrokovati prestanak rada bota sa popularnih VM i VPS providera kao što su Oracle Cloud, Contabo, AWS, Azure, GitHub Actions itd. Preporuka je i dalje DIY vlastiti hosting kod kuće i/ili vlastitom uredu.
 
 ## Privacy policy
 
@@ -47,43 +30,21 @@ Use of information received from Google APIs will adhere to the [Google API Serv
 
 Your Google information is used by the application to provide or improve user-facing features that are prominent to your user experience. We do not collect or store any of your data, nor we track your usage in any way. All of your authorization data (ie. Google API token) is stored locally with the application and does not leave your premises.
 
-## Politika privatnosti
-
-Bot koristi Googleove usluge aplikacijskog programskog sučelja (API) kako bi omogućio dodavanje događaja školskih ispita u vaš Google Calendar.
-
-Upotreba informacija dobivenih iz Google API-ja biti će u skladu sa [Pravilima o korisničkim podacima](https://developers.google.com/terms/api-services-user-data-policy), uključujući i [Zahtjeve ograničene upotrebe](https://support.google.com/cloud/answer/9110914#explain-types&zippy=%2Ccould-you-explain-the-limited-use-requirements-from-the-google-api-services-user-data-policy).
-
-Aplikacija koristi vaše Google podatke za pružanje ili poboljšanje korisničkih značajki koje su istankute za vaše korisničko iskustvo. Ne prikupljamo niti pohranjujemo vaše podatke, niti na bilo koji način pratimo vašu upotrebu. Svi vaši podaci (npr. Google API token) se pohranjuju lokalno s aplikacijom i ne napuštaju vaše računalo.
-
-## Requirements / Zahtjevi za rad
+## Requirements
 
 Bot needs:
 
 - a folder to run from as well as some (very small) amount of disk space for the database: 1 MiB of disk space for ~50 grades,
 - AAI/AOSI logins belonging to skole.hr domain for e-Dnevnik,
-- one or more Discord, Telegram, Slack or e-mail messaging accounts.
+- one or more Discord, Telegram, Slack, WhatsApp, e-mail or Google Calendar accounts/targets.
 
 Bot will be most likely able to run on any embedded device and on any supported operating system, as it uses ~20-25MB RSS during regular operation as a service.
 
---
-
-Bot za rad treba:
-
-- direktorij iz kojeg će raditi te koji će sadržavati bazu podataka za poslane poruke, cca 1 MiB prostora za cca 50ak ocjena,
-- AAI/AOSI korisničke podatke iz skole.hr domene za pristup e-Dnevniku,
-- jedan ili više Discord, Telegram, Slack ili e-mail korisničkih računa.
-
-Bot bi trebao moći funkcionirati na bilo kakvom embedded računalu (Raspberry Pi itd.) kao i bilo kakvom podržanom operativnom sustavu, te koristi cca 20-25MB radne memorije tijekom rada.
-
-## Installation / Instalacija
+## Installation
 
 Just download the binary from the [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) page as well as the [configuration file](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
 
---
-
-Za instalaciju dovoljno je skinuti izvršnu datoteku sa [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) stranice te [konfiguracijsku datoteku](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
-
-### Usage / Upute za upotrebu
+### Usage
 
 ```shell
 NAME
@@ -113,7 +74,7 @@ Typically bot will run from current working directory and attempt to load [TOML]
 
 Other flags are:
 
-- `-b`: alert database file path used to mark seen alerts (default is `.e-dnevnik.db`),
+- `-b`: alert database file path used to mark seen alerts (default is `.e-dnevnik.db`); note that the `.sqlite` extension is automatically appended, so the actual file on disk will be `.e-dnevnik.db.sqlite`,
 - `-d`: enable daemon mode aka service mode where bot works continously, waking up on regular intervals (specified with `-i`) and by default this is disabled,
 - `-f`: configuration file path to configure usernames, passwords and various messaging services (in [TOML](https://github.com/toml-lang/toml) format),
 - `-i`: interval between polls when in daemon/service mode (at minimum 1h, default 1h),
@@ -127,31 +88,9 @@ Other flags are:
 - `-j`: enables slight +-10% random jitter for interval between polls,
 - `--readinglist`: enables processing reading list alerts.
 
-Bot se koristi iz tekućeg direktorija u kojem se nalazi i izvršna datoteka i pokušati će učitati datoteku `.e-dnevnik.toml` koja je u [TOML](https://github.com/toml-lang/toml) sintaksi, odnosno učitati će datoteku specificiranu kroz `-f` parametar.
-
-Ostali parametri su:
-
-- `-b`: staza do baze poslanih obavijesti (standardno je to `.e-dnevnik.db` iz tekućeg direktorija),
-- `-d`: omogućuje servisni rad gdje bot radi kontinuirano i budi se u regularnim intervalima (koje odabiremo sa `-i` parametrom) te je ovakav način rada standardno ugašen,
-- `-f`: staza do konfiguracijske datoteke koja sadrži korisnička imena, lozinke i ostalu konfiguraciju za servise slanja poruka odnosno e-maila (u [TOML](https://github.com/toml-lang/toml) sintaksi),
-- `-i`: interval između buđenja bota (minimalno 1h, standardno 1h),
-- `-r`: broj pokušaja kod neuspjeha prilikom dohvata ocjena i/ili slanja poruka odnosno e-mailova,
-- `-t`: služi za slanje testne poruke na sve konfigurirane servise slanja poruka odnosno e-maila,
-- `-v`: omogućuje prikaz više informacija o radu servisa, te je standardno ova opcija ugašena,
-- `-l`: omogućuje prikaz na konzolu sa obojenim porukama i gasi JSON oblik ispisa,
-- `-g`: staza do Google Calendar [API tokena](https://developers.google.com/workspace/guides/auth-overview) gdje se sprema korisnički OAuth2 token,
-- `-p`: maksimalna vrijednost trajanja tijekom kojeg se šalju obavijesti za prošle događaje koje nastavnici retroaktivno editiraju,
-- `--version`: ispis verzije programa,
-- `-j`: omogućuje blagi +-10% random jitter za interval između buđenja bota,
-- `--readinglist`: omogućuje slanje obavijesti za lektiru.
-
-### Configuration / Konfiguracija
+### Configuration
 
 Configuration has several blocks. User configuration can be repeated as many times as needed, while Telegram, Discord, Slack and e-mail configuration blocks can be appear only once, but they can be all enabled and disabled as needed. Targets (User IDs, Chat IDs and To) are defined as arrays and permit as many receivers as needed. Alerts are broadcasted to all of chat services or e-mail service at once.
-
---
-
-Konfiguracija ima nekoliko blokova. Konfiguracija za korisnika se može ponavljati nekoliko puta za različite korisnike iz @skole.hr domene. Konfiguracije za Telegram, Discord, Slack i e-mail se mogu odnosno smiju pojaviti samo jednom ali mogu biti omogućene sve po potrebi. Odredišta (User ID, Chat ID, To) su sva definirana kao vektori i dozvoljavaju unošenje koliko je god potrebno odredišta koliko treba. Sve obavijesti se šalju istovremeno na sve servise odnosno e-mail.
 
 #### User configuration
 
@@ -162,10 +101,6 @@ password = "lozinka"
 ```
 
 It is possible to specify as many of user blocks as needed and they will all get processed in parallel.
-
---
-
-Moguće je definirati koliko je god potrebno korisnika i podaci za sve će se dohvaćati i obrađivati istovremeno.
 
 #### Telegram configuration
 
@@ -179,13 +114,6 @@ Steps required:
 
 1. Create a Telegram bot by following the official [Telegram bot HOWTO](https://core.telegram.org/bots#3-how-do-i-create-a-bot), which amounts to messaging BotFather and doing a few simple steps.
 2. When you create a bot, you will need to message it directly from each Telegram account you plan to configure for the bot to message and find Chat IDs, typically by using [https://api.telegram.org/botTOKEN/getUpdates](https://api.telegram.org/botTOKEN/getUpdates) and replacing **TOKEN** with the Bot Token you got from step 1.
-
---
-
-Potrebni koraci:
-
-1. Stvara se Telegram bot prateći [službene upute](https://core.telegram.org/bots#3-how-do-i-create-a-bot), što se svodi na slanje poruke BotFather korisniku i praćenje dobivenih uputa.
-2. Kada se dovrši prethodni korak i bot je stvoren, treba mu poslati poruku sa svakog Telegram accounta kojeg želimo dodati kao korisnika. Chat ID se zatim može pronaći koristeći [https://api.telegram.org/botTOKEN/getUpdates](https://api.telegram.org/botTOKEN/getUpdates) link u kojem ste zamijenili riječ **TOKEN** sa Bot Token zapisom iz koraka 1.
 
 #### Discord configuration
 
@@ -201,14 +129,6 @@ Steps required:
 2. Permissions neded should be set only to **Send Messages** and nothing else,
 3. You can find User IDs by [enabling](https://www.remote.tools/remote-work/how-to-find-discord-id) **Developer Mode** in your Discord client after messaging your bot.
 
---
-
-Potrebni koraci:
-
-1. Stvara se Discord bot prateći [neslužbene upute](https://discordpy.readthedocs.io/en/stable/discord.html). Ovaj korak podrazumijeva i stvaranje bota i pozivanje njega na vlastiti server.
-2. Potrebne dozvole su isključivo one za slanje poruka odnosno **Send Messages**.
-3. Moguće je pronaci User ID tako da se upali [način razvijanja](https://www.remote.tools/remote-work/how-to-find-discord-id) odnosno **Developer Mode** u Discord klijentu i pogleda u chatu koji se otvori nakon slanja poruke botu.
-
 #### Slack configuration
 
 ```toml
@@ -222,14 +142,6 @@ Steps required:
 1. Create a Slack bot by following the [official Slack bot HOWTO](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
 2. Permissions that are needed are only **chat:write**.
 3. Chat IDs can be copied from Slack user interface, just click either on a desired username, then View full profile, then **Copy member ID**. Channel ID can be also used instead, when sending a group message.
-
---
-
-Potrebni koraci:
-
-1. Stvara se Slack bot prateći [službene upute](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
-2. Potrebne dozvole su isključivo **chat:write**.
-3. Chat ID se može naći iz Slack klijenta, dovoljno je kliknuti na željenog korisnika, zatim View full profile te onda **Copy member ID**. Moguće je koristiti i Channel ID ako Slack bot treba slati grupne poruke.
 
 #### Mail/SMTP configuration
 
@@ -248,12 +160,6 @@ Steps required:
 
 1. Gmail SMTP configuration can be set up by following Gmail [Help Center answer](https://support.google.com/a/answer/176600?hl=en). Other SMTP services follow the similar, self-explanatory configuration.
 
---
-
-Potrebni koraci:
-
-1. Gmail SMTP konfiguraciju je moguće složiti koristeći odgovor sa [Google centra](https://support.google.com/a/answer/176600?hl=en) za pomoć. Svi ostali SMTP servisi se slično konfiguriraju.
-
 #### WhatsApp configuration
 
 ```toml
@@ -268,14 +174,20 @@ Steps required:
 1. Open WhatsApp mobile application (iOS, Android, etc.)
 2. Phonenumber is required to pair automatically with PIN. If there is no phonenumber configured, then pairing will go through with QR code and that requires interactive run on your desktop. While doing an initial sync, make sure to keep your Android/iOS WhatsApp application open and active for at least 2 minutes.
 3. Userids are either a user JID ("+385XXYYYYYYY@s.whatsapp.net" form) where each number gets direct WA message, or a group chat JID ("XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" form). If you don't know a group chat JID, you can specify groups by their name in groups field, and e-dnevnik-bot will show group chat JID in a debug message. Userids are preferred way due to performance reasons.
+4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, include this file in your persistent volume mount so the pairing survives container restarts.
 
---
+#### Google Calendar configuration
 
-Potrebni koraci:
+```toml
+[calendar]
+name = "Djeca ispiti"
+```
 
-1. Potrebno je otvoriti WhatsApp mobilnu aplikaciju (za iOS, Android itd.)
-2. Phonenumber je potreban kad za automatsko povezivanje sa aplikacijom kroz PIN. Ako niste naveli phonenumber, onda je potrebno e-dnevnik-bota prvi put pokrenuti na desktopu i tada cete povezati sa mobilnom aplikacijom kroz QR kod. Za prvo sinkroniziranje morate Android/iOS WhatsApp aplikaciju drzati otvorenom i aktivnom barem 2 minute.
-3. Userids polja su ili korisnicki JID (u obliku "+385XXYYYYYYY@s.whatsapp.net") pa za svaki KID korisnik dobije direktnu poruku ili grupni chat JID (u obliku "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net"). Ako ne znate grupni chat JID, mozete koristiti nazive grupa u groups polju, a e-dnevnik-bot ce pri pokretanju pokazati group chat JID u debug poruci. Userids je generalno bolje koristiti zbog boljih performansi.
+Steps required:
+
+1. Set up the Google Calendar API by following the [Go Quickstart guide](https://developers.google.com/calendar/api/quickstart/go#set_up_your_environment) to create a project, enable the Calendar API, and download `credentials.json` to the working directory.
+2. On the **first run**, the bot must be launched interactively in a terminal — it will open a browser for OAuth2 authorization and store the resulting token in `calendar_token.json` (configurable with `-g`). Subsequent runs use the cached token automatically.
+3. The `name` field specifies the target Google Calendar by name (e.g. a calendar you created called `Djeca ispiti`). Only exam events are added as calendar entries.
 
 ## HOWTO
 
@@ -401,6 +313,8 @@ user@server:~/docker-compose/ednevnik$ docker compose down
 ```
 
 ### Running in Github Actions
+
+> **Warning:** CARNet has implemented a firewall that blocks access to e-Dnevnik from non-Croatian IP addresses. GitHub Actions runners use IP addresses outside Croatia, so this integration will **fail to scrape data**. It is kept here for reference only. For reliable operation, self-host the bot on hardware located in Croatia.
 
 This great and simple integration has been created by Luka Kladaric [@allixsenos](https://twitter.com/allixsenos), thanks Luka! Link to his original Gist is [here](https://gist.github.com/allixsenos/f12977de767f32450f435ec2f33b93f0) and a copy is below:
 
