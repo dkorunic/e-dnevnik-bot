@@ -12,6 +12,10 @@ import (
 	"go.uber.org/ratelimit"
 )
 
+func init() {
+	mailCli = nil // reset global for test isolation
+}
+
 func TestProcessMail(t *testing.T) {
 	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -54,5 +58,6 @@ func TestProcessMail(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	processMail(context.Background(), eDB, msg, host, portInt, "user", "pass", []string{"test@example.com"}, "from@example.com", "subject", rl, 1)
+	_ = mailInit(host, portInt, "user", "pass")
+	processMail(context.Background(), eDB, msg, []string{"test@example.com"}, "from@example.com", "subject", rl, 1)
 }

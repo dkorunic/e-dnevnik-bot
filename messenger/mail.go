@@ -24,6 +24,7 @@ package messenger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -53,6 +54,8 @@ var (
 
 	MailQueueName = []byte(MailQueue)
 	MailVersion   = version.ReadVersion("github.com/wneessen/go-mail")
+
+	mailCli *mail.Client
 )
 
 // Mail sends messages through the mail service to the specified recipients.
@@ -84,6 +87,10 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 		portInt = 587
 	}
 
+	if err = mailInit(server, portInt, username, password); err != nil {
+		return err
+	}
+
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
 	var g msgtypes.Message
@@ -94,7 +101,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processMail(ctx, eDB, g, server, portInt, username, password, to, from, subject, rl, retries)
+			processMail(ctx, eDB, g, to, from, subject, rl, retries)
 		}
 	}
 
@@ -104,7 +111,29 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processMail(ctx, eDB, g, server, portInt, username, password, to, from, subject, rl, retries)
+			processMail(ctx, eDB, g, to, from, subject, rl, retries)
+		}
+	}
+
+	return nil
+}
+
+// mailInit initializes the mail client once, reusing it across all subsequent calls.
+func mailInit(server string, portInt int, username, password string) error {
+	if mailCli == nil {
+		logger.Debug().Msg("Initializing e-mail client")
+
+		var err error
+
+		mailCli, err = mail.NewClient(server,
+			mail.WithPort(portInt),
+			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithTLSPolicy(mail.TLSOpportunistic),
+			mail.WithUsername(username),
+			mail.WithPassword(password),
+		)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrMailDialer, err)
 		}
 	}
 
@@ -131,26 +160,10 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 // alternative parts, establishes a dialer, and sends the message to all recipients.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, server string, portInt int, username string,
-	password string, to []string, from, subject string, rl ratelimit.Limiter, retries uint,
-) {
+func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) {
 	// format message, have both text/plain and text/html alternative
 	plainContent := format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
-
-	// establish dialer
-	d, err := mail.NewClient(server,
-		mail.WithPort(portInt),
-		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithTLSPolicy(mail.TLSOpportunistic),
-		mail.WithUsername(username),
-		mail.WithPassword(password),
-	)
-	if err != nil {
-		logger.Error().Msgf("%v: %v", ErrMailDialer, err)
-
-		return
-	}
 
 	messages := make([]*mail.Msg, 0, len(to))
 
@@ -180,13 +193,13 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ser
 	rl.Take()
 
 	// retryable and cancellable attempt to send a message
-	err = retry.New(
+	err := retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
 		retry.Delay(MailMinDelay),
 	).Do(
 		func() error {
-			return d.DialAndSend(messages...)
+			return mailCli.DialAndSendWithContext(ctx, messages...)
 		},
 	)
 	if err != nil {
@@ -196,7 +209,5 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ser
 		if err := queue.StoreFailedMsgs(ctx, eDB, MailQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
-
-		return
 	}
 }
