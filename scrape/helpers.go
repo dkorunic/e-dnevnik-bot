@@ -22,6 +22,7 @@
 package scrape
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 
@@ -61,8 +62,8 @@ var (
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
-func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiClass bool, className string) error {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawGrades))
+func parseGrades(ch chan<- msgtypes.Message, username string, rawGrades []byte, multiClass bool, className string) error {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawGrades))
 	if err != nil {
 		return err
 	}
@@ -181,8 +182,8 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 
 // parseClasses extracts active classes from raw string (classes scrape response body) and constructs Classes structure
 // with class ID, name, school name and year of enlistment.
-func parseClasses(username, rawClasses string) (fetch.Classes, error) {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawClasses))
+func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawClasses))
 	if err != nil {
 		return fetch.Classes{}, err
 	}
@@ -239,8 +240,8 @@ func parseClasses(username, rawClasses string) (fetch.Classes, error) {
 
 // parseCourses takes a raw HTML string of all courses a user is enrolled in, extracts
 // the course name, teacher name, and URL, and returns a slice of fetch.Course objects.
-func parseCourses(rawCourses string) (fetch.Courses, error) {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawCourses))
+func parseCourses(rawCourses []byte) (fetch.Courses, error) {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawCourses))
 	if err != nil {
 		return fetch.Courses{}, err
 	}
@@ -272,8 +273,8 @@ func parseCourses(rawCourses string) (fetch.Courses, error) {
 
 // parseCourse extracts course information (national exams, readings, final grades) from raw string
 // and sends messages to a message channel, optionally returning an error.
-func parseCourse(ch chan<- msgtypes.Message, username, rawCourse string, multiClass bool, className, subject string) error {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawCourse))
+func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, multiClass bool, className, subject string) error {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawCourse))
 	if err != nil {
 		return err
 	}

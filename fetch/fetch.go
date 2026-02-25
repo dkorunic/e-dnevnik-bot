@@ -73,24 +73,24 @@ func (c *Client) Login() error {
 }
 
 // GetClassEvents attempts to fetch all subjects and their grades, as well as all calendar events for exams in ICS
-// format, returning raw grades listing body, parsed exam events and optional error.
-func (c *Client) GetClassEvents(classID string) (string, Events, error) {
+// format, returning raw grades listing body bytes, parsed exam events and optional error.
+func (c *Client) GetClassEvents(classID string) ([]byte, Events, error) {
 	// do class action to switch active class to class ID
 	err := c.doClassAction(classID)
 	if err != nil {
-		return "", Events{}, err
+		return nil, Events{}, err
 	}
 
-	// fetch all grades as raw string/body
+	// fetch all grades as raw body bytes
 	rawGrades, err := c.getGrades()
 	if err != nil {
-		return "", Events{}, err
+		return nil, Events{}, err
 	}
 
 	// fetch all exam dates from ICS calendar
 	events, err := c.getCalendar()
 	if err != nil {
-		return "", Events{}, err
+		return nil, Events{}, err
 	}
 
 	return rawGrades, events, nil
@@ -98,22 +98,22 @@ func (c *Client) GetClassEvents(classID string) (string, Events, error) {
 
 // GetClasses attempts to fetch all courses where a student has been previously enlisted or still is (multiple
 // active classes possible).
-func (c *Client) GetClasses() (string, error) {
+func (c *Client) GetClasses() ([]byte, error) {
 	// fetch all active classes
 	rawClasses, err := c.getClasses()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	return rawClasses, nil
 }
 
 // GetCourses attempts to fetch all active courses.
-func (c *Client) GetCourses() (string, error) {
+func (c *Client) GetCourses() ([]byte, error) {
 	// fetch all active courses
 	rawCourses, err := c.getCourses()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	return rawCourses, nil
@@ -121,7 +121,7 @@ func (c *Client) GetCourses() (string, error) {
 
 // GetCourse fetches the course with the given destination URL and returns its
 // raw body, or an error.
-func (c *Client) GetCourse(dest string) (string, error) {
+func (c *Client) GetCourse(dest string) ([]byte, error) {
 	return c.getCourse(dest)
 }
 

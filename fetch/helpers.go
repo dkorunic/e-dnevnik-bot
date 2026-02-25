@@ -22,6 +22,7 @@
 package fetch
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -184,16 +185,16 @@ func (c *Client) doSAMLRequest() error {
 // The function also handles context cancellation and returns the context's
 // error in such a case.
 //
-// The function returns the response body as a string, or an error.
-func (c *Client) getGeneric(dest string) (string, error) {
+// The function returns the response body as a byte slice, or an error.
+func (c *Client) getGeneric(dest string) ([]byte, error) {
 	u, err := url.Parse(dest)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req.Header.Set("User-Agent", c.userAgent)
@@ -205,41 +206,41 @@ func (c *Client) getGeneric(dest string) (string, error) {
 	if err != nil {
 		select {
 		case <-c.ctx.Done():
-			return "", c.ctx.Err()
+			return nil, c.ctx.Err()
 		default:
-			return "", err
+			return nil, err
 		}
 	}
 
 	if resp == nil || resp.Body == nil {
-		return "", fmt.Errorf("%w", ErrNilBody)
+		return nil, fmt.Errorf("%w", ErrNilBody)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
-		return "", fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
+		return nil, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return string(body), nil
+	return body, nil
 }
 
-// getGrades fetches all grades from all subjects and returns them as raw body string.
-func (c *Client) getGrades() (string, error) {
+// getGrades fetches all grades from all subjects and returns them as raw body bytes.
+func (c *Client) getGrades() ([]byte, error) {
 	return c.getGeneric(GradeAllURL)
 }
 
-// getClasses fetches all old and new classes and returns them as a raw body string.
-func (c *Client) getClasses() (string, error) {
+// getClasses fetches all old and new classes and returns them as raw body bytes.
+func (c *Client) getClasses() ([]byte, error) {
 	return c.getGeneric(ClassURL)
 }
 
-// getCourses fetches all courses and returns them as a raw body string.
-func (c *Client) getCourses() (string, error) {
+// getCourses fetches all courses and returns them as raw body bytes.
+func (c *Client) getCourses() ([]byte, error) {
 	return c.getGeneric(CourseURL)
 }
 
@@ -253,7 +254,7 @@ func (c *Client) getCourses() (string, error) {
 //
 // The function also handles context cancellation and returns the context's
 // error in such a case.
-func (c *Client) getCourse(dest string) (string, error) {
+func (c *Client) getCourse(dest string) ([]byte, error) {
 	dest = BaseURL + dest
 
 	return c.getGeneric(dest)
@@ -267,7 +268,7 @@ func (c *Client) getCalendar() (Events, error) {
 	}
 
 	// decode ICS events
-	d := goics.NewDecoder(strings.NewReader(body))
+	d := goics.NewDecoder(bytes.NewReader(body))
 	evs := Events{}
 
 	if err = d.Decode(&evs); err != nil {

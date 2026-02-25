@@ -64,7 +64,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
-		var rawClasses string
+		var rawClasses []byte
 
 		// fetch classes (multiple classes possible)
 		err = retry.New(
@@ -104,7 +104,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			logger.Debug().Msgf("Fetching grades and calendar events for user %v, class %v, class ID %v", username,
 				cName, cID)
 
-			var rawGrades string
+			var rawGrades []byte
 
 			var events fetch.Events
 
@@ -136,7 +136,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 				return err
 			}
 
-			var rawCourses string
+			var rawCourses []byte
 
 			// fetch individual courses
 			err = retry.New(
@@ -162,7 +162,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 				return err
 			}
 
-			var rawCourse string
+			var rawCourse []byte
 
 			for _, s := range subjects {
 				// requires additional fetch

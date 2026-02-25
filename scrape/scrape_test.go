@@ -48,7 +48,7 @@ func TestParseGrades(t *testing.T) {
 	</div>`
 
 	ch := make(chan msgtypes.Message, 1)
-	err := parseGrades(ch, "testuser", html, false, "ClassA")
+	err := parseGrades(ch, "testuser", []byte(html), false, "ClassA")
 	if err != nil {
 		t.Fatalf("parseGrades failed: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestParseClasses(t *testing.T) {
 		</div>
 	</div>`
 
-	classes, err := parseClasses("testuser", html)
+	classes, err := parseClasses("testuser", []byte(html))
 	if err != nil {
 		t.Fatalf("parseClasses failed: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestParseCourses(t *testing.T) {
 		</ul>
 	</div>`
 
-	courses, err := parseCourses(html)
+	courses, err := parseCourses([]byte(html))
 	if err != nil {
 		t.Fatalf("parseCourses failed: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestParseCourse(t *testing.T) {
 	</div>`
 
 	ch := make(chan msgtypes.Message, 2)
-	err := parseCourse(ch, "testuser", html, false, "ClassA", "English")
+	err := parseCourse(ch, "testuser", []byte(html), false, "ClassA", "English")
 	if err != nil {
 		t.Fatalf("parseCourse failed: %v", err)
 	}

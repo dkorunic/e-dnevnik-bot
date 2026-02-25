@@ -135,6 +135,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 
 	sb := strings.Builder{}
+	sb.Grow(len(g.Username) + len(g.Subject) + 40)
 	format.PlainFormatSubject(&sb, g.Username, g.Subject, g.Code)
 
 	msg := discordgo.MessageEmbed{
