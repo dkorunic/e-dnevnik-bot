@@ -5,6 +5,31 @@
 
 ![](gopher.png)
 
+## Table of Contents
+
+- [About](#about)
+- [Privacy policy](#privacy-policy)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Usage](#usage)
+  - [Configuration](#configuration)
+    - [User configuration](#user-configuration)
+    - [Telegram configuration](#telegram-configuration)
+    - [Discord configuration](#discord-configuration)
+    - [Slack configuration](#slack-configuration)
+    - [Mail/SMTP configuration](#mailsmtp-configuration)
+    - [WhatsApp configuration](#whatsapp-configuration)
+    - [Google Calendar configuration](#google-calendar-configuration)
+- [HOWTO](#howto)
+  - [Integration with Systemd](#integration-with-systemd)
+  - [Running as a Docker container](#running-as-a-docker-container)
+  - [Running using Docker Compose](#running-using-docker-compose)
+    - [Step 1: Define services in a Compose file](#step-1-define-services-in-a-compose-file)
+    - [Step 2: Create persistent directory and download configuration file](#step-2-create-persistent-directory-and-download-configuration-file)
+    - [Step 3: How to run and stop docker compose](#step-3-how-to-run-and-stop-docker-compose)
+  - [Running in Github Actions](#running-in-github-actions)
+- [Star History](#star-history)
+
 ## About
 
 e-Dnevnik bot is a self-hosting alerting system which reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) which regularly polls for new information (ie. new grades for all lecture subjects, new scheduled exams, etc).
