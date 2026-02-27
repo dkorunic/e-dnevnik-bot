@@ -239,7 +239,12 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 					}
 
 					logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
-					gradesMsg <- g
+
+					select {
+					case gradesMsg <- g:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}

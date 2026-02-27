@@ -50,7 +50,9 @@ func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, g
 //
 //nolint:interfacer
 func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
-	for i := range grade {
+	n := min(len(descriptions), len(grade))
+
+	for i := range n {
 		// grade listing will print scraped corresponding descriptions
 		sb.WriteString(descriptions[i])
 		sb.WriteString(": ")

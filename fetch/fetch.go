@@ -59,9 +59,13 @@ func NewClientWithContext(ctx context.Context, username, password string) (*Clie
 // Login attempts get CSRF Token and do SSO/SAML authentication with random User-Agent per session.
 func (c *Client) Login() error {
 	// generate random User-Agent per fetch dialog
-	ua, _ := fakeua.New()
-	ua.SetFallback(ChromeUA)
-	c.userAgent = ua.Filter().Chrome().Platform(fakeua.Desktop).Get()
+	ua, err := fakeua.New()
+	if err != nil || ua == nil {
+		c.userAgent = ChromeUA
+	} else {
+		ua.SetFallback(ChromeUA)
+		c.userAgent = ua.Filter().Chrome().Platform(fakeua.Desktop).Get()
+	}
 
 	// get secret CSRF Token from /
 	if err := c.getCSRFToken(); err != nil {

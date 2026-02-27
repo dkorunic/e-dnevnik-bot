@@ -203,7 +203,14 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	defer whatsAppCli.Disconnect()
 
 	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep Android/iOS mobile app active and open")
-	<-whatsAppSynced
+
+	select {
+	case <-whatsAppSynced:
+	case <-ctx.Done():
+		logger.Warn().Msg("Context cancelled while waiting for WhatsApp sync")
+
+		return
+	}
 
 	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 

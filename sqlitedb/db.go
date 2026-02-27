@@ -245,9 +245,12 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	}
 
 	// If expired, treat as not found
+	wasExpired := false
+
 	if err == nil {
 		if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() {
-			val = nil // Treat as not found/empty
+			val = nil         // Treat as not found/empty
+			wasExpired = true // Must always write to refresh the expired entry
 		}
 	} else {
 		val = nil // Not found
@@ -259,8 +262,9 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 		return err
 	}
 
-	// Skip db update if the value has not changed
-	if bytes.Equal(val, newVal) {
+	// Skip db update if the value has not changed, but always write when the
+	// row was expired so the entry is refreshed with a new expiry.
+	if !wasExpired && bytes.Equal(val, newVal) {
 		return tx.Commit()
 	}
 
