@@ -42,6 +42,6 @@ type Message struct {
 	Subject        string    // subject
 	Descriptions   []string  // descriptions for fields
 	Fields         []string  // fields with actual grades/exams and remarks
-	Code           EventCode // type of event (grade, exam, reading or final grade)
 	SkipRecipients []string  // recipients already notified; skip on retry to prevent duplicates
+	Code           EventCode // type of event (grade, exam, reading or final grade)
 }

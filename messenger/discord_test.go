@@ -89,7 +89,6 @@ func TestProcessDiscord(t *testing.T) {
 // recipients (Fix 3: break → continue).
 // NOTE: must not call t.Parallel() — discordCli and discordChannels are package-level globals.
 func TestProcessDiscordContinuesAfterChannelCreateFailure(t *testing.T) {
-
 	sentTo := make(map[string]bool)
 
 	var mu sync.Mutex
@@ -166,7 +165,6 @@ func TestProcessDiscordContinuesAfterChannelCreateFailure(t *testing.T) {
 // duplicate when the queued message is retried (Fix 4: SkipRecipients).
 // NOTE: must not call t.Parallel() — discordCli and discordChannels are package-level globals.
 func TestProcessDiscordSkipsAlreadyDeliveredRecipientsOnRetry(t *testing.T) {
-
 	sentTo := make(map[string]int)
 
 	var mu sync.Mutex
