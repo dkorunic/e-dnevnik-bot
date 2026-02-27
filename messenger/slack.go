@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -129,8 +130,17 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	// format message as Markup
 	m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
+	var successfulIDs []string
+
+	anyFailed := false
+
 	// send to all recipients: channels and nicknames are permitted
 	for _, u := range chatIDs {
+		// Skip recipients that already received this message on a previous attempt.
+		if slices.Contains(g.SkipRecipients, u) {
+			continue
+		}
+
 		rl.Take()
 
 		// retryable and cancellable attempt to send a message
@@ -152,12 +162,20 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
-			// store failed message
-			if err := queue.StoreFailedMsgs(ctx, eDB, SlackQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-			}
+			anyFailed = true
 
 			continue
+		}
+
+		successfulIDs = append(successfulIDs, u)
+	}
+
+	if anyFailed {
+		// Record who succeeded so they are skipped on the next retry.
+		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+
+		if err := queue.StoreFailedMsgs(ctx, eDB, SlackQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 	}
 }

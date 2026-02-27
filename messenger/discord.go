@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -146,8 +147,17 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		Fields: fields,
 	}
 
+	var successfulIDs []string
+
+	anyFailed := false
+
 	// send to all recipients
 	for _, u := range userIDs {
+		// Skip recipients that already received this message on a previous attempt.
+		if slices.Contains(g.SkipRecipients, u) {
+			continue
+		}
+
 		rl.Take()
 
 		// resolve DM channel ID, creating only on first use per recipient
@@ -165,7 +175,9 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			if err != nil {
 				logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
 
-				break
+				anyFailed = true
+
+				continue
 			}
 
 			channelID = c.ID
@@ -191,12 +203,20 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
-			// store failed message
-			if err := queue.StoreFailedMsgs(ctx, eDB, DiscordQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-			}
+			anyFailed = true
 
 			continue
+		}
+
+		successfulIDs = append(successfulIDs, u)
+	}
+
+	if anyFailed {
+		// Record who succeeded so they are skipped on the next retry.
+		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+
+		if err := queue.StoreFailedMsgs(ctx, eDB, DiscordQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 	}
 }

@@ -37,10 +37,11 @@ const (
 
 // Message structure holds alert subject and description as well as grades fields, as well as corresponding username.
 type Message struct {
-	Timestamp    time.Time // event timestamp
-	Username     string    // username (SSO/SAML)
-	Subject      string    // subject
-	Descriptions []string  // descriptions for fields
-	Fields       []string  // fields with actual grades/exams and remarks
-	Code         EventCode // type of event (grade, exam, reading or final grade)
+	Timestamp      time.Time // event timestamp
+	Username       string    // username (SSO/SAML)
+	Subject        string    // subject
+	Descriptions   []string  // descriptions for fields
+	Fields         []string  // fields with actual grades/exams and remarks
+	Code           EventCode // type of event (grade, exam, reading or final grade)
+	SkipRecipients []string  // recipients already notified; skip on retry to prevent duplicates
 }

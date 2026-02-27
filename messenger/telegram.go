@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -132,8 +133,17 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	// format message as HTML
 	m := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
+	var successfulIDs []string
+
+	anyFailed := false
+
 	// send to all recipients
 	for _, u := range chatIDs {
+		// Skip recipients that already received this message on a previous attempt.
+		if slices.Contains(g.SkipRecipients, u) {
+			continue
+		}
+
 		uu, err := strconv.ParseInt(u, 10, 64)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrTelegramInvalidChatID, err)
@@ -164,12 +174,20 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
-			// store failed message
-			if err := queue.StoreFailedMsgs(ctx, eDB, TelegramQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-			}
+			anyFailed = true
 
 			continue
+		}
+
+		successfulIDs = append(successfulIDs, u)
+	}
+
+	if anyFailed {
+		// Record who succeeded so they are skipped on the next retry.
+		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+
+		if err := queue.StoreFailedMsgs(ctx, eDB, TelegramQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 	}
 }

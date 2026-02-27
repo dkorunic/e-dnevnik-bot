@@ -190,8 +190,17 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	mRaw := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields) //nolint:staticcheck
 	m := waE2E.Message{Conversation: new(mRaw)}
 
+	var successfulIDs []string
+
+	anyFailed := false
+
 	// send to all recipients: channels and nicknames are permitted
 	for _, u := range userIDs {
+		// Skip recipients that already received this message on a previous attempt.
+		if slices.Contains(g.SkipRecipients, u) {
+			continue
+		}
+
 		rl.Take()
 
 		target, err := types.ParseJID(u)
@@ -216,12 +225,20 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
 
-			// store failed message
-			if err := queue.StoreFailedMsgs(ctx, eDB, WhatsAppQueueName, g); err != nil {
-				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-			}
+			anyFailed = true
 
 			continue
+		}
+
+		successfulIDs = append(successfulIDs, u)
+	}
+
+	if anyFailed {
+		// Record who succeeded so they are skipped on the next retry.
+		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+
+		if err := queue.StoreFailedMsgs(ctx, eDB, WhatsAppQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
 	}
 }
@@ -248,6 +265,20 @@ func whatsAppInit(ctx context.Context) error {
 	return nil
 }
 
+// filterGroupsByName returns the JID strings of joined groups whose Name is
+// present in the groups slice. Uses linear search so no sort order is required.
+func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
+	var jids []string
+
+	for _, x := range joined {
+		if slices.Contains(groups, x.Name) {
+			jids = append(jids, x.JID.String())
+		}
+	}
+
+	return jids
+}
+
 // whatsAppProcessGroups takes a list of group names and user IDs, retrieves the joined WhatsApp groups,
 // and appends the JIDs of any matching groups to the user IDs slice. If an error occurs while fetching
 // the groups, it logs the error. The function returns the updated list of user IDs which now includes
@@ -261,14 +292,11 @@ func whatsAppProcessGroups(ctx context.Context, userIDs, groups []string) []stri
 			return userIDs
 		}
 
-		for _, x := range g {
-			// have a matching group name, add group JID to userIDs
-			if _, found := slices.BinarySearch(groups, x.Name); found {
-				userIDs = append(userIDs, x.JID.String())
+		for _, jid := range filterGroupsByName(groups, g) {
+			userIDs = append(userIDs, jid)
 
-				// debugging for users to help directly write JID to config userIDs
-				logger.Debug().Msgf("Found WhatsApp group by name %v and mapped to ID %v", x.Name, x.JID.String())
-			}
+			// debugging for users to help directly write JID to config userIDs
+			logger.Debug().Msgf("Found WhatsApp group and mapped to ID %v", jid)
 		}
 	}
 
@@ -325,6 +353,8 @@ func whatsAppLogin(ctx context.Context) error {
 	err = whatsAppCli.Connect()
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrWhatsAppFailConnect, err)
+
+		return err
 	}
 
 	return nil

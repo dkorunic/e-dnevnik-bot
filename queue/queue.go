@@ -26,6 +26,7 @@ import (
 	"errors"
 
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
@@ -42,7 +43,11 @@ var ErrQueueing = errors.New("problem with persistent queue")
 // If any of the operations fail, the function returns an error.
 func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
 	return eDB.FetchAndStore(ctx, key, func(old []byte) ([]byte, error) {
-		msgs, _ := encdec.DecodeMsgs(old)
+		msgs, err := encdec.DecodeMsgs(old)
+		if err != nil {
+			logger.Warn().Msgf("Failed to decode queue %q, starting fresh: %v", string(key), err)
+		}
+
 		msgs = append(msgs, g)
 
 		return encdec.EncodeMsgs(msgs)
