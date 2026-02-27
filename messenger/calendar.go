@@ -142,6 +142,10 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		return
 	}
 
+	if len(g.Fields) == 0 {
+		return
+	}
+
 	// create an all day event
 	newEvent := &calendar.Event{
 		Summary: g.Username + CalendarExamSep + g.Subject,

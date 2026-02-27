@@ -36,6 +36,7 @@ import (
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/dkorunic/e-dnevnik-bot/config"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dustin/go-humanize"
 	"github.com/hako/durafmt"
@@ -43,20 +44,16 @@ import (
 	sysdwatchdog "github.com/iguanesolutions/go-systemd/v6/notify/watchdog"
 )
 
-// contextKey is a string alias used for context keys to avoid collisions.
-type contextKey string
-
 const (
-	chanBufLen                 = 500              // broadcast channel buffer length
-	exitDelay                  = 10 * time.Second // sleep time before giving up on cancellation
-	testUsername               = "korisnik@test.domena"
-	testSubject                = "Ovo je testni predmet"
-	testDescription            = "Testni opis"
-	testField                  = "Testna vrijednost"
-	maxMemRatio                = 0.9
-	scheduledActive            = "Scheduled run in progress"
-	scheduledSleep             = "Scheduled run completed, will sleep now"
-	confFileKey     contextKey = "confFile"
+	chanBufLen      = 500              // broadcast channel buffer length
+	exitDelay       = 10 * time.Second // sleep time before giving up on cancellation
+	testUsername    = "korisnik@test.domena"
+	testSubject     = "Ovo je testni predmet"
+	testDescription = "Testni opis"
+	testField       = "Testna vrijednost"
+	maxMemRatio     = 0.9
+	scheduledActive = "Scheduled run in progress"
+	scheduledSleep  = "Scheduled run completed, will sleep now"
 )
 
 var (
@@ -128,7 +125,7 @@ func main() {
 	}
 
 	// add config file to context
-	ctx = context.WithValue(ctx, confFileKey, *confFile)
+	ctx = context.WithValue(ctx, messenger.ConfFileKey, *confFile)
 
 	// enable CPU profiling dump on exit
 	if *cpuProfile != "" {
@@ -260,13 +257,13 @@ func main() {
 			wgMsg.Wait()
 			wgVersion.Wait()
 
+			closeDB(eDB)
+
 			if !*daemon {
 				fatalIfErrors()
 
 				return
 			}
-
-			closeDB(eDB)
 
 			logger.Info().Msg(scheduledSleep)
 

@@ -78,7 +78,9 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 		return fmt.Errorf("%w", ErrSlackEmptyUserIDs)
 	}
 
-	slackInit(ctx, token)
+	if err := slackInit(ctx, token); err != nil {
+		return err
+	}
 
 	logger.Debug().Msgf("Started Slack messenger (%v)", SlackVersion)
 
@@ -166,7 +168,7 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 // If the Slack client is not already initialized, the function creates a new
 // Slack client with socket mode enabled. If the client has already been
 // initialized, the function does nothing.
-func slackInit(ctx context.Context, token string) {
+func slackInit(ctx context.Context, token string) error {
 	if slackCli == nil {
 		logger.Debug().Msg("Initializing Slack client")
 
@@ -179,8 +181,14 @@ func slackInit(ctx context.Context, token string) {
 		smHandler := socketmode.NewSocketmodeHandler(slackCli)
 		smHandler.HandleDefault(slackEventHandler)
 
-		_ = smHandler.RunEventLoopContext(ctx)
+		go func() {
+			if err := smHandler.RunEventLoopContext(ctx); err != nil {
+				logger.Error().Msgf("Slack event loop error: %v", err)
+			}
+		}()
 	}
+
+	return nil
 }
 
 // slackEventHandler handles various Slack socketmode events and logs errors

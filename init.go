@@ -53,7 +53,7 @@ const (
 
 var (
 	whatsAppCli    *whatsmeow.Client
-	whatsAppSynced = make(chan struct{})
+	whatsAppSynced = make(chan struct{}, 1)
 )
 
 // init initializes the GitTag, GitCommit, GitDirty, and BuildTime variables.

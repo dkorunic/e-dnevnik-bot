@@ -49,8 +49,8 @@ import (
 	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
-// contextKey is a string alias used for context keys to avoid collisions.
-type contextKey string
+// ContextKey is a string alias used for context keys to avoid collisions.
+type ContextKey string
 
 const (
 	WhatsAppDBName                  = ".e-dnevnik.wa.sqlite"
@@ -61,7 +61,7 @@ const (
 	WhatsAppWindow                  = 1 * time.Minute
 	WhatsAppMinDelay                = WhatsAppWindow / WhatsAppAPILimit
 	WhatsAppQueue                   = "whatsapp-queue"
-	confFileKey          contextKey = "confFile"
+	ConfFileKey          ContextKey = "confFile"
 )
 
 var (
@@ -125,7 +125,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	// rewrite config if groups are specified and userIDs have changed
 	//nolint:nestif
 	if len(groups) > 0 && len(userIDs) > userIDSize {
-		if confFile, ok := ctx.Value(confFileKey).(string); ok {
+		if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
 			if isWriteable(confFile) {
 				logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
 

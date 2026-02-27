@@ -223,8 +223,8 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 						if err != nil {
 							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
 						} else {
-							// assume current or previous year
-							if t.Month() > now.Month() {
+							// assume current or previous year; if month is the same, use day to disambiguate
+							if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
 								t = t.AddDate(now.Year()-1, 0, 0)
 							} else {
 								t = t.AddDate(now.Year(), 0, 0)
