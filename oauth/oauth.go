@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -136,6 +137,8 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	tokChan := make(chan string, 1)
 
+	var once sync.Once
+
 	// redirect uri listener for auth callback
 	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
 	authURL := AuthScheme + authListenHost
@@ -190,13 +193,15 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 				logger.Error().Msgf("template execution failed: %v", err)
 			}
 
-			close(tokChan)
+			once.Do(func() { close(tokChan) })
 
 			return
 		}
 
-		tokChan <- req.URL.Query().Get("code")
-		close(tokChan)
+		once.Do(func() {
+			tokChan <- req.URL.Query().Get("code")
+			close(tokChan)
+		})
 
 		if err := t.ExecuteTemplate(w, "success.html", map[string]any{}); err != nil {
 			logger.Error().Msgf("template execution failed: %v", err)
