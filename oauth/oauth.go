@@ -89,7 +89,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 	//nolint:nestif
 	if err == nil {
 		// we have a token, but it has expired so attempt to refresh it
-		if tok.Expiry.Before(time.Now()) {
+		if !tok.Valid() {
 			src := config.TokenSource(ctx, tok)
 
 			// refresh token
