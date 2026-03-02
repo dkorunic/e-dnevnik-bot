@@ -13,8 +13,8 @@ import (
 	"go.uber.org/ratelimit"
 )
 
+// TestProcessTelegram must not run in parallel — it writes the package-level telegramCli global.
 func TestProcessTelegram(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -56,8 +56,8 @@ func TestProcessTelegram(t *testing.T) {
 	processTelegram(context.Background(), eDB, msg, []string{"12345"}, rl, 1)
 }
 
+// TestTelegramInit must not run in parallel — telegramInit() writes the package-level telegramCli global.
 func TestTelegramInit(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

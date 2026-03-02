@@ -14,8 +14,8 @@ import (
 	"go.uber.org/ratelimit"
 )
 
+// TestProcessSlack must not run in parallel — it writes the package-level slackCli global.
 func TestProcessSlack(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -56,4 +56,24 @@ func TestSlackEventHandler(t *testing.T) {
 		Data: "test error",
 	}
 	slackEventHandler(evt, nil)
+}
+
+func TestSlackEventHandlerAllTypes(t *testing.T) {
+	t.Parallel()
+	// Verify all handled event types complete without panic.
+	eventTypes := []socketmode.EventType{
+		socketmode.EventTypeConnectionError,
+		socketmode.EventTypeInvalidAuth,
+		socketmode.EventTypeDisconnect,
+		socketmode.EventTypeErrorWriteFailed,
+		socketmode.EventType("unknown-event-type"), // default branch
+	}
+
+	for _, et := range eventTypes {
+		t.Run(string(et), func(t *testing.T) {
+			t.Parallel()
+			evt := &socketmode.Event{Type: et, Data: "test"}
+			slackEventHandler(evt, nil)
+		})
+	}
 }

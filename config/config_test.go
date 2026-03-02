@@ -23,6 +23,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,47 @@ func TestLoadConfig(t *testing.T) {
 	_, err = LoadConfig(tmpfile.Name())
 	if err == nil {
 		t.Fatal("LoadConfig() with invalid config should have failed")
+	}
+}
+
+func TestSaveConfig(t *testing.T) {
+	t.Parallel()
+	config := TomlConfig{
+		User: []User{
+			{Username: "test@skole.hr", Password: "password"},
+		},
+		Calendar: Calendar{Name: "TestCalendar"},
+	}
+
+	tmpfile, err := os.CreateTemp("", "test-save-config-*.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpfile.Close()
+	defer os.Remove(tmpfile.Name())
+
+	if err := SaveConfig(tmpfile.Name(), config); err != nil {
+		t.Fatalf("SaveConfig() failed: %v", err)
+	}
+
+	data, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("ReadFile() failed: %v", err)
+	}
+
+	if len(data) == 0 {
+		t.Error("SaveConfig() wrote empty file")
+	}
+
+	// Verify key fields are present in the output.
+	content := string(data)
+	if !strings.Contains(content, "TestCalendar") {
+		t.Error("SaveConfig() did not write calendar name")
+	}
+
+	if !strings.Contains(content, "test@skole.hr") {
+		t.Error("SaveConfig() did not write username")
 	}
 }
 
@@ -139,5 +181,35 @@ func TestValidators(t *testing.T) {
 	}
 	if isValidWhatsAppJID("invalid-jid") {
 		t.Error("isValidWhatsAppJID() passed with an invalid JID")
+	}
+
+	// isValidWhatsAppJID with group JID
+	if !isValidWhatsAppJID("111111111111111111@g.us") {
+		t.Error("isValidWhatsAppJID() failed with a valid group JID")
+	}
+
+	// isValidTelegramChatID boundary: minimum length (5 digits)
+	if !isValidTelegramChatID("12345") {
+		t.Error("isValidTelegramChatID() failed with minimum valid chat ID")
+	}
+
+	// isValidTelegramChatID with positive ID (no leading minus)
+	if !isValidTelegramChatID("123456789") {
+		t.Error("isValidTelegramChatID() failed with positive chat ID")
+	}
+
+	// isValidSlackChatID with thread timestamp format
+	if !isValidSlackChatID("1234567890.123456") {
+		t.Error("isValidSlackChatID() failed with thread timestamp chat ID")
+	}
+
+	// isValidMail with display name format
+	if !isValidMail("Test User <test@example.com>") {
+		t.Error("isValidMail() failed with display name format")
+	}
+
+	// isValidID with zero
+	if !isValidID("0") {
+		t.Error("isValidID() failed with zero")
 	}
 }

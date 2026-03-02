@@ -17,8 +17,8 @@ import (
 	_ "modernc.org/sqlite" // register pure-Go sqlite database/sql driver
 )
 
+// TestProcessWhatsApp must not run in parallel — it writes the package-level whatsAppCli global.
 func TestProcessWhatsApp(t *testing.T) {
-	t.Parallel()
 	// This is difficult to unit test without a live connection.
 	// We will just call the function to ensure it doesn't panic.
 	whatsAppCli = &whatsmeow.Client{}
@@ -126,8 +126,29 @@ func TestFilterGroupsByNameWorksOnUnsortedInput(t *testing.T) {
 	}
 }
 
-func TestWhatsAppEventHandler(t *testing.T) {
+func TestIsWriteable(t *testing.T) {
 	t.Parallel()
+	// Non-existent path should return false.
+	if isWriteable("/non/existent/path/to/file.txt") {
+		t.Error("isWriteable() returned true for non-existent path")
+	}
+
+	// Existing writable file should return true.
+	tmpfile, err := os.CreateTemp("", "test-writeable-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpfile.Close()
+	defer os.Remove(tmpfile.Name())
+
+	if !isWriteable(tmpfile.Name()) {
+		t.Error("isWriteable() returned false for a writable file")
+	}
+}
+
+// TestWhatsAppEventHandler must not run in parallel — it writes the package-level whatsAppCli global.
+func TestWhatsAppEventHandler(t *testing.T) {
 	container, err := sqlstore.New(context.Background(), "sqlite", "file::memory:?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000", nil)
 	if err != nil {
 		t.Fatalf("failed to create sqlstore: %v", err)

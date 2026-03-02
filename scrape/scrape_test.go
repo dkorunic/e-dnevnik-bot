@@ -239,6 +239,178 @@ func TestParseCourse(t *testing.T) {
 	}
 }
 
+func TestParseGradesMultiClass(t *testing.T) {
+	t.Parallel()
+	html := `
+	<div class="content">
+		<div class="flex-table new-grades-table" data-action-id="Physics">
+			<div class="row header">
+				<div class="cell"><span>Date</span></div>
+				<div class="cell"><span>Grade</span></div>
+			</div>
+			<div class="row">
+				<div class="cell"><span>15.03.2025.</span></div>
+				<div class="cell"><span>4</span></div>
+			</div>
+		</div>
+	</div>`
+
+	ch := make(chan msgtypes.Message, 1)
+
+	err := parseGrades(ch, "testuser", []byte(html), true, "ClassB")
+	if err != nil {
+		t.Fatalf("parseGrades failed: %v", err)
+	}
+
+	close(ch)
+
+	msg := <-ch
+	expectedSubject := "Physics / ClassB"
+
+	if msg.Subject != expectedSubject {
+		t.Errorf("expected subject %q, got %q", expectedSubject, msg.Subject)
+	}
+}
+
+func TestParseEventsEmpty(t *testing.T) {
+	t.Parallel()
+	ch := make(chan msgtypes.Message, 1)
+
+	err := parseEvents(ch, "testuser", fetch.Events{}, false, "ClassA")
+	if err != nil {
+		t.Fatalf("parseEvents failed: %v", err)
+	}
+
+	close(ch)
+
+	if len(ch) != 0 {
+		t.Error("parseEvents() with empty events should send nothing to channel")
+	}
+}
+
+func TestParseEventsMultiClass(t *testing.T) {
+	t.Parallel()
+	events := fetch.Events{
+		{
+			Summary:     "Math: Test",
+			Description: "Algebra",
+			Start:       time.Date(2025, 6, 10, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	ch := make(chan msgtypes.Message, 1)
+
+	err := parseEvents(ch, "testuser", events, true, "ClassC")
+	if err != nil {
+		t.Fatalf("parseEvents failed: %v", err)
+	}
+
+	close(ch)
+
+	msg := <-ch
+	expectedSubject := "Test / ClassC"
+
+	if msg.Subject != expectedSubject {
+		t.Errorf("expected subject %q, got %q", expectedSubject, msg.Subject)
+	}
+}
+
+func TestParseCourseNationalExam(t *testing.T) {
+	t.Parallel()
+	html := `
+	<div class="content">
+		<div class="flex-table national-exam-table">
+			<div class="row header first">
+				<div class="cell"><span>Block</span></div>
+			</div>
+			<div class="row header">
+				<div class="cell"><span>Subject</span></div>
+				<div class="cell"><span>Score</span></div>
+			</div>
+			<div class="row">
+				<div class="cell"><span>Mathematics</span></div>
+				<div class="cell"><span>85</span></div>
+			</div>
+		</div>
+	</div>`
+
+	ch := make(chan msgtypes.Message, 2)
+
+	err := parseCourse(ch, "testuser", []byte(html), false, "ClassA", "Maths")
+	if err != nil {
+		t.Fatalf("parseCourse failed: %v", err)
+	}
+
+	close(ch)
+
+	var msgs []msgtypes.Message
+	for msg := range ch {
+		msgs = append(msgs, msg)
+	}
+
+	if len(msgs) == 0 {
+		t.Fatal("parseCourse() should have returned at least 1 national exam message")
+	}
+
+	if msgs[0].Code != msgtypes.NationalExam {
+		t.Errorf("expected NationalExam code, got %v", msgs[0].Code)
+	}
+}
+
+func TestParseCourseMultiClass(t *testing.T) {
+	t.Parallel()
+	html := `
+	<div class="content">
+		<div class="flex-table readings-table">
+			<div class="row header">
+				<div class="cell"><span>Author</span></div>
+				<div class="cell"><span>Title</span></div>
+			</div>
+			<div class="row">
+				<div class="cell"><span>Author Name</span></div>
+				<div class="cell"><span>Book Title</span></div>
+			</div>
+		</div>
+	</div>`
+
+	ch := make(chan msgtypes.Message, 2)
+
+	err := parseCourse(ch, "testuser", []byte(html), true, "ClassD", "Literature")
+	if err != nil {
+		t.Fatalf("parseCourse failed: %v", err)
+	}
+
+	close(ch)
+
+	var msgs []msgtypes.Message
+	for msg := range ch {
+		msgs = append(msgs, msg)
+	}
+
+	if len(msgs) == 0 {
+		t.Fatal("parseCourse() should return at least 1 reading message")
+	}
+
+	expectedSubject := "Literature / ClassD"
+	if msgs[0].Subject != expectedSubject {
+		t.Errorf("expected subject %q, got %q", expectedSubject, msgs[0].Subject)
+	}
+}
+
+func TestParseClassesEmpty(t *testing.T) {
+	t.Parallel()
+	html := `<div class="student-list"><div class="classes"></div></div>`
+
+	classes, err := parseClasses("testuser", []byte(html))
+	if err != nil {
+		t.Fatalf("parseClasses failed: %v", err)
+	}
+
+	if len(classes) != 0 {
+		t.Errorf("expected 0 classes, got %d", len(classes))
+	}
+}
+
 func TestTrimAllSpace(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

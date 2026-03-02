@@ -46,3 +46,54 @@ func TestFetchFailedMsgs(t *testing.T) {
 		t.Errorf("failedMsgs[0].Username = %s, want testuser", failedMsgs[0].Username)
 	}
 }
+
+func TestFetchFailedMsgsEmptyQueue(t *testing.T) {
+	t.Parallel()
+	tmpdir, err := os.MkdirTemp("", "test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+
+	eDB, err := sqlitedb.New(context.Background(), tmpdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close()
+
+	// Fetching from an empty (non-existent) queue key returns an empty list.
+	queueKey := []byte("test-empty-queue")
+	failedMsgs := FetchFailedMsgs(context.Background(), eDB, queueKey)
+
+	if len(failedMsgs) != 0 {
+		t.Errorf("FetchFailedMsgs() on empty queue should return empty list, got %d msgs", len(failedMsgs))
+	}
+}
+
+func TestFetchFailedMsgsCorruptedData(t *testing.T) {
+	t.Parallel()
+	tmpdir, err := os.MkdirTemp("", "test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+
+	eDB, err := sqlitedb.New(context.Background(), tmpdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close()
+
+	queueKey := []byte("test-corrupted-queue")
+
+	// Inject corrupted data directly into the queue.
+	eDB.FetchAndStore(context.Background(), queueKey, func(_ []byte) ([]byte, error) {
+		return []byte("this is not valid gob data"), nil
+	})
+
+	// Should return empty list on corrupted data without panicking.
+	failedMsgs := FetchFailedMsgs(context.Background(), eDB, queueKey)
+	if len(failedMsgs) != 0 {
+		t.Errorf("FetchFailedMsgs() on corrupted queue should return empty list, got %d msgs", len(failedMsgs))
+	}
+}

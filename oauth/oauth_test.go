@@ -22,6 +22,8 @@
 package oauth
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"reflect"
 	"testing"
@@ -61,5 +63,68 @@ func TestTokenFileOperations(t *testing.T) {
 	// Compare the tokens.
 	if !reflect.DeepEqual(expectedToken, actualToken) {
 		t.Errorf("token mismatch: expected %v, got %v", expectedToken, actualToken)
+	}
+}
+
+func TestTokenFromFileNonExistent(t *testing.T) {
+	t.Parallel()
+	_, err := tokenFromFile("/non/existent/path/to/token.json")
+	if err == nil {
+		t.Error("tokenFromFile() should fail for non-existent file")
+	}
+}
+
+func TestTokenFromFileInvalidJSON(t *testing.T) {
+	t.Parallel()
+	tmpfile, err := os.CreateTemp("", "test-invalid-token-*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte("not valid json {")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tmpfile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = tokenFromFile(tmpfile.Name())
+	if err == nil {
+		t.Error("tokenFromFile() should fail for invalid JSON")
+	}
+}
+
+func TestSaveTokenToUnwritablePath(t *testing.T) {
+	t.Parallel()
+	// Saving to a path inside a non-existent directory should fail.
+	err := saveToken("/non/existent/dir/token.json", &oauth2.Token{})
+	if err == nil {
+		t.Error("saveToken() should fail when destination directory does not exist")
+	}
+}
+
+func TestLoggingMiddleware(t *testing.T) {
+	t.Parallel()
+	nextCalled := false
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := LoggingMiddleware(next)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if !nextCalled {
+		t.Error("LoggingMiddleware did not call next handler")
+	}
+
+	if w.Code != http.StatusOK {
+		t.Errorf("LoggingMiddleware returned status %d, want %d", w.Code, http.StatusOK)
 	}
 }

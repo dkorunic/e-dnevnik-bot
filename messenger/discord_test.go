@@ -44,8 +44,8 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+// TestProcessDiscord must not run in parallel — it writes the package-level discordCli global.
 func TestProcessDiscord(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"id": "12345"}`))
@@ -253,8 +253,8 @@ func TestProcessDiscordSkipsAlreadyDeliveredRecipientsOnRetry(t *testing.T) {
 	}
 }
 
+// TestDiscordInit must not run in parallel — discordInit() writes the package-level discordCli global.
 func TestDiscordInit(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

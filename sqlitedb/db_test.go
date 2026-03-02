@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDBOperations(t *testing.T) {
@@ -121,5 +122,157 @@ func TestDBOperations(t *testing.T) {
 	}
 	if err := eDB.Close(); err != nil {
 		t.Fatalf("Close() failed: %v", err)
+	}
+}
+
+func TestHashContent(t *testing.T) {
+	t.Parallel()
+	// Same inputs should produce the same hash (deterministic).
+	h1 := hashContent("bucket", "sub", []string{"a", "b"})
+	h2 := hashContent("bucket", "sub", []string{"a", "b"})
+
+	if !bytes.Equal(h1, h2) {
+		t.Error("hashContent() is not deterministic")
+	}
+
+	// Different inputs should produce different hashes.
+	h3 := hashContent("bucket", "sub", []string{"a", "c"})
+
+	if bytes.Equal(h1, h3) {
+		t.Error("hashContent() produced the same hash for different inputs")
+	}
+
+	// Hash length should be 32 bytes (SHA-256).
+	if len(h1) != 32 {
+		t.Errorf("hashContent() hash length = %d, want 32", len(h1))
+	}
+}
+
+func TestDbExists(t *testing.T) {
+	t.Parallel()
+	// Non-existent path should return false.
+	if dbExists("/non/existent/path/that/does/not/exist.db") {
+		t.Error("dbExists() returned true for non-existent path")
+	}
+
+	// Existing file should return true.
+	tmpfile, err := os.CreateTemp("", "test-db-exists-*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpfile.Close()
+	defer os.Remove(tmpfile.Name())
+
+	if !dbExists(tmpfile.Name()) {
+		t.Error("dbExists() returned false for existing file")
+	}
+}
+
+func TestCheckAndFlagTTLExpiredKey(t *testing.T) {
+	t.Parallel()
+	tmpFile := filepath.Join(os.TempDir(), "test-db-ttl-expired.db.sqlite")
+	os.Remove(tmpFile)
+	defer os.Remove(tmpFile)
+
+	eDB, err := New(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer eDB.Close()
+
+	// Insert a key whose TTL has already expired.
+	key := hashContent("bucket", "sub", []string{"expired-key"})
+	_, err = eDB.db.Exec(
+		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
+		key, []byte(""), time.Now().Add(-time.Hour).Unix(),
+	)
+	if err != nil {
+		t.Fatalf("failed to insert expired key: %v", err)
+	}
+
+	// Expired key should be treated as not found → return false.
+	found, err := eDB.CheckAndFlagTTL(context.Background(), "bucket", "sub", []string{"expired-key"})
+	if err != nil {
+		t.Fatalf("CheckAndFlagTTL() failed: %v", err)
+	}
+
+	if found {
+		t.Error("CheckAndFlagTTL() should return false for an expired key")
+	}
+}
+
+func TestFetchAndStoreExpiredKey(t *testing.T) {
+	t.Parallel()
+	tmpFile := filepath.Join(os.TempDir(), "test-db-fetchstore-expired.db.sqlite")
+	os.Remove(tmpFile)
+	defer os.Remove(tmpFile)
+
+	eDB, err := New(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer eDB.Close()
+
+	key := []byte("expired-fetch-key")
+	// Insert a key with an already-expired TTL.
+	_, err = eDB.db.Exec(
+		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
+		key, []byte("old-value"), time.Now().Add(-time.Hour).Unix(),
+	)
+	if err != nil {
+		t.Fatalf("failed to insert expired key: %v", err)
+	}
+
+	// FetchAndStore on an expired key should present nil to the transform function.
+	calledWithNil := false
+
+	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
+		if old == nil {
+			calledWithNil = true
+		}
+
+		return []byte("new-value"), nil
+	})
+	if err != nil {
+		t.Fatalf("FetchAndStore() failed: %v", err)
+	}
+
+	if !calledWithNil {
+		t.Error("FetchAndStore() should call the function with nil for an expired key")
+	}
+}
+
+func TestCleanupRemovesExpiredKeys(t *testing.T) {
+	t.Parallel()
+	tmpFile := filepath.Join(os.TempDir(), "test-db-cleanup.db.sqlite")
+	os.Remove(tmpFile)
+	defer os.Remove(tmpFile)
+
+	eDB, err := New(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer eDB.Close()
+
+	// Insert a key with an already-expired TTL directly.
+	expiredKey := []byte("cleanup-expired-key")
+	_, err = eDB.db.Exec(
+		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
+		expiredKey, []byte(""), time.Now().Add(-time.Hour).Unix(),
+	)
+	if err != nil {
+		t.Fatalf("failed to insert expired key: %v", err)
+	}
+
+	eDB.cleanup(context.Background())
+
+	var count int
+	if err = eDB.db.QueryRow("SELECT COUNT(*) FROM kv WHERE key = ?", expiredKey).Scan(&count); err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+
+	if count != 0 {
+		t.Error("cleanup() should have removed the expired key")
 	}
 }

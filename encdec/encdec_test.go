@@ -88,4 +88,14 @@ func TestEncodeDecode(t *testing.T) {
 	if err == nil {
 		t.Error("DecodeMsgs should have failed with invalid data, but it did not")
 	}
+
+	// Test case 4: nil input should return empty slice without error
+	nilResult, err := DecodeMsgs(nil)
+	if err != nil {
+		t.Fatalf("DecodeMsgs(nil) returned unexpected error: %v", err)
+	}
+
+	if len(nilResult) != 0 {
+		t.Errorf("DecodeMsgs(nil) should return empty slice, got %d messages", len(nilResult))
+	}
 }

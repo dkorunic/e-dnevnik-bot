@@ -22,6 +22,7 @@
 package fetch
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -123,5 +124,52 @@ func TestConsumeICal(t *testing.T) {
 
 	if !reflect.DeepEqual((*events)[0], expectedEvent) {
 		t.Errorf("expected event: %v, got: %v", expectedEvent, (*events)[0])
+	}
+}
+
+func TestNewClientWithContext(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client, err := NewClientWithContext(ctx, "user@example.com", "password")
+	if err != nil {
+		t.Fatalf("NewClientWithContext() failed: %v", err)
+	}
+
+	if client == nil {
+		t.Fatal("NewClientWithContext() returned nil client")
+	}
+
+	if client.httpClient == nil {
+		t.Error("NewClientWithContext() returned client with nil httpClient")
+	}
+
+	if client.username != "user@example.com" {
+		t.Errorf("expected username %q, got %q", "user@example.com", client.username)
+	}
+}
+
+func TestCloseConnections(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client, err := NewClientWithContext(ctx, "user@example.com", "password")
+	if err != nil {
+		t.Fatalf("NewClientWithContext() failed: %v", err)
+	}
+
+	// CloseConnections should not panic.
+	client.CloseConnections()
+}
+
+func TestConsumeICalEmptyCalendar(t *testing.T) {
+	t.Parallel()
+	cal := &goics.Calendar{Events: []*goics.Event{}}
+	events := &Events{}
+
+	if err := events.ConsumeICal(cal, nil); err != nil {
+		t.Fatalf("ConsumeICal() on empty calendar failed: %v", err)
+	}
+
+	if len(*events) != 0 {
+		t.Errorf("expected 0 events from empty calendar, got %d", len(*events))
 	}
 }
