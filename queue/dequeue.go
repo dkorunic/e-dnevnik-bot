@@ -46,6 +46,8 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		failedList, decErr = encdec.DecodeMsgs(old)
 		if decErr != nil {
 			logger.Warn().Msgf("Failed to decode queue %q, returning empty list: %v", string(queueKey), decErr)
+
+			failedList = []msgtypes.Message{}
 		}
 
 		return encdec.EncodeMsgs([]msgtypes.Message{})

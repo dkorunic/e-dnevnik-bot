@@ -46,6 +46,8 @@ func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgty
 		msgs, err := encdec.DecodeMsgs(old)
 		if err != nil {
 			logger.Warn().Msgf("Failed to decode queue %q, starting fresh: %v", string(key), err)
+
+			msgs = []msgtypes.Message{}
 		}
 
 		msgs = append(msgs, g)
