@@ -112,11 +112,6 @@ func (c *Client) getCSRFToken() error {
 // doSAMLRequest goes through SSO/SAML authentication, getting SimpleSAMLSessionID SSO cookie and refreshing cnOcjene
 // security cookie set in getCSRFToken() step.
 func (c *Client) doSAMLRequest() error {
-	u, err := url.Parse(LoginURL)
-	if err != nil {
-		return err
-	}
-
 	// POST data struct corresponding to input form fields
 	data := url.Values{
 		"username":   {c.username},
@@ -124,7 +119,7 @@ func (c *Client) doSAMLRequest() error {
 		"csrf_token": {c.csrfToken},
 	}
 
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, u.String(), strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, LoginURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
 	}
@@ -187,12 +182,7 @@ func (c *Client) doSAMLRequest() error {
 //
 // The function returns the response body as a byte slice, or an error.
 func (c *Client) getGeneric(dest string) ([]byte, error) {
-	u, err := url.Parse(dest)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, dest, nil)
 	if err != nil {
 		return nil, err
 	}

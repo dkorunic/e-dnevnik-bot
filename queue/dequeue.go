@@ -39,13 +39,15 @@ import (
 func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []msgtypes.Message {
 	var failedList []msgtypes.Message
 
+	queueKeyStr := string(queueKey)
+
 	// fetch failed messages list, store empty list
 	err := eDB.FetchAndStore(ctx, queueKey, func(old []byte) ([]byte, error) {
 		var decErr error
 
 		failedList, decErr = encdec.DecodeMsgs(old)
 		if decErr != nil {
-			logger.Warn().Msgf("Failed to decode queue %q, returning empty list: %v", string(queueKey), decErr)
+			logger.Warn().Msgf("Failed to decode queue %q, returning empty list: %v", queueKeyStr, decErr)
 
 			failedList = []msgtypes.Message{}
 		}
@@ -53,14 +55,14 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		return encdec.EncodeMsgs([]msgtypes.Message{})
 	})
 	if err != nil {
-		logger.Error().Msgf("Error managing failed messages list for queue %v: %v", string(queueKey), err)
+		logger.Error().Msgf("Error managing failed messages list for queue %v: %v", queueKeyStr, err)
 
 		return []msgtypes.Message{}
 	}
 
 	failedCount := len(failedList)
 	if failedCount > 0 {
-		logger.Info().Msgf("Found %v failed messages in queue %v, trying to resend", failedCount, string(queueKey))
+		logger.Info().Msgf("Found %v failed messages in queue %v, trying to resend", failedCount, queueKeyStr)
 	}
 
 	return failedList

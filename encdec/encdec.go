@@ -55,7 +55,7 @@ func EncodeMsgs(msgs []msgtypes.Message) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	buf := bytes.NewBuffer(nil)
+	buf := bytes.NewBuffer(make([]byte, 0, len(msgs)*256))
 	enc := gob.NewEncoder(buf)
 
 	// GOB encode Message list to []byte
