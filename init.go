@@ -42,7 +42,6 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite"
 )
 
@@ -119,7 +118,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	store.DeviceProps.RequireFullSync = new(false)
 
 	// set OS to Linux
-	store.DeviceProps.Os = proto.String(messenger.WhatsAppOS)
+	store.DeviceProps.Os = new(messenger.WhatsAppOS)
 
 	storeContainer, err := sqlstore.New(ctx, "sqlite",
 		fmt.Sprintf(messenger.WhatsAppDBConnstring, messenger.WhatsAppDBName), nil)
