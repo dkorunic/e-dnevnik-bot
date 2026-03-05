@@ -27,7 +27,7 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.34.0
-	github.com/slack-go/slack v0.18.0
+	github.com/slack-go/slack v0.19.0
 	github.com/spf13/cast v1.10.0
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0

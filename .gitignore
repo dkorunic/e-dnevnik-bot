@@ -8,10 +8,17 @@
 dist/
 vendor/
 e-dnevnik-bot
-contrib/random_delete_test/random_delete_test
+
+# Configuration
 .e-dnevnik.toml
-.e-dnevnik.db
-.e-dnevnik.sqlite
+
+# Databases
+.e-dnevnik.db/
+.e-dnevnik.*.sqlite
+.e-dnevnik.*.sqlite-shm
+.e-dnevnik.*.sqlite-wal
+
+# Tokens
 calendar_token.json
 
 # Test binary, build with `go test -c`
@@ -36,18 +43,17 @@ cmake-build-debug/
 ### VisualStudioCode ###
 .vscode/
 
-### Tokens ###
-credentials.json
-token.json
-
 ### Shell wrappers ###
 *.sh
 
 ## Usual macOS cruft ###
 .DS_Store
 
-## Configuration
+# Configuration
 .config.yml
 
 ## Qodo
 .qodo
+
+## Agent plans
+docs/
