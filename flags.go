@@ -89,7 +89,7 @@ func parseFlags() {
 	}
 
 	if *version {
-		fmt.Printf("e-dnevnik-bot %v %v%v, built on %v, with %v", GitTag, GitCommit, GitDirty,
+		fmt.Printf("e-dnevnik-bot %v %v%v, built on %v, with %v\n", GitTag, GitCommit, GitDirty,
 			BuildTime, runtime.Version())
 
 		os.Exit(0)
