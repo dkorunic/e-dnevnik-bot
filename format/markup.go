@@ -29,13 +29,15 @@ import (
 
 // MarkupMsg formats grade report as preformatted Markup block in a string.
 func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := strings.Builder{}
+	sb := builderPool.Get().(*strings.Builder)
+	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
+	defer builderPool.Put(sb)
 
-	markupAddHeader(&sb, username, subject, code)
+	markupAddHeader(sb, username, subject, code)
 
 	sb.WriteString("```\n")
-	plainFormatGrades(&sb, descriptions, grade)
+	plainFormatGrades(sb, descriptions, grade)
 	sb.WriteString("```\n")
 
 	return sb.String()

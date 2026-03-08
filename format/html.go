@@ -29,13 +29,15 @@ import (
 
 // HTMLMsg formats grade report as preformatted HTML block in a string.
 func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := strings.Builder{}
+	sb := builderPool.Get().(*strings.Builder)
+	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
+	defer builderPool.Put(sb)
 
-	htmlAddHeader(&sb, username, subject, code)
+	htmlAddHeader(sb, username, subject, code)
 
 	sb.WriteString("<pre>\n")
-	plainFormatGrades(&sb, descriptions, grade)
+	plainFormatGrades(sb, descriptions, grade)
 	sb.WriteString("</pre>\n")
 
 	return sb.String()

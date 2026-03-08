@@ -23,9 +23,14 @@ package format
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
+
+var builderPool = sync.Pool{
+	New: func() any { return new(strings.Builder) },
+}
 
 const (
 	GradePrefix        = "💯 Nova ocjena: "
@@ -37,11 +42,13 @@ const (
 
 // PlainMsg formats grade report as cleartext block in a string.
 func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := strings.Builder{}
+	sb := builderPool.Get().(*strings.Builder)
+	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
+	defer builderPool.Put(sb)
 
-	plainAddHeader(&sb, username, subject, code)
-	plainFormatGrades(&sb, descriptions, grade)
+	plainAddHeader(sb, username, subject, code)
+	plainFormatGrades(sb, descriptions, grade)
 
 	return sb.String()
 }
