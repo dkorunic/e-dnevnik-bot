@@ -35,7 +35,12 @@ func dbExists(filePath string) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-// hashContent creates SHA-256 hash from (bucket, subBucket, []target) concatenated strings and returns []byte result.
+// hashContent creates a SHA-256 hash from (bucket, subBucket, []target) concatenated without separators and returns
+// the raw 32-byte digest. SHA-256 is collision-resistant in the cryptographic sense (no known practical collisions),
+// but callers should be aware that the inputs are joined without delimiters: distinct logical tuples whose string
+// representations share the same byte sequence (e.g. bucket="ab",subBucket="c" vs bucket="a",subBucket="bc") will
+// produce identical hashes. This is acceptable here because bucket and subBucket are fixed, application-controlled
+// values, not arbitrary user input.
 func hashContent(bucket, subBucket string, target []string) []byte {
 	// get total length of all strings
 	totalLen := len(bucket) + len(subBucket)
