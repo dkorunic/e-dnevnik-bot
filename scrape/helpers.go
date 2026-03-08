@@ -24,6 +24,7 @@ package scrape
 import (
 	"bytes"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
@@ -39,6 +40,10 @@ const (
 	EventSummary     = "Predmet"      // exam summary field description (typically a subject name)
 	EventDescription = "Napomena"     // exam remark field description (typically a target of the exam)
 )
+
+var trimBuilderPool = sync.Pool{
+	New: func() any { return new(strings.Builder) },
+}
 
 var (
 	selNewGradesTable             = cascadia.MustCompile("div.content > div.flex-table.new-grades-table")
@@ -454,9 +459,10 @@ func trimAllSpace(s string) string {
 		return s
 	}
 
-	var b strings.Builder
-
+	b := trimBuilderPool.Get().(*strings.Builder)
+	b.Reset()
 	b.Grow(len(s))
+	defer trimBuilderPool.Put(b)
 
 	inSpace = false
 

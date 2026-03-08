@@ -24,9 +24,18 @@ package sqlitedb
 import (
 	"errors"
 	"os"
+	"sync"
 
 	"github.com/minio/sha256-simd"
 )
+
+var hashBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 256)
+
+		return &b
+	},
+}
 
 // dbExists checks if the path exists on the filesystem and returns boolean.
 func dbExists(filePath string) bool {
@@ -48,8 +57,13 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 		totalLen += len(target[i])
 	}
 
-	// pre-allocate buffer
-	buf := make([]byte, 0, totalLen)
+	// get a pooled buffer, growing it if the current input exceeds its capacity
+	bufp := hashBufPool.Get().(*[]byte)
+	buf := (*bufp)[:0]
+
+	if cap(buf) < totalLen {
+		buf = make([]byte, 0, totalLen)
+	}
 
 	buf = append(buf, bucket...)
 	buf = append(buf, subBucket...)
@@ -60,6 +74,9 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 
 	// calculate SHA-256 using SIMD AVX512 or SHA Extensions where possible
 	targetHash256 := sha256.Sum256(buf)
+
+	*bufp = buf
+	hashBufPool.Put(bufp)
 
 	return targetHash256[:]
 }
