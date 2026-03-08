@@ -47,7 +47,7 @@ var (
 	ErrSqliteOpen        = errors.New("could not open Sqlite database")
 	ErrSqliteCreateTable = errors.New("could not create table")
 	ErrDeleteBadgerDB    = errors.New("could not remove old BadgerDB directory, please delete manually")
-	importOnce           sync.Once
+	importOnce           sync.Once // BadgerDB migration must run at most once per process lifetime.
 )
 
 // Edb holds e-dnevnik structure including sql.DB struct.

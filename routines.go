@@ -394,11 +394,11 @@ func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, re
 //
 // It takes the following parameters:
 // - current: the current version to compare with.
-// - versions: a slice of versions to count.
+// - versions: a slice of versions to count (must be sorted ascending).
 //
 // It returns the number of versions that are newer than the current version.
 func countNewerVersions(current *semver.Version, versions []*semver.Version) int {
-	// versions is sorted ascending; find first index where v > current
+	// versions must be sorted ascending (as ensured by the caller); find first index where v > current
 	idx := sort.Search(len(versions), func(i int) bool {
 		return versions[i].GreaterThan(current)
 	})
