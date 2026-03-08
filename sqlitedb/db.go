@@ -30,6 +30,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -46,6 +47,7 @@ var (
 	ErrSqliteOpen        = errors.New("could not open Sqlite database")
 	ErrSqliteCreateTable = errors.New("could not create table")
 	ErrDeleteBadgerDB    = errors.New("could not remove old BadgerDB directory, please delete manually")
+	importOnce           sync.Once
 )
 
 // Edb holds e-dnevnik structure including sql.DB struct.
@@ -104,7 +106,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	if err != nil {
 		_ = db.Close()
 
-		return nil, fmt.Errorf("could not prepare check key statement: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrSqlitePrepareCheck, err)
 	}
 
 	edb.stmtInsertKey, err = db.PrepareContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)")
@@ -112,13 +114,17 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 		_ = edb.stmtCheckKey.Close()
 		_ = db.Close()
 
-		return nil, fmt.Errorf("could not prepare insert key statement: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrSqlitePrepareInsert, err)
 	}
 
-	// Check if old BadgerDB directory exists and convert data
-	edb, err = badgerDB2Sqlite(ctx, origFilePath, edb)
-	if err != nil {
-		return edb, err
+	var importErr error
+
+	importOnce.Do(func() {
+		// Check if old BadgerDB directory exists and convert data
+		edb, importErr = badgerDB2Sqlite(ctx, origFilePath, edb)
+	})
+	if importErr != nil {
+		return nil, importErr
 	}
 
 	// Perform initial cleanup of expired keys

@@ -34,12 +34,14 @@ import (
 )
 
 var (
-	ErrBadgerDBNotFound = errors.New("BadgerDB not found")
-	ErrBadgerDBOpen     = errors.New("failed to open BadgerDB")
-	ErrSqliteTx         = errors.New("failed to begin sqlite transaction")
-	ErrSqlitePrepare    = errors.New("failed to prepare statement")
-	ErrSqliteImport     = errors.New("import failed")
-	ErrSqliteCommit     = errors.New("failed to commit transaction")
+	ErrBadgerDBNotFound    = errors.New("BadgerDB not found")
+	ErrBadgerDBOpen        = errors.New("failed to open BadgerDB")
+	ErrSqliteTx            = errors.New("failed to begin sqlite transaction")
+	ErrSqlitePrepare       = errors.New("failed to prepare statement")
+	ErrSqliteImport        = errors.New("import failed")
+	ErrSqliteCommit        = errors.New("failed to commit transaction")
+	ErrSqlitePrepareCheck  = errors.New("failed to prepare check key statement")
+	ErrSqlitePrepareInsert = errors.New("failed to prepare insert key statement")
 )
 
 // ImportFromBadger imports all data from a BadgerDB database into the current Edb.
