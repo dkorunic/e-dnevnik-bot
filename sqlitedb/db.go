@@ -44,10 +44,12 @@ const (
 )
 
 var (
-	ErrSqliteOpen        = errors.New("could not open Sqlite database")
-	ErrSqliteCreateTable = errors.New("could not create table")
-	ErrDeleteBadgerDB    = errors.New("could not remove old BadgerDB directory, please delete manually")
-	importOnce           sync.Once // BadgerDB migration must run at most once per process lifetime.
+	ErrSqliteOpen          = errors.New("could not open Sqlite database")
+	ErrSqliteCreateTable   = errors.New("could not create table")
+	ErrSqlitePrepareCheck  = errors.New("failed to prepare check key statement")
+	ErrSqlitePrepareInsert = errors.New("failed to prepare insert key statement")
+	ErrDeleteBadgerDB      = errors.New("could not remove old BadgerDB directory, please delete manually")
+	importOnce             sync.Once // BadgerDB migration must run at most once per process lifetime.
 )
 
 // Edb holds e-dnevnik structure including sql.DB struct.
@@ -146,7 +148,7 @@ func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, 
 		if err != nil {
 			_ = edb.Close()
 
-			return edb, err
+			return nil, err
 		}
 
 		// New database has been populated with data
