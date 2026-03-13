@@ -266,12 +266,13 @@ func whatsAppInit(ctx context.Context) error {
 }
 
 // filterGroupsByName returns the JID strings of joined groups whose Name is
-// present in the groups slice. Uses linear search so no sort order is required.
+// present in the groups slice. groups must be sorted in ascending order (as
+// ensured by config loading) so that binary search can be used.
 func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
-	var jids []string
+	jids := make([]string, 0, len(groups))
 
 	for _, x := range joined {
-		if slices.Contains(groups, x.Name) {
+		if _, found := slices.BinarySearch(groups, x.Name); found {
 			jids = append(jids, x.JID.String())
 		}
 	}
