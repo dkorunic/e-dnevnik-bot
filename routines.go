@@ -353,9 +353,9 @@ func githubClient(ctx context.Context) *github.Client {
 // - []*semver.Version: a slice of *semver.Version representing all released versions of the repository.
 // - error: an error if any occurred during the execution of the function.
 func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, repo string) ([]*semver.Version, error) {
-	var versions []*semver.Version
-
 	opt := &github.ListOptions{PerPage: 100}
+
+	versions := make([]*semver.Version, 0, opt.PerPage)
 
 	for {
 		releases, resp, err := client.Repositories.ListReleases(ctx, owner, repo, opt)

@@ -41,6 +41,13 @@ const (
 	EventDescription = "Napomena"     // exam remark field description (typically a target of the exam)
 )
 
+// eventDescriptions is a shared, immutable slice used for all exam event messages to avoid per-event allocations.
+var eventDescriptions = []string{
+	EventSummary,
+	DateDescription,
+	EventDescription,
+}
+
 var trimBuilderPool = sync.Pool{
 	New: func() any { return new(strings.Builder) },
 }
@@ -165,14 +172,10 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 
 		// send each event through channel
 		ch <- msgtypes.Message{
-			Code:     msgtypes.Exam,
-			Username: username,
-			Subject:  subject,
-			Descriptions: []string{
-				EventSummary,
-				DateDescription,
-				EventDescription,
-			},
+			Code:         msgtypes.Exam,
+			Username:     username,
+			Subject:      subject,
+			Descriptions: eventDescriptions,
 			Fields: []string{
 				subject,
 				timestamp,

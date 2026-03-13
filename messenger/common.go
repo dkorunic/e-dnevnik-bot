@@ -43,11 +43,11 @@ func truncateWithEllipsis(s string, m int) string {
 		}
 
 		count++
+
+		if count > m {
+			return s[:cutoff] + "..."
+		}
 	}
 
-	if count <= m {
-		return s
-	}
-
-	return s[:cutoff] + "..."
+	return s
 }
