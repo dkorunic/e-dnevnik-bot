@@ -253,13 +253,19 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 	})
 }
 
-// spinner shows a spiffy terminal spinner while waiting endlessly.
-func spinner() {
+// spinner shows a spiffy terminal spinner until done is closed.
+func spinner(done <-chan struct{}) {
 	s := spin.New()
 
 	for {
-		fmt.Printf("\rWaiting... %v", s.Next())
-		time.Sleep(spinnerRotateDelay)
+		select {
+		case <-done:
+			fmt.Print("\r") // clear spinner line before next log output
+			return
+		default:
+			fmt.Printf("\rWaiting... %v", s.Next())
+			time.Sleep(spinnerRotateDelay)
+		}
 	}
 }
 

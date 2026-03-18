@@ -207,11 +207,18 @@ func main() {
 
 			go stop()
 
+			var spinnerDone chan struct{}
 			if isTerminal() {
-				go spinner()
+				spinnerDone = make(chan struct{})
+				go spinner(spinnerDone)
 			}
 
 			time.Sleep(exitDelay)
+
+			if spinnerDone != nil {
+				close(spinnerDone)
+			}
+
 			fatalIfErrors()
 
 			return

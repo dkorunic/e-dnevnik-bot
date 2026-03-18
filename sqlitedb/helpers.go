@@ -57,13 +57,14 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 		totalLen += len(target[i])
 	}
 
-	// get a pooled buffer, growing it if the current input exceeds its capacity
+	// get a pooled buffer, growing it in-place if the current input exceeds its capacity
 	bufp := hashBufPool.Get().(*[]byte)
-	buf := (*bufp)[:0]
 
-	if cap(buf) < totalLen {
-		buf = make([]byte, 0, totalLen)
+	if cap(*bufp) < totalLen {
+		*bufp = make([]byte, 0, totalLen)
 	}
+
+	buf := (*bufp)[:0]
 
 	buf = append(buf, bucket...)
 	buf = append(buf, subBucket...)

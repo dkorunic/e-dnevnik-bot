@@ -51,8 +51,8 @@ const (
 )
 
 var (
-	whatsAppCli    *whatsmeow.Client
-	whatsAppSynced = make(chan struct{}, 1)
+	whatsAppPairingCli *whatsmeow.Client
+	whatsAppSynced     = make(chan struct{}, 1)
 )
 
 // init initializes the GitTag, GitCommit, GitDirty, and BuildTime variables.
@@ -140,12 +140,12 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableDeviceID, err)
 	}
 
-	whatsAppCli = whatsmeow.NewClient(device, nil)
-	whatsAppCli.EnableAutoReconnect = true
-	whatsAppCli.AutoTrustIdentity = true
-	whatsAppCli.AddEventHandler(whatsappPairingEventHandler)
+	whatsAppPairingCli = whatsmeow.NewClient(device, nil)
+	whatsAppPairingCli.EnableAutoReconnect = true
+	whatsAppPairingCli.AutoTrustIdentity = true
+	whatsAppPairingCli.AddEventHandler(whatsappPairingEventHandler)
 
-	if whatsAppCli.Store.ID != nil {
+	if whatsAppPairingCli.Store.ID != nil {
 		logger.Debug().Msg("Already paired with WhatsApp, skipping pairing process")
 	}
 
@@ -154,7 +154,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	defer qrCancel()
 
 	// prepare pairing through QR or pair code
-	ch, err := whatsAppCli.GetQRChannel(qrCtx)
+	ch, err := whatsAppPairingCli.GetQRChannel(qrCtx)
 	if err != nil {
 		if !errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
 			logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailQR, err)
@@ -173,7 +173,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 			if evt.Event == "code" {
 				// prefer pairing through code if phone number is enabled
 				if config.WhatsApp.PhoneNumber != "" {
-					linkCode, err := whatsAppCli.PairPhone(qrCtx, config.WhatsApp.PhoneNumber, true,
+					linkCode, err := whatsAppPairingCli.PairPhone(qrCtx, config.WhatsApp.PhoneNumber, true,
 						whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)
 					if err != nil {
 						logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailLink, err)
@@ -193,13 +193,13 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		}
 	}()
 
-	err = whatsAppCli.Connect()
+	err = whatsAppPairingCli.Connect()
 	if err != nil {
 		logger.Fatal().Msgf("Failed to connect to WhatsApp: %v", err)
 	}
 
 	// make sure to disconnect WhatsApp after the init
-	defer whatsAppCli.Disconnect()
+	defer whatsAppPairingCli.Disconnect()
 
 	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep Android/iOS mobile app active and open")
 
@@ -243,21 +243,21 @@ func whatsappPairingEventHandler(rawEvt any) {
 	case *events.OfflineSyncCompleted:
 		logger.Info().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
-		if len(whatsAppCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceAvailable)
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
+		if len(whatsAppPairingCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
+			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceAvailable)
+			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceUnavailable)
 		}
 
 		logger.Info().Msg("WhatsApp app state sync completed")
 
 		whatsAppSynced <- struct{}{}
 	case *events.Connected, *events.PushNameSetting:
-		if len(whatsAppCli.Store.PushName) > 0 {
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceAvailable)
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
+		if len(whatsAppPairingCli.Store.PushName) > 0 {
+			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceAvailable)
+			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceUnavailable)
 		}
 	case *events.PairSuccess, *events.PairError:
-		if whatsAppCli.Store.ID == nil {
+		if whatsAppPairingCli.Store.ID == nil {
 			_ = os.Remove(messenger.WhatsAppDBName)
 
 			logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
