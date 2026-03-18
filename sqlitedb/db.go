@@ -140,7 +140,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 // BadgerDB directory.
 // Returns the Edb with imported data and an error if any occurred.
 func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, error) {
-	fid, errDir := os.Stat(origFilePath)                             // check if it is BadgerDB directory
+	fid, errDir := os.Stat(origFilePath)                                 // check if it is BadgerDB directory
 	fim, errManifest := os.Stat(filepath.Join(origFilePath, "MANIFEST")) // check if there is MANIFEST file inside
 
 	if errDir == nil && fid.IsDir() && errManifest == nil && fim.Mode().IsRegular() {

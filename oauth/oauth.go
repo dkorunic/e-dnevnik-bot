@@ -163,7 +163,11 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		Addr:              authListenHost,
 		Handler:           r,
 	}
-	defer s.Close()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), WriteTimeout)
+		defer cancel()
+		_ = s.Shutdown(shutdownCtx)
+	}()
 
 	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 

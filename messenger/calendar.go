@@ -60,6 +60,9 @@ var (
 
 	CalendarQueueName = []byte(CalendarQueue)
 	CalendarVersion   = version.ReadVersion("google.golang.org/api")
+
+	calendarSrv *calendar.Service // cached Google Calendar service, initialized once
+	calendarID  string            // cached calendar ID, resolved once
 )
 
 //go:embed assets/calendar_credentials.json
@@ -77,10 +80,17 @@ var credentialFS embed.FS
 //
 // It returns an error indicating any failures that occurred during the process.
 func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, name, tokFile string, retries uint) error {
-	srv, calID, err := InitCalendar(ctx, tokFile, name)
-	if err != nil {
-		return err
+	if calendarSrv == nil || calendarID == "" {
+		var err error
+
+		calendarSrv, calendarID, err = InitCalendar(ctx, tokFile, name)
+		if err != nil {
+			return err
+		}
 	}
+
+	srv := calendarSrv
+	calID := calendarID
 
 	logger.Debug().Msgf("Started Google Calendar API messenger (%v)", CalendarVersion)
 

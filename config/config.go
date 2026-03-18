@@ -104,7 +104,7 @@ func checkWhatsAppConf(config *TomlConfig) {
 		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
 
 		// sort group names for binary search in WhatsApp messenger
-		slices.SortStableFunc(config.WhatsApp.Groups, strings.Compare)
+		slices.SortFunc(config.WhatsApp.Groups, strings.Compare)
 
 		config.WhatsAppEnabled = true
 	}

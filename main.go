@@ -322,7 +322,7 @@ func startSystemdWatchdog(ctx context.Context) {
 // exiting.
 func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
-	signal.Reset()
+	signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	gradesMsg := make(chan msgtypes.Message, chanBufLen)
 	gradesMsg <- msgtypes.Message{

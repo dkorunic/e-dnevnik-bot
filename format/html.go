@@ -22,6 +22,7 @@
 package format
 
 import (
+	"html"
 	"strings"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
@@ -37,15 +38,28 @@ func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, gr
 	htmlAddHeader(sb, username, subject, code)
 
 	sb.WriteString("<pre>\n")
-	plainFormatGrades(sb, descriptions, grade)
+	htmlFormatGrades(sb, descriptions, grade)
 	sb.WriteString("</pre>\n")
 
 	return sb.String()
 }
 
 // htmlAddHeader adds bold header containing username and subject name, and a delimiter.
+// User and subject are HTML-escaped to prevent injection into Telegram's HTML parse mode.
 func htmlAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	sb.WriteString("<b>")
-	PlainFormatSubject(sb, user, subject, code)
+	PlainFormatSubject(sb, html.EscapeString(user), html.EscapeString(subject), code)
 	sb.WriteString("</b>\n")
+}
+
+// htmlFormatGrades formats grade descriptions and values with HTML escaping.
+func htmlFormatGrades(sb *strings.Builder, descriptions, grade []string) {
+	n := min(len(descriptions), len(grade))
+
+	for i := range n {
+		sb.WriteString(html.EscapeString(descriptions[i]))
+		sb.WriteString(": ")
+		sb.WriteString(html.EscapeString(grade[i]))
+		sb.WriteString("\n")
+	}
 }

@@ -149,12 +149,12 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				})
 		})
 
-	if parsedGrades == 0 {
-		logger.Info().Msgf("No grades found in the scraped content for user %v", username)
-	}
-
 	if cancelled {
 		return ctx.Err()
+	}
+
+	if parsedGrades == 0 {
+		logger.Info().Msgf("No grades found in the scraped content for user %v", username)
 	}
 
 	return nil

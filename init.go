@@ -145,10 +145,6 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	whatsAppPairingCli.AutoTrustIdentity = true
 	whatsAppPairingCli.AddEventHandler(whatsappPairingEventHandler)
 
-	if whatsAppPairingCli.Store.ID != nil {
-		logger.Debug().Msg("Already paired with WhatsApp, skipping pairing process")
-	}
-
 	// create separate cancellable context for WhatsApp pairing QR channel
 	qrCtx, qrCancel := context.WithCancel(ctx)
 	defer qrCancel()

@@ -410,11 +410,7 @@ func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, re
 func countNewerVersions(current *semver.Version, versions []*semver.Version) int {
 	// versions must be sorted ascending (as ensured by the caller); find first index where v > current
 	idx, _ := slices.BinarySearchFunc(versions, current, func(v, c *semver.Version) int {
-		if v.GreaterThan(c) {
-			return 1
-		}
-
-		return -1
+		return v.Compare(c)
 	})
 
 	return len(versions) - idx
