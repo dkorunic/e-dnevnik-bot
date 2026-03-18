@@ -23,6 +23,7 @@
 package scrape
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestParseGrades(t *testing.T) {
 	</div>`
 
 	ch := make(chan msgtypes.Message, 1)
-	err := parseGrades(ch, "testuser", []byte(html), false, "ClassA")
+	err := parseGrades(context.Background(), ch, "testuser", []byte(html), false, "ClassA")
 	if err != nil {
 		t.Fatalf("parseGrades failed: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestParseEvents(t *testing.T) {
 	}
 
 	ch := make(chan msgtypes.Message, 1)
-	err := parseEvents(ch, "testuser", events, false, "ClassA")
+	err := parseEvents(context.Background(), ch, "testuser", events, false, "ClassA")
 	if err != nil {
 		t.Fatalf("parseEvents failed: %v", err)
 	}
@@ -190,7 +191,7 @@ func TestParseCourse(t *testing.T) {
 	</div>`
 
 	ch := make(chan msgtypes.Message, 2)
-	err := parseCourse(ch, "testuser", []byte(html), false, "ClassA", "English")
+	err := parseCourse(context.Background(), ch, "testuser", []byte(html), false, "ClassA", "English")
 	if err != nil {
 		t.Fatalf("parseCourse failed: %v", err)
 	}
@@ -257,7 +258,7 @@ func TestParseGradesMultiClass(t *testing.T) {
 
 	ch := make(chan msgtypes.Message, 1)
 
-	err := parseGrades(ch, "testuser", []byte(html), true, "ClassB")
+	err := parseGrades(context.Background(), ch, "testuser", []byte(html), true, "ClassB")
 	if err != nil {
 		t.Fatalf("parseGrades failed: %v", err)
 	}
@@ -276,7 +277,7 @@ func TestParseEventsEmpty(t *testing.T) {
 	t.Parallel()
 	ch := make(chan msgtypes.Message, 1)
 
-	err := parseEvents(ch, "testuser", fetch.Events{}, false, "ClassA")
+	err := parseEvents(context.Background(), ch, "testuser", fetch.Events{}, false, "ClassA")
 	if err != nil {
 		t.Fatalf("parseEvents failed: %v", err)
 	}
@@ -300,7 +301,7 @@ func TestParseEventsMultiClass(t *testing.T) {
 
 	ch := make(chan msgtypes.Message, 1)
 
-	err := parseEvents(ch, "testuser", events, true, "ClassC")
+	err := parseEvents(context.Background(), ch, "testuser", events, true, "ClassC")
 	if err != nil {
 		t.Fatalf("parseEvents failed: %v", err)
 	}
@@ -336,7 +337,7 @@ func TestParseCourseNationalExam(t *testing.T) {
 
 	ch := make(chan msgtypes.Message, 2)
 
-	err := parseCourse(ch, "testuser", []byte(html), false, "ClassA", "Maths")
+	err := parseCourse(context.Background(), ch, "testuser", []byte(html), false, "ClassA", "Maths")
 	if err != nil {
 		t.Fatalf("parseCourse failed: %v", err)
 	}
@@ -375,7 +376,7 @@ func TestParseCourseMultiClass(t *testing.T) {
 
 	ch := make(chan msgtypes.Message, 2)
 
-	err := parseCourse(ch, "testuser", []byte(html), true, "ClassD", "Literature")
+	err := parseCourse(context.Background(), ch, "testuser", []byte(html), true, "ClassD", "Literature")
 	if err != nil {
 		t.Fatalf("parseCourse failed: %v", err)
 	}

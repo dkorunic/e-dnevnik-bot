@@ -167,7 +167,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		retry.Delay(CalendarMinDelay),
 	).Do(
 		func() error {
-			_, err := srv.Events.Insert(calID, newEvent).Do()
+			_, err := srv.Events.Insert(calID, newEvent).Context(ctx).Do()
 
 			return err
 		},
@@ -228,7 +228,7 @@ func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service,
 		return nil, "", err
 	}
 
-	calID := getCalendarID(srv, name)
+	calID := getCalendarID(ctx, srv, name)
 	if calID == "" {
 		logger.Error().Msgf("Unable to find Google Calendar ID for calendar: %v", name)
 
@@ -239,7 +239,7 @@ func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service,
 }
 
 // getCalendarID gets a Google calendar ID out of a symbolic calendar name.
-func getCalendarID(srv *calendar.Service, calendarName string) string {
+func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName string) string {
 	// If the calendar name is not specified, use default (primary) calendar
 	if calendarName == "" {
 		return "primary"
@@ -253,7 +253,7 @@ func getCalendarID(srv *calendar.Service, calendarName string) string {
 			MaxResults(CalendarMaxResults).
 			PageToken(nextPageToken)
 
-		listCal, err := calendarsCall.Do()
+		listCal, err := calendarsCall.Context(ctx).Do()
 		if err != nil {
 			logger.Error().Msgf("Unable to retrieve user's calendar: %v", err)
 

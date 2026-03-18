@@ -188,7 +188,13 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// format message as Markup
 	mRaw := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields) //nolint:staticcheck
-	m := waE2E.Message{Conversation: new(mRaw)}
+	m := waE2E.Message{Conversation: &mRaw}
+
+	// build a skip set for O(1) lookups
+	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
+	for _, r := range g.SkipRecipients {
+		skipSet[r] = struct{}{}
+	}
 
 	var successfulIDs []string
 
@@ -197,7 +203,7 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	// send to all recipients: channels and nicknames are permitted
 	for _, u := range userIDs {
 		// Skip recipients that already received this message on a previous attempt.
-		if slices.Contains(g.SkipRecipients, u) {
+		if _, skip := skipSet[u]; skip {
 			continue
 		}
 
@@ -330,6 +336,8 @@ func whatsAppLogin(ctx context.Context) error {
 
 		return err
 	}
+
+	defer storeContainer.Close()
 
 	err = storeContainer.Upgrade(ctx)
 	if err != nil {

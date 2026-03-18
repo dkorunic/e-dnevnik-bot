@@ -23,6 +23,7 @@ package scrape
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"sync"
 	"unicode"
@@ -74,7 +75,7 @@ var (
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
-func parseGrades(ch chan<- msgtypes.Message, username string, rawGrades []byte, multiClass bool, className string) error {
+func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username string, rawGrades []byte, multiClass bool, className string) error {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawGrades))
 	if err != nil {
 		return err
@@ -82,9 +83,15 @@ func parseGrades(ch chan<- msgtypes.Message, username string, rawGrades []byte, 
 
 	var parsedGrades int
 
+	var cancelled bool
+
 	// each subject has a div with class "flex-table new-grades-table"
 	doc.FindMatcher(selNewGradesTable).
 		Each(func(_ int, table *goquery.Selection) {
+			if cancelled {
+				return
+			}
+
 			// subject name is in data-action-id attribute
 			subject, subjectOK := table.Attr("data-action-id")
 			if !subjectOK {
@@ -108,6 +115,10 @@ func parseGrades(ch chan<- msgtypes.Message, username string, rawGrades []byte, 
 			// grades are in each div with class "row" (header rows excluded) ...
 			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
+					if cancelled {
+						return
+					}
+
 					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
@@ -123,20 +134,27 @@ func parseGrades(ch chan<- msgtypes.Message, username string, rawGrades []byte, 
 					})
 
 					// once we have a single grade with all required fields, send it through the channel
-					ch <- msgtypes.Message{
+					select {
+					case ch <- msgtypes.Message{
 						Code:         msgtypes.Grade,
 						Username:     username,
 						Subject:      subject,
 						Descriptions: descriptions,
 						Fields:       spans,
+					}:
+						parsedGrades++
+					case <-ctx.Done():
+						cancelled = true
 					}
-
-					parsedGrades++
 				})
 		})
 
 	if parsedGrades == 0 {
 		logger.Info().Msgf("No grades found in the scraped content for user %v", username)
+	}
+
+	if cancelled {
+		return ctx.Err()
 	}
 
 	return nil
@@ -153,9 +171,7 @@ func cleanEventDescription(summary string) string {
 
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
-//
-//nolint:unparam
-func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events, multiClass bool, className string) error {
+func parseEvents(ctx context.Context, ch chan<- msgtypes.Message, username string, events fetch.Events, multiClass bool, className string) error {
 	if len(events) == 0 {
 		logger.Info().Msgf("No scheduled exams for user %v", username)
 	}
@@ -171,7 +187,8 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 		}
 
 		// send each event through channel
-		ch <- msgtypes.Message{
+		select {
+		case ch <- msgtypes.Message{
 			Code:         msgtypes.Exam,
 			Username:     username,
 			Subject:      subject,
@@ -182,6 +199,9 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 				description,
 			},
 			Timestamp: ev.Start,
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 
@@ -281,7 +301,7 @@ func parseCourses(rawCourses []byte) (fetch.Courses, error) {
 
 // parseCourse extracts course information (national exams, readings, final grades) from raw string
 // and sends messages to a message channel, optionally returning an error.
-func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, multiClass bool, className, subject string) error {
+func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username string, rawCourse []byte, multiClass bool, className, subject string) error {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawCourse))
 	if err != nil {
 		return err
@@ -292,9 +312,15 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 		subject = subject + " / " + className
 	}
 
+	var cancelled bool
+
 	// process national-exam-table
 	doc.FindMatcher(selNationalExamTable).
 		Each(func(_ int, table *goquery.Selection) {
+			if cancelled {
+				return
+			}
+
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			// skip over block header
 			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
@@ -307,6 +333,10 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 
 			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
+					if cancelled {
+						return
+					}
+
 					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
@@ -323,12 +353,16 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 
 					// we have a national-exam table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
-						ch <- msgtypes.Message{
+						select {
+						case ch <- msgtypes.Message{
 							Code:         msgtypes.NationalExam,
 							Username:     username,
 							Subject:      subject,
 							Fields:       spans,
 							Descriptions: descriptions,
+						}:
+						case <-ctx.Done():
+							cancelled = true
 						}
 					}
 				})
@@ -337,6 +371,10 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 	// process readings-table
 	doc.FindMatcher(selReadingsTable).
 		Each(func(_ int, table *goquery.Selection) {
+			if cancelled {
+				return
+			}
+
 			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			// skip over block header
 			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
@@ -349,6 +387,10 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 
 			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
+					if cancelled {
+						return
+					}
+
 					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
@@ -365,16 +407,24 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 
 					// we have a readings table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
-						ch <- msgtypes.Message{
+						select {
+						case ch <- msgtypes.Message{
 							Code:         msgtypes.Reading,
 							Username:     username,
 							Subject:      subject,
 							Fields:       spans,
 							Descriptions: descriptions,
+						}:
+						case <-ctx.Done():
+							cancelled = true
 						}
 					}
 				})
 		})
+
+	if cancelled {
+		return ctx.Err()
+	}
 
 	// final grades need additional subject suffix to have unique content for hash (which in case of multicass=false
 	// was not added yet)
@@ -385,6 +435,10 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 	// process final grades
 	doc.FindMatcher(selFinalGradeRow).
 		Each(func(_ int, row *goquery.Selection) {
+			if cancelled {
+				return
+			}
+
 			// first cell is a description ("ZAKLJUČENO")
 			descCells := row.FindMatcher(selCellBoldFirstSpan)
 			descriptions := make([]string, 0, descCells.Length())
@@ -410,15 +464,23 @@ func parseCourse(ch chan<- msgtypes.Message, username string, rawCourse []byte, 
 
 			// send only if we have a final grade
 			if len(spans) > 0 && len(descriptions) > 0 {
-				ch <- msgtypes.Message{
+				select {
+				case ch <- msgtypes.Message{
 					Code:         msgtypes.FinalGrade,
 					Username:     username,
 					Subject:      subject,
 					Fields:       spans,
 					Descriptions: descriptions,
+				}:
+				case <-ctx.Done():
+					cancelled = true
 				}
 			}
 		})
+
+	if cancelled {
+		return ctx.Err()
+	}
 
 	return nil
 }

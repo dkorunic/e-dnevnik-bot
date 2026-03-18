@@ -140,12 +140,11 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 // BadgerDB directory.
 // Returns the Edb with imported data and an error if any occurred.
 func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, error) {
-	fid, err := os.Stat(origFilePath)                         // check if it is BadgerDB directory
-	fim, err2 := os.Stat(path.Join(origFilePath, "MANIFEST")) // check if there is MANIFEST file inside
+	fid, errDir := os.Stat(origFilePath)                             // check if it is BadgerDB directory
+	fim, errManifest := os.Stat(path.Join(origFilePath, "MANIFEST")) // check if there is MANIFEST file inside
 
-	if err == nil && fid.IsDir() && err2 == nil && fim.Mode().IsRegular() {
-		err = edb.ImportFromBadger(ctx, origFilePath)
-		if err != nil {
+	if errDir == nil && fid.IsDir() && errManifest == nil && fim.Mode().IsRegular() {
+		if err := edb.ImportFromBadger(ctx, origFilePath); err != nil {
 			_ = edb.Close()
 
 			return nil, err
@@ -156,8 +155,7 @@ func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, 
 
 		logger.Info().Msgf("Removing BadgerDB directory post-import at %v", origFilePath)
 
-		err = os.RemoveAll(origFilePath)
-		if err != nil {
+		if err := os.RemoveAll(origFilePath); err != nil {
 			return edb, fmt.Errorf("%w: %w", ErrDeleteBadgerDB, err)
 		}
 	}

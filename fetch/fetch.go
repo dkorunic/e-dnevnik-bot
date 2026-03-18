@@ -103,24 +103,12 @@ func (c *Client) GetClassEvents(classID string) ([]byte, Events, error) {
 // GetClasses attempts to fetch all courses where a student has been previously enlisted or still is (multiple
 // active classes possible).
 func (c *Client) GetClasses() ([]byte, error) {
-	// fetch all active classes
-	rawClasses, err := c.getClasses()
-	if err != nil {
-		return nil, err
-	}
-
-	return rawClasses, nil
+	return c.getClasses()
 }
 
 // GetCourses attempts to fetch all active courses.
 func (c *Client) GetCourses() ([]byte, error) {
-	// fetch all active courses
-	rawCourses, err := c.getCourses()
-	if err != nil {
-		return nil, err
-	}
-
-	return rawCourses, nil
+	return c.getCourses()
 }
 
 // GetCourse fetches the course with the given destination URL and returns its

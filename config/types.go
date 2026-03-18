@@ -77,10 +77,10 @@ type TomlConfig struct {
 	Slack           Slack    `toml:"slack,omitempty"`
 	User            []User   `toml:"user,omitempty"`
 	WhatsApp        WhatsApp `toml:"whatsapp,omitempty"`
-	TelegramEnabled bool     `toml:"telegram_enabled,omitempty"`
-	DiscordEnabled  bool     `toml:"discord_enabled,omitempty"`
-	SlackEnabled    bool     `toml:"slack_enabled,omitempty"`
-	MailEnabled     bool     `toml:"mail_enabled,omitempty"`
-	CalendarEnabled bool     `toml:"calendar_enabled,omitempty"`
-	WhatsAppEnabled bool     `toml:"whatsapp_enabled,omitempty"`
+	TelegramEnabled bool     `toml:"-"` // derived at runtime; never read from or written to TOML
+	DiscordEnabled  bool     `toml:"-"`
+	SlackEnabled    bool     `toml:"-"`
+	MailEnabled     bool     `toml:"-"`
+	CalendarEnabled bool     `toml:"-"`
+	WhatsAppEnabled bool     `toml:"-"`
 }

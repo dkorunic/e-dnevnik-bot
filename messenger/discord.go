@@ -25,7 +25,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -147,6 +146,12 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		Fields: fields,
 	}
 
+	// build a skip set for O(1) lookups
+	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
+	for _, r := range g.SkipRecipients {
+		skipSet[r] = struct{}{}
+	}
+
 	var successfulIDs []string
 
 	anyFailed := false
@@ -154,7 +159,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	// send to all recipients
 	for _, u := range userIDs {
 		// Skip recipients that already received this message on a previous attempt.
-		if slices.Contains(g.SkipRecipients, u) {
+		if _, skip := skipSet[u]; skip {
 			continue
 		}
 

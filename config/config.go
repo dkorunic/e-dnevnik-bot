@@ -69,7 +69,7 @@ func SaveConfig(file string, config TomlConfig) error {
 		return err
 	}
 
-	if err := maybe.WriteFile(file, buf.Bytes(), 0o644); err != nil {
+	if err := maybe.WriteFile(file, buf.Bytes(), 0o600); err != nil {
 		return err
 	}
 
@@ -118,6 +118,8 @@ func checkWhatsAppConf(config *TomlConfig) {
 // will set the calendarEnabled field of the TomlConfig object to true.
 func checkCalendarConf(config *TomlConfig) {
 	if config.Calendar.Name != "" {
+		logger.Info().Msg("Configuration: Google Calendar messenger enabled")
+
 		config.CalendarEnabled = true
 	}
 }

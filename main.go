@@ -205,7 +205,7 @@ func main() {
 
 			_ = sysdnotify.Stopping()
 
-			go stop()
+			stop()
 
 			var spinnerDone chan struct{}
 			if isTerminal() {

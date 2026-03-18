@@ -124,13 +124,13 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		}
 
 		// parse all subjects and corresponding grades
-		err = parseGrades(ch, username, rawGrades, multiClass, cName)
+		err = parseGrades(ctx, ch, username, rawGrades, multiClass, cName)
 		if err != nil {
 			return err
 		}
 
 		// parse all exam events
-		err = parseEvents(ch, username, events, multiClass, cName)
+		err = parseEvents(ctx, ch, username, events, multiClass, cName)
 		if err != nil {
 			return err
 		}
@@ -171,7 +171,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			}
 
 			// process individual course
-			err = parseCourse(ch, username, rawCourse, multiClass, cName, s.Name)
+			err = parseCourse(ctx, ch, username, rawCourse, multiClass, cName, s.Name)
 			if err != nil {
 				return err
 			}

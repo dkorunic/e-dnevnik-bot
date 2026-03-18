@@ -25,7 +25,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -41,9 +40,9 @@ import (
 )
 
 const (
-	SlackAPILImit = 20 // typically 20 req/min per user
+	SlackAPILimit = 20 // typically 20 req/min per user
 	SlackWindow   = 1 * time.Minute
-	SlackMinDelay = SlackWindow / SlackAPILImit
+	SlackMinDelay = SlackWindow / SlackAPILimit
 	SlackQueue    = "slack-queue"
 )
 
@@ -85,7 +84,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 
 	logger.Debug().Msgf("Started Slack messenger (%v)", SlackVersion)
 
-	rl := ratelimit.New(SlackAPILImit, ratelimit.Per(SlackWindow))
+	rl := ratelimit.New(SlackAPILimit, ratelimit.Per(SlackWindow))
 
 	var g msgtypes.Message
 
@@ -130,6 +129,12 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	// format message as Markup
 	m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
+	// build a skip set for O(1) lookups
+	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
+	for _, r := range g.SkipRecipients {
+		skipSet[r] = struct{}{}
+	}
+
 	var successfulIDs []string
 
 	anyFailed := false
@@ -137,7 +142,7 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	// send to all recipients: channels and nicknames are permitted
 	for _, u := range chatIDs {
 		// Skip recipients that already received this message on a previous attempt.
-		if slices.Contains(g.SkipRecipients, u) {
+		if _, skip := skipSet[u]; skip {
 			continue
 		}
 

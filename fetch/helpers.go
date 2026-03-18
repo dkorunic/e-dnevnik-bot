@@ -43,6 +43,8 @@ const (
 	GradeAllURL    = "https://ocjene.skole.hr/grade/all"
 	CalendarURL    = "https://ocjene.skole.hr/exam/ical"
 	CourseURL      = "https://ocjene.skole.hr/course"
+
+	MaxBodySize = 32 * 1024 * 1024 // 32 MiB upper bound for any single response
 )
 
 var (
@@ -50,6 +52,7 @@ var (
 	ErrCSRFToken        = errors.New("could not find CSRF token")
 	ErrNilBody          = errors.New("client body is nil")
 	ErrInvalidLogin     = errors.New("unable to login")
+	ErrBodyTooLarge     = errors.New("response body exceeds size limit")
 
 	selCsrfToken  = cascadia.MustCompile(`form > input[name="csrf_token"]`)
 	selLoginAlert = cascadia.MustCompile("#page-wrapper > div.flash-messages > div.alert > p")
@@ -98,9 +101,6 @@ func (c *Client) getCSRFToken() error {
 		Each(func(_ int, s *goquery.Selection) {
 			c.csrfToken, csrfTokenExists = s.Attr("value")
 		})
-
-	// drain rest of the body
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if !csrfTokenExists {
 		return fmt.Errorf("%w", ErrCSRFToken)
@@ -156,9 +156,6 @@ func (c *Client) doSAMLRequest() error {
 		return fmt.Errorf("%w: %v", ErrInvalidLogin, alertSel.Text())
 	}
 
-	// drain rest of the body
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
-
 	// regular SSO response should have HTTP 302 status
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
@@ -211,9 +208,15 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Read at most MaxBodySize+1 bytes; the extra byte lets us distinguish
+	// "fits within limit" from "truncated" without reading the whole body.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodySize+1))
 	if err != nil {
 		return nil, err
+	}
+
+	if len(body) > MaxBodySize {
+		return nil, fmt.Errorf("%w: %v", ErrBodyTooLarge, resp.Request.URL)
 	}
 
 	return body, nil

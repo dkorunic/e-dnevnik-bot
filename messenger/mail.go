@@ -165,10 +165,23 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	plainContent := format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
-	messages := make([]*mail.Msg, 0, len(to))
+	// build a skip set for O(1) lookups
+	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
+	for _, r := range g.SkipRecipients {
+		skipSet[r] = struct{}{}
+	}
 
-	// bulk send to all recipients
+	var successfulIDs []string
+
+	anyFailed := false
+
+	// send individually to each recipient for per-recipient failure tracking
 	for _, u := range to {
+		// Skip recipients that already received this message on a previous attempt.
+		if _, skip := skipSet[u]; skip {
+			continue
+		}
+
 		m := mail.NewMsg()
 
 		_ = m.From(from)
@@ -187,25 +200,33 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetBodyString(mail.TypeTextPlain, plainContent)
 		m.AddAlternativeString(mail.TypeTextHTML, htmlContent)
 
-		messages = append(messages, m)
+		rl.Take()
+
+		// retryable and cancellable attempt to send a message
+		err := retry.New(
+			retry.Attempts(retries),
+			retry.Context(ctx),
+			retry.Delay(MailMinDelay),
+		).Do(
+			func() error {
+				return mailCli.DialAndSendWithContext(ctx, m)
+			},
+		)
+		if err != nil {
+			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
+
+			anyFailed = true
+
+			continue
+		}
+
+		successfulIDs = append(successfulIDs, u)
 	}
 
-	rl.Take()
+	if anyFailed {
+		// Record who succeeded so they are skipped on the next retry.
+		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
 
-	// retryable and cancellable attempt to send a message
-	err := retry.New(
-		retry.Attempts(retries),
-		retry.Context(ctx),
-		retry.Delay(MailMinDelay),
-	).Do(
-		func() error {
-			return mailCli.DialAndSendWithContext(ctx, messages...)
-		},
-	)
-	if err != nil {
-		logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
-
-		// store failed message
 		if err := queue.StoreFailedMsgs(ctx, eDB, MailQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}

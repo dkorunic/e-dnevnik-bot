@@ -73,13 +73,13 @@ func TestGetCalendarID(t *testing.T) {
 	}
 
 	// Test with a named calendar
-	calID := getCalendarID(srv, "Test Calendar")
+	calID := getCalendarID(ctx, srv, "Test Calendar")
 	if calID != "test-id" {
 		t.Errorf("getCalendarID() = %s, want test-id", calID)
 	}
 
 	// Test with the primary calendar
-	calID = getCalendarID(srv, "")
+	calID = getCalendarID(ctx, srv, "")
 	if calID != "primary" {
 		t.Errorf("getCalendarID() = %s, want primary", calID)
 	}

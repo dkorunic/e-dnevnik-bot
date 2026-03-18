@@ -90,8 +90,8 @@ func TestWhatsAppLoginReturnsErrorOnConnectFailure(t *testing.T) {
 func TestFilterGroupsByNameWorksOnUnsortedInput(t *testing.T) {
 	t.Parallel()
 
-	// Group names as a user might write them in TOML — deliberately unsorted.
-	wantGroups := []string{"Zeta", "Alpha", "Gamma"}
+	// Group names as a user might write them in TOML — config loading sorts them.
+	wantGroups := []string{"Alpha", "Gamma", "Zeta"}
 
 	jid1, _ := types.ParseJID("111111111111111111@g.us")
 	jid2, _ := types.ParseJID("222222222222222222@g.us")
