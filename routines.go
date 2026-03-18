@@ -265,6 +265,7 @@ func spinner(done <-chan struct{}) {
 		select {
 		case <-done:
 			fmt.Print("\r") // clear spinner line before next log output
+
 			return
 		default:
 			fmt.Printf("\rWaiting... %v", s.Next())
@@ -409,9 +410,15 @@ func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, re
 // It returns the number of versions that are newer than the current version.
 func countNewerVersions(current *semver.Version, versions []*semver.Version) int {
 	// versions must be sorted ascending (as ensured by the caller); find first index where v > current
-	idx, _ := slices.BinarySearchFunc(versions, current, func(v, c *semver.Version) int {
+	idx, found := slices.BinarySearchFunc(versions, current, func(v, c *semver.Version) int {
 		return v.Compare(c)
 	})
+
+	// BinarySearchFunc returns the first index where v >= current; if current itself is present
+	// in the list, advance past it so the count reflects only strictly newer versions.
+	if found {
+		idx++
+	}
 
 	return len(versions) - idx
 }

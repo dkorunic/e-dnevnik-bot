@@ -82,11 +82,12 @@ var (
 	ErrWhatsAppOutdated       = errors.New("WhatsApp Go library version is outdated, please update")
 	ErrWhatsAppBan            = errors.New("WhatsApp device is temporarily banned")
 
-	WhatsAppQueueName  = []byte(WhatsAppQueue)
-	whatsAppCli        *whatsmeow.Client
-	whatsAppStore      *sqlstore.Container
-	WhatsAppVersion    = version.ReadVersion("go.mau.fi/whatsmeow")
-	whatsAppGroupsOnce sync.Once // runs group→JID resolution at most once per process lifetime
+	WhatsAppQueueName       = []byte(WhatsAppQueue)
+	whatsAppCli             *whatsmeow.Client
+	whatsAppStore           *sqlstore.Container
+	WhatsAppVersion         = version.ReadVersion("go.mau.fi/whatsmeow")
+	whatsAppGroupsOnce      sync.Once // runs group→JID resolution at most once per process lifetime
+	whatsAppResolvedUserIDs []string  // resolved JIDs cached across poll cycles
 )
 
 // WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
@@ -130,6 +131,10 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		// find named groups and append to userIDs
 		userIDs = whatsAppProcessGroups(ctx, userIDs, groups)
 
+		// cache resolved JIDs so subsequent poll cycles use them even when
+		// the config rewrite fails or the config file is not writable
+		whatsAppResolvedUserIDs = userIDs
+
 		// rewrite config if groups are specified and userIDs have changed
 		//nolint:nestif
 		if len(groups) > 0 && len(userIDs) > userIDSize {
@@ -154,6 +159,12 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 			}
 		}
 	})
+
+	// use cached resolved JIDs from the first poll cycle (covers the case where
+	// the config rewrite failed and the caller still passes unresolved group names)
+	if len(whatsAppResolvedUserIDs) > 0 {
+		userIDs = whatsAppResolvedUserIDs
+	}
 
 	var g msgtypes.Message
 

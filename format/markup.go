@@ -43,9 +43,22 @@ func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, 
 	return sb.String()
 }
 
+// markupEscapeString escapes Markdown special characters in s to prevent them
+// from being interpreted as formatting syntax in Slack mrkdwn and Telegram
+// MarkdownV1 (e.g. a subject name containing '*' or '_' would break bold wrapping).
+func markupEscapeString(s string) string {
+	s = strings.ReplaceAll(s, `*`, `\*`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	s = strings.ReplaceAll(s, "`", "\\`")
+	s = strings.ReplaceAll(s, `~`, `\~`)
+
+	return s
+}
+
 // markupAddHeader adds Markup bold header containing username and subject name, and a delimiter.
+// User and subject are escaped to prevent Markdown metacharacters from breaking the bold syntax.
 func markupAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	sb.WriteString("*")
-	PlainFormatSubject(sb, user, subject, code)
+	PlainFormatSubject(sb, markupEscapeString(user), markupEscapeString(subject), code)
 	sb.WriteString("*\n\n")
 }
