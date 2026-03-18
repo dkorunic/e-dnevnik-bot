@@ -34,6 +34,10 @@ package messenger
 //
 //	the truncated string or the original string if it's not longer than max runes.
 func truncateWithEllipsis(s string, m int) string {
+	if len(s) <= m {
+		return s
+	}
+
 	count := 0
 	cutoff := 0
 

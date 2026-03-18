@@ -363,5 +363,5 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 // math/rand/v2 package.
 func durationRandJitter(x time.Duration) time.Duration {
 	//nolint:gosec,mnd
-	return time.Duration(int64(x) / 100 * (rand.Int64N(21) + 90))
+	return time.Duration(int64(x) * (rand.Int64N(21) + 90) / 100)
 }

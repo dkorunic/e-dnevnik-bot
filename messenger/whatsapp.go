@@ -83,6 +83,7 @@ var (
 
 	WhatsAppQueueName = []byte(WhatsAppQueue)
 	whatsAppCli       *whatsmeow.Client
+	whatsAppStore     *sqlstore.Container
 	WhatsAppVersion   = version.ReadVersion("go.mau.fi/whatsmeow")
 )
 
@@ -256,7 +257,7 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 // to disconnect and then reconnect the client. The function returns an error
 // if any step of the initialization or connection process fails.
 func whatsAppInit(ctx context.Context) error {
-	if whatsAppCli == nil {
+	if whatsAppCli == nil || whatsAppStore == nil {
 		logger.Debug().Msg("Initializing WhatsApp client")
 
 		return whatsAppLogin(ctx)
@@ -337,8 +338,6 @@ func whatsAppLogin(ctx context.Context) error {
 		return err
 	}
 
-	defer storeContainer.Close()
-
 	err = storeContainer.Upgrade(ctx)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableUpgrade, err)
@@ -354,6 +353,7 @@ func whatsAppLogin(ctx context.Context) error {
 		return err
 	}
 
+	whatsAppStore = storeContainer
 	whatsAppCli = whatsmeow.NewClient(device, nil)
 	whatsAppCli.EnableAutoReconnect = true
 	whatsAppCli.AutoTrustIdentity = true

@@ -223,7 +223,11 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 						if err != nil {
 							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
 						} else {
-							// assume current or previous year; if month is the same, use day to disambiguate
+							// assume current or previous year; dates in the "future" relative to today
+							// imply the previous year. When day and month match exactly, the year is
+							// ambiguous: we assume the current year (i.e. today), which means a
+							// grade from the same calendar day of the prior school year will pass
+							// this filter — an inherent limitation of the day.month. format.
 							if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
 								t = t.AddDate(now.Year()-1, 0, 0)
 							} else {
@@ -407,7 +411,7 @@ func countNewerVersions(current *semver.Version, versions []*semver.Version) int
 	// versions must be sorted ascending (as ensured by the caller); find first index where v > current
 	idx, _ := slices.BinarySearchFunc(versions, current, func(v, c *semver.Version) int {
 		if v.GreaterThan(c) {
-			return 0
+			return 1
 		}
 
 		return -1
