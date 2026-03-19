@@ -88,8 +88,6 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
-	var g msgtypes.Message
-
 	// process all failed messages; re-queue any unprocessed on cancellation
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName)
 	for i, g := range failedMsgs {
@@ -103,7 +101,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 	}
 
 	// process all messages
-	for g = range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

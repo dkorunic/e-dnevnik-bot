@@ -111,7 +111,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	// rename old WhatsApp database if it exists
 	if fi, err := os.Stat(WhatsAppDBOldName); err == nil && fi.Mode().IsRegular() {
 		logger.Debug().Msgf("Found old WhatsApp DB %v, renaming to %v", WhatsAppDBOldName, messenger.WhatsAppDBName)
-		_ = os.Rename(".e-dnevnik.sqlite", messenger.WhatsAppDBName)
+		_ = os.Rename(WhatsAppDBOldName, messenger.WhatsAppDBName)
 	}
 
 	// request syncing for last 3-months

@@ -174,8 +174,6 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}
 
-	var g msgtypes.Message
-
 	// process failed messages; re-queue any unprocessed on cancellation
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName)
 	for i, g := range failedMsgs {
@@ -189,7 +187,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	}
 
 	// process all new messages
-	for g = range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

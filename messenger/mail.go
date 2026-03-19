@@ -93,8 +93,6 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
-	var g msgtypes.Message
-
 	// process all failed messages; re-queue any unprocessed on cancellation
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, MailQueueName)
 	for i, g := range failedMsgs {
@@ -108,7 +106,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 	}
 
 	// process all messages
-	for g = range ch {
+	for g := range ch {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
