@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Requirements
+
+Go 1.26+ is required. The codebase uses `sync.WaitGroup.Go` (added in Go 1.25).
+
 ## Build & Development Commands
 
 This project uses [Task](https://taskfile.dev/) (Taskfile.yml) as the build system.
@@ -33,6 +37,17 @@ Install them with: `task update-tools`
 The build injects version variables via ldflags: `GitTag`, `GitCommit`, `GitDirty`, `BuildTime`.
 
 Opt-in profiling flags: `-c <file>` writes a CPU pprof profile; `-m <file>` writes a heap profile on exit (after forced GC).
+
+### Key Runtime Flags
+
+| Flag | Purpose |
+|---|---|
+| `-t` / `--test` | Emulation mode: send a synthetic test message through the full pipeline without scraping — use to verify messenger config |
+| `-d` / `--daemon` | Run as a daemon (repeated polling); without this flag it does a single run and exits |
+| `-v` / `--verbose` | Debug log level |
+| `-l` / `--colorlogs` | Colorized console output (useful in development) |
+| `-p` / `--relevance` | Discard events older than this duration (e.g. `720h`); 0 = unlimited |
+| `--readinglist` | Also send reading list alerts (disabled by default) |
 
 ## Architecture Overview
 
