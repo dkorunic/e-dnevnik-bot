@@ -45,12 +45,14 @@ func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, g
 	sb := builderPool.Get().(*strings.Builder)
 	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
-	defer builderPool.Put(sb)
 
 	plainAddHeader(sb, username, subject, code)
 	plainFormatGrades(sb, descriptions, grade)
 
-	return sb.String()
+	result := sb.String()
+	builderPool.Put(sb)
+
+	return result
 }
 
 // plainFormatGrades formats grade descriptions and values.

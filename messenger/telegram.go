@@ -92,14 +92,16 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	var g msgtypes.Message
 
-	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName) {
-		select {
-		case <-ctx.Done():
+	// process all failed messages; re-queue any unprocessed on cancellation
+	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName)
+	for i, g := range failedMsgs {
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, TelegramQueueName, failedMsgs[i:])
+
 			return ctx.Err()
-		default:
-			processTelegram(ctx, eDB, g, chatIDs, rl, retries)
 		}
+
+		processTelegram(ctx, eDB, g, chatIDs, rl, retries)
 	}
 
 	// process all messages

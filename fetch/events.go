@@ -97,11 +97,27 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 // successfully parses the value, the parsed time.Time object is returned.
 // If none of the layouts can parse the value, the function returns the zero
 // value of time.Time and an error indicating the failure to parse the timestamp.
+//
+// Layouts that contain the Go timezone directive "07" (e.g. Z0700, -0700) are
+// parsed with time.Parse so the embedded offset is honoured. All other layouts
+// lack timezone information; they are parsed with time.ParseInLocation using
+// time.Local so the result reflects the local timezone rather than UTC.
 func parseFirstDateTime(layouts []string, value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 
 	for _, layout := range layouts {
-		if dt, err := time.Parse(layout, value); err == nil {
+		var (
+			dt  time.Time
+			err error
+		)
+
+		if strings.Contains(layout, "07") {
+			dt, err = time.Parse(layout, value)
+		} else {
+			dt, err = time.ParseInLocation(layout, value, time.Local)
+		}
+
+		if err == nil {
 			return dt, nil
 		}
 	}

@@ -527,7 +527,6 @@ func trimAllSpace(s string) string {
 	b := trimBuilderPool.Get().(*strings.Builder)
 	b.Reset()
 	b.Grow(len(s))
-	defer trimBuilderPool.Put(b)
 
 	inSpace = false
 
@@ -547,5 +546,8 @@ func trimAllSpace(s string) string {
 		}
 	}
 
-	return b.String()
+	result := b.String()
+	trimBuilderPool.Put(b)
+
+	return result
 }

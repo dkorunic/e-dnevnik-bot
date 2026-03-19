@@ -88,14 +88,16 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 
 	var g msgtypes.Message
 
-	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(ctx, eDB, SlackQueueName) {
-		select {
-		case <-ctx.Done():
+	// process all failed messages; re-queue any unprocessed on cancellation
+	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, SlackQueueName)
+	for i, g := range failedMsgs {
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, SlackQueueName, failedMsgs[i:])
+
 			return ctx.Err()
-		default:
-			processSlack(ctx, eDB, g, chatIDs, rl, retries)
 		}
+
+		processSlack(ctx, eDB, g, chatIDs, rl, retries)
 	}
 
 	// process all messages

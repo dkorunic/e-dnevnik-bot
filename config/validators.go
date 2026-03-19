@@ -31,7 +31,7 @@ import (
 )
 
 var (
-	phoneRegex          = regexp.MustCompile(`^\+[1-9][0-9]{3,14}$`)
+	phoneRegex          = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 	userAtDomainRegex   = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 	slackTokenRegex     = regexp.MustCompile(`^xox(?i:[abposr])-(?:\d+-)+[a-zA-Z0-9]+$`)
 	slackChatIDRegex    = regexp.MustCompile(`^[UWCGD][A-Z0-9]{8,}$|^\d{10}\.\d{6}$`)

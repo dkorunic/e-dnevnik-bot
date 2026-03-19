@@ -95,14 +95,16 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 
 	var g msgtypes.Message
 
-	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(ctx, eDB, MailQueueName) {
-		select {
-		case <-ctx.Done():
+	// process all failed messages; re-queue any unprocessed on cancellation
+	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, MailQueueName)
+	for i, g := range failedMsgs {
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, MailQueueName, failedMsgs[i:])
+
 			return ctx.Err()
-		default:
-			processMail(ctx, eDB, g, to, from, subject, rl, retries)
 		}
+
+		processMail(ctx, eDB, g, to, from, subject, rl, retries)
 	}
 
 	// process all messages
@@ -184,8 +186,21 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 
 		m := mail.NewMsg()
 
-		_ = m.From(from)
-		_ = m.To(u)
+		if err := m.From(from); err != nil {
+			logger.Error().Msgf("Invalid mail From address %v: %v", from, err)
+
+			anyFailed = true
+
+			continue
+		}
+
+		if err := m.To(u); err != nil {
+			logger.Error().Msgf("Invalid mail To address %v: %v", u, err)
+
+			anyFailed = true
+
+			continue
+		}
 
 		m.SetMessageID()
 		m.SetDate()

@@ -93,13 +93,26 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Go(func() {
 		relay := broadcast.NewRelay[msgtypes.Message]()
-		defer relay.Close()
+
+		// wgInner tracks only the inner messenger goroutines so the relay is
+		// closed first (unblocking their listener range loops) and then we wait
+		// for them to finish before the outer goroutine returns.
+		var wgInner sync.WaitGroup
+
+		defer func() {
+			relay.Close()
+			wgInner.Wait()
+		}()
 
 		// Discord sender
 		if cfg.DiscordEnabled {
 			l := relay.Listener(broadcastBufLen)
 
+			wgInner.Add(1)
+
 			wgMsg.Go(func() {
+				defer wgInner.Done()
+
 				if err := messenger.Discord(ctx, eDB, l.Ch(), cfg.Discord.Token, cfg.Discord.UserIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
@@ -111,7 +124,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		if cfg.TelegramEnabled {
 			l := relay.Listener(broadcastBufLen)
 
+			wgInner.Add(1)
+
 			wgMsg.Go(func() {
+				defer wgInner.Done()
+
 				if err := messenger.Telegram(ctx, eDB, l.Ch(), cfg.Telegram.Token, cfg.Telegram.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
@@ -123,7 +140,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		if cfg.SlackEnabled {
 			l := relay.Listener(broadcastBufLen)
 
+			wgInner.Add(1)
+
 			wgMsg.Go(func() {
+				defer wgInner.Done()
+
 				if err := messenger.Slack(ctx, eDB, l.Ch(), cfg.Slack.Token, cfg.Slack.ChatIDs, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
@@ -135,7 +156,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		if cfg.MailEnabled {
 			l := relay.Listener(broadcastBufLen)
 
+			wgInner.Add(1)
+
 			wgMsg.Go(func() {
+				defer wgInner.Done()
+
 				if err := messenger.Mail(ctx, eDB, l.Ch(), cfg.Mail.Server, cfg.Mail.Port, cfg.Mail.Username,
 					cfg.Mail.Password, cfg.Mail.From, cfg.Mail.Subject, cfg.Mail.To, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrMail, err)
@@ -148,7 +173,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		if cfg.CalendarEnabled {
 			l := relay.Listener(broadcastBufLen)
 
+			wgInner.Add(1)
+
 			wgMsg.Go(func() {
+				defer wgInner.Done()
+
 				if err := messenger.Calendar(ctx, eDB, l.Ch(), cfg.Calendar.Name, *calTokFile, *retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
 					exitWithError.Store(true)
@@ -156,11 +185,15 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// WhatsApp sSender
+		// WhatsApp Sender
 		if cfg.WhatsAppEnabled {
 			l := relay.Listener(broadcastBufLen)
 
+			wgInner.Add(1)
+
 			wgMsg.Go(func() {
+				defer wgInner.Done()
+
 				if err := messenger.WhatsApp(ctx, eDB, l.Ch(), cfg.WhatsApp.UserIDs, cfg.WhatsApp.Groups,
 					*retries); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrWhatsApp, err)
@@ -185,6 +218,10 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 // and if it is not an initial run, it will pass through to messengers for further alerting.
 func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Go(func() {
+		// Always close gradesMsg so msgSend's broadcast loop terminates even
+		// when the goroutine exits early due to context cancellation.
+		defer close(gradesMsg)
+
 		if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")
 		}
@@ -252,8 +289,6 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				}
 			}
 		}
-
-		close(gradesMsg)
 	})
 }
 
@@ -305,6 +340,12 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 		}
 
 		// semver-parse latest version
+		if latestRelease.TagName == nil {
+			logger.Error().Msg("Unable to parse latest release of e-dnevnik-bot: nil TagName")
+
+			return
+		}
+
 		latestTag, err := semver.NewVersion(strings.TrimPrefix(*latestRelease.TagName, "v"))
 		if err != nil || latestTag == nil {
 			logger.Error().Msgf("Unable to parse latest release of e-dnevnik-bot: %v", err)

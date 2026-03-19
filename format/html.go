@@ -33,7 +33,6 @@ func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, gr
 	sb := builderPool.Get().(*strings.Builder)
 	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
-	defer builderPool.Put(sb)
 
 	htmlAddHeader(sb, username, subject, code)
 
@@ -41,7 +40,10 @@ func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, gr
 	htmlFormatGrades(sb, descriptions, grade)
 	sb.WriteString("</pre>\n")
 
-	return sb.String()
+	result := sb.String()
+	builderPool.Put(sb)
+
+	return result
 }
 
 // htmlAddHeader adds bold header containing username and subject name, and a delimiter.

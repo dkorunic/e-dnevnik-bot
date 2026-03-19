@@ -99,14 +99,16 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	var g msgtypes.Message
 
-	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName) {
-		select {
-		case <-ctx.Done():
+	// process all failed messages; re-queue any unprocessed on cancellation
+	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName)
+	for i, g := range failedMsgs {
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, CalendarQueueName, failedMsgs[i:])
+
 			return ctx.Err()
-		default:
-			processCalendar(ctx, eDB, g, now, rl, srv, calID, retries)
 		}
+
+		processCalendar(ctx, eDB, g, now, rl, srv, calID, retries)
 	}
 
 	// process all messages

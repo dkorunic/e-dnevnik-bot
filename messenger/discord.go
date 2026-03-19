@@ -90,14 +90,16 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	var g msgtypes.Message
 
-	// process all failed messages
-	for _, g = range queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName) {
-		select {
-		case <-ctx.Done():
+	// process all failed messages; re-queue any unprocessed on cancellation
+	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName)
+	for i, g := range failedMsgs {
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, DiscordQueueName, failedMsgs[i:])
+
 			return ctx.Err()
-		default:
-			processDiscord(ctx, eDB, g, userIDs, rl, retries)
 		}
+
+		processDiscord(ctx, eDB, g, userIDs, rl, retries)
 	}
 
 	// process all messages

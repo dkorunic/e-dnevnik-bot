@@ -94,17 +94,13 @@ func (c *Client) getCSRFToken() error {
 		return err
 	}
 
-	var csrfTokenExists bool
-
-	// csrf_token is hidden in the input form
-	doc.FindMatcher(selCsrfToken).
-		Each(func(_ int, s *goquery.Selection) {
-			c.csrfToken, csrfTokenExists = s.Attr("value")
-		})
-
+	// csrf_token is hidden in the first matching input form
+	csrfToken, csrfTokenExists := doc.FindMatcher(selCsrfToken).First().Attr("value")
 	if !csrfTokenExists {
 		return fmt.Errorf("%w", ErrCSRFToken)
 	}
+
+	c.csrfToken = csrfToken
 
 	return nil
 }
@@ -144,6 +140,11 @@ func (c *Client) doSAMLRequest() error {
 		return fmt.Errorf("%w", ErrNilBody)
 	}
 	defer resp.Body.Close()
+
+	// reject obvious server/client errors before reading the body
+	if resp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
+	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {

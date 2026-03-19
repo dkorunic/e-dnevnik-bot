@@ -32,7 +32,6 @@ func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, 
 	sb := builderPool.Get().(*strings.Builder)
 	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
-	defer builderPool.Put(sb)
 
 	markupAddHeader(sb, username, subject, code)
 
@@ -40,17 +39,24 @@ func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, 
 	plainFormatGrades(sb, descriptions, grade)
 	sb.WriteString("```\n")
 
-	return sb.String()
+	result := sb.String()
+	builderPool.Put(sb)
+
+	return result
 }
 
 // markupEscapeString escapes Markdown special characters in s to prevent them
 // from being interpreted as formatting syntax in Slack mrkdwn and Telegram
 // MarkdownV1 (e.g. a subject name containing '*' or '_' would break bold wrapping).
+// Backslash must be escaped first to avoid double-escaping the escape sequences.
 func markupEscapeString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `*`, `\*`)
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	s = strings.ReplaceAll(s, "`", "\\`")
 	s = strings.ReplaceAll(s, `~`, `\~`)
+	s = strings.ReplaceAll(s, `[`, `\[`)
+	s = strings.ReplaceAll(s, `]`, `\]`)
 
 	return s
 }

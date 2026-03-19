@@ -60,6 +60,9 @@ func EncodeMsgs(msgs []msgtypes.Message) ([]byte, error) {
 
 	// GOB encode Message list to []byte
 	err := enc.Encode(msgs)
+	if err != nil {
+		return nil, err
+	}
 
-	return buf.Bytes(), err
+	return buf.Bytes(), nil
 }

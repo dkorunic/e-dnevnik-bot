@@ -99,7 +99,13 @@ func parseFlags() {
 		logger.Info().Msgf("Poll interval is below %v, so I will default to %v",
 			durafmt.Parse(DefaultTickInterval).String(), durafmt.Parse(DefaultTickInterval))
 
-		*tickInterval = time.Hour
+		*tickInterval = DefaultTickInterval
+	}
+
+	if *relevancePeriod < 0 {
+		logger.Info().Msg("Negative relevance period is not valid, resetting to unlimited (0)")
+
+		*relevancePeriod = 0
 	}
 
 	if *debugEvents {

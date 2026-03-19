@@ -103,6 +103,13 @@ func checkWhatsAppConf(config *TomlConfig) {
 
 		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
 
+		// check if all group names are non-empty
+		for _, g := range config.WhatsApp.Groups {
+			if g == "" {
+				logger.Fatal().Msg("Configuration error: empty WhatsApp group name")
+			}
+		}
+
 		// sort group names for binary search in WhatsApp messenger
 		slices.SortFunc(config.WhatsApp.Groups, strings.Compare)
 

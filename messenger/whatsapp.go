@@ -86,8 +86,9 @@ var (
 	whatsAppCli             *whatsmeow.Client
 	whatsAppStore           *sqlstore.Container
 	WhatsAppVersion         = version.ReadVersion("go.mau.fi/whatsmeow")
-	whatsAppGroupsOnce      sync.Once // runs group→JID resolution at most once per process lifetime
-	whatsAppResolvedUserIDs []string  // resolved JIDs cached across poll cycles
+	whatsAppGroupsMu        sync.Mutex // protects whatsAppGroupsResolved and whatsAppResolvedUserIDs
+	whatsAppGroupsResolved  bool       // true once groups have been successfully resolved
+	whatsAppResolvedUserIDs []string   // resolved JIDs cached across poll cycles
 )
 
 // WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
@@ -121,61 +122,70 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
-	// whatsAppGroupsOnce gates the group→JID resolution: it runs at most once per
-	// process lifetime. Without it the in-memory config (never updated after startup)
-	// would trigger a GetJoinedGroups API call and a redundant config rewrite on
-	// every tick after the first successful resolution.
-	whatsAppGroupsOnce.Do(func() {
-		userIDSize := len(userIDs)
+	// Attempt group→JID resolution if not yet successfully completed.
+	// Unlike sync.Once, this retries on failure so a transient GetJoinedGroups
+	// error does not permanently prevent group delivery.
+	if len(groups) > 0 {
+		whatsAppGroupsMu.Lock()
+		needsResolution := !whatsAppGroupsResolved
+		whatsAppGroupsMu.Unlock()
 
-		// find named groups and append to userIDs
-		userIDs = whatsAppProcessGroups(ctx, userIDs, groups)
+		if needsResolution {
+			userIDSize := len(userIDs)
 
-		// cache resolved JIDs so subsequent poll cycles use them even when
-		// the config rewrite fails or the config file is not writable
-		whatsAppResolvedUserIDs = userIDs
+			// find named groups and append to userIDs
+			userIDs = whatsAppProcessGroups(ctx, userIDs, groups)
 
-		// rewrite config if groups are specified and userIDs have changed
-		//nolint:nestif
-		if len(groups) > 0 && len(userIDs) > userIDSize {
-			if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
-				if isWriteable(confFile) {
-					logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
+			if len(userIDs) > userIDSize {
+				// At least one group resolved successfully; cache and stop retrying.
+				whatsAppGroupsMu.Lock()
+				whatsAppGroupsResolved = true
+				whatsAppResolvedUserIDs = userIDs
+				whatsAppGroupsMu.Unlock()
 
-					cfg, err := config.LoadConfig(confFile)
-					if err != nil {
-						logger.Error().Msgf("Error loading configuration: %v", err)
-					} else {
-						cfg.WhatsApp.UserIDs = userIDs
-						cfg.WhatsApp.Groups = []string{}
+				// rewrite config if groups are specified and userIDs have changed
+				//nolint:nestif
+				if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
+					if isWriteable(confFile) {
+						logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
 
-						if err = config.SaveConfig(confFile, cfg); err != nil {
-							logger.Error().Msgf("Error saving configuration: %v", err)
+						cfg, err := config.LoadConfig(confFile)
+						if err != nil {
+							logger.Error().Msgf("Error loading configuration: %v", err)
+						} else {
+							cfg.WhatsApp.UserIDs = userIDs
+							cfg.WhatsApp.Groups = []string{}
+
+							if err = config.SaveConfig(confFile, cfg); err != nil {
+								logger.Error().Msgf("Error saving configuration: %v", err)
+							}
 						}
+					} else {
+						logger.Info().Msg("Detected WhatsApp group with a name but rewriting configuration is impossible due to lack of permissions")
 					}
-				} else {
-					logger.Info().Msg("Detected WhatsApp group with a name but rewriting configuration is impossible due to lack of permissions")
 				}
 			}
+			// If no groups resolved this tick, don't cache — retry on next poll cycle.
+		} else {
+			// Use JIDs cached from a previous successful resolution.
+			whatsAppGroupsMu.Lock()
+			userIDs = whatsAppResolvedUserIDs
+			whatsAppGroupsMu.Unlock()
 		}
-	})
-
-	// use cached resolved JIDs from the first poll cycle (covers the case where
-	// the config rewrite failed and the caller still passes unresolved group names)
-	if len(whatsAppResolvedUserIDs) > 0 {
-		userIDs = whatsAppResolvedUserIDs
 	}
 
 	var g msgtypes.Message
 
-	// process failed messages
-	for _, g = range queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName) {
-		select {
-		case <-ctx.Done():
+	// process failed messages; re-queue any unprocessed on cancellation
+	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName)
+	for i, g := range failedMsgs {
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, WhatsAppQueueName, failedMsgs[i:])
+
 			return ctx.Err()
-		default:
-			processWhatsApp(ctx, eDB, g, userIDs, rl, retries)
 		}
+
+		processWhatsApp(ctx, eDB, g, userIDs, rl, retries)
 	}
 
 	// process all new messages

@@ -164,8 +164,18 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		var rawCourse []byte
 
 		for _, s := range subjects {
-			// requires additional fetch
-			rawCourse, err = client.GetCourse(s.URL)
+			// requires additional fetch, retry-wrapped like all other fetches
+			err = retry.New(
+				retry.Attempts(retries),
+				retry.Context(ctx),
+			).Do(
+				func() error {
+					var err error
+					rawCourse, err = client.GetCourse(s.URL)
+
+					return err
+				},
+			)
 			if err != nil {
 				return err
 			}

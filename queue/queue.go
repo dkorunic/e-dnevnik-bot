@@ -33,6 +33,19 @@ import (
 
 var ErrQueueing = errors.New("problem with persistent queue")
 
+// RequeueMsgs stores a slice of messages back into the persistent queue using a
+// background context. It is intended for use when the caller's context has been
+// cancelled and unprocessed messages must not be lost.
+func RequeueMsgs(eDB *sqlitedb.Edb, key []byte, msgs []msgtypes.Message) {
+	ctx := context.Background()
+
+	for _, g := range msgs {
+		if err := StoreFailedMsgs(ctx, eDB, key, g); err != nil {
+			logger.Error().Msgf("%v: %v", ErrQueueing, err)
+		}
+	}
+}
+
 // StoreFailedMsgs stores a message in a persistent queue identified by key.
 // The message is appended to any existing messages in the queue, and the queue
 // is stored in the database using the given key.

@@ -274,8 +274,15 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 		return tx.Commit()
 	}
 
-	// Store new value with no TTL (expires_at = NULL)
-	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, newVal)
+	if len(newVal) == 0 {
+		// Empty value means the queue has been drained; delete the row entirely
+		// rather than leaving a NULL-TTL zombie that cleanup() never removes.
+		_, err = tx.ExecContext(ctx, "DELETE FROM kv WHERE key = ?", key)
+	} else {
+		// Store new value with no TTL (expires_at = NULL)
+		_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, newVal)
+	}
+
 	if err != nil {
 		return err
 	}
