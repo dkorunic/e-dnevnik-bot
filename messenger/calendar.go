@@ -26,6 +26,7 @@ import (
 	"embed"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -63,6 +64,7 @@ var (
 
 	calendarSrv *calendar.Service // cached Google Calendar service, initialized once
 	calendarID  string            // cached calendar ID, resolved once
+	calendarMu  sync.Mutex        // guards calendarSrv and calendarID initialisation
 )
 
 //go:embed assets/calendar_credentials.json
@@ -80,14 +82,20 @@ var credentialFS embed.FS
 //
 // It returns an error indicating any failures that occurred during the process.
 func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, name, tokFile string, retries uint) error {
+	calendarMu.Lock()
+
 	if calendarSrv == nil || calendarID == "" {
 		var err error
 
 		calendarSrv, calendarID, err = InitCalendar(ctx, tokFile, name)
 		if err != nil {
+			calendarMu.Unlock()
+
 			return err
 		}
 	}
+
+	calendarMu.Unlock()
 
 	srv := calendarSrv
 	calID := calendarID

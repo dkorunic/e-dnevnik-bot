@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -57,6 +58,7 @@ var (
 
 	SlackQueueName = []byte(SlackQueue)
 	slackCli       *socketmode.Client
+	slackMu        sync.Mutex // guards slackCli initialisation
 	SlackVersion   = version.ReadVersion("github.com/slack-go/slack")
 )
 
@@ -192,6 +194,9 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 // Slack client with socket mode enabled. If the client has already been
 // initialized, the function does nothing.
 func slackInit(ctx context.Context, token string) error {
+	slackMu.Lock()
+	defer slackMu.Unlock()
+
 	if slackCli == nil {
 		logger.Debug().Msg("Initializing Slack client")
 

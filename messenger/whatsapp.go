@@ -84,6 +84,7 @@ var (
 
 	WhatsAppQueueName       = []byte(WhatsAppQueue)
 	whatsAppCli             *whatsmeow.Client
+	whatsAppCliMu           sync.Mutex // guards whatsAppCli and whatsAppStore initialisation
 	whatsAppStore           *sqlstore.Container
 	WhatsAppVersion         = version.ReadVersion("go.mau.fi/whatsmeow")
 	whatsAppGroupsMu        sync.Mutex // protects whatsAppGroupsResolved and whatsAppResolvedUserIDs
@@ -283,6 +284,9 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 // to disconnect and then reconnect the client. The function returns an error
 // if any step of the initialization or connection process fails.
 func whatsAppInit(ctx context.Context) error {
+	whatsAppCliMu.Lock()
+	defer whatsAppCliMu.Unlock()
+
 	if whatsAppCli == nil || whatsAppStore == nil {
 		logger.Debug().Msg("Initializing WhatsApp client")
 

@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -56,6 +57,7 @@ var (
 
 	TelegramQueueName = []byte(TelegramQueue)
 	telegramCli       *bot.Bot
+	telegramMu        sync.Mutex // guards telegramCli initialisation
 	TelegramVersion   = version.ReadVersion("github.com/go-telegram/bot")
 )
 
@@ -206,6 +208,9 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 //
 // The function returns an error if there was a problem creating the client or starting the session.
 func telegramInit(ctx context.Context, apiKey string) error {
+	telegramMu.Lock()
+	defer telegramMu.Unlock()
+
 	var err error
 
 	if telegramCli == nil {

@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -56,6 +57,7 @@ var (
 	MailVersion   = version.ReadVersion("github.com/wneessen/go-mail")
 
 	mailCli *mail.Client
+	mailMu  sync.Mutex // guards mailCli initialisation
 )
 
 // Mail sends messages through the mail service to the specified recipients.
@@ -120,6 +122,9 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 
 // mailInit initializes the mail client once, reusing it across all subsequent calls.
 func mailInit(server string, portInt int, username, password string) error {
+	mailMu.Lock()
+	defer mailMu.Unlock()
+
 	if mailCli == nil {
 		logger.Debug().Msg("Initializing e-mail client")
 

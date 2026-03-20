@@ -27,6 +27,19 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
+// markupReplacer escapes Markdown special characters in a single pass.
+// Backslash is listed first so it is replaced before any of the escape
+// sequences that introduce a backslash are written.
+var markupReplacer = strings.NewReplacer(
+	`\`, `\\`,
+	`*`, `\*`,
+	`_`, `\_`,
+	"`", "\\`",
+	`~`, `\~`,
+	`[`, `\[`,
+	`]`, `\]`,
+)
+
 // MarkupMsg formats grade report as preformatted Markup block in a string.
 func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := builderPool.Get().(*strings.Builder)
@@ -48,17 +61,8 @@ func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, 
 // markupEscapeString escapes Markdown special characters in s to prevent them
 // from being interpreted as formatting syntax in Slack mrkdwn and Telegram
 // MarkdownV1 (e.g. a subject name containing '*' or '_' would break bold wrapping).
-// Backslash must be escaped first to avoid double-escaping the escape sequences.
 func markupEscapeString(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `*`, `\*`)
-	s = strings.ReplaceAll(s, `_`, `\_`)
-	s = strings.ReplaceAll(s, "`", "\\`")
-	s = strings.ReplaceAll(s, `~`, `\~`)
-	s = strings.ReplaceAll(s, `[`, `\[`)
-	s = strings.ReplaceAll(s, `]`, `\]`)
-
-	return s
+	return markupReplacer.Replace(s)
 }
 
 // markupAddHeader adds Markup bold header containing username and subject name, and a delimiter.

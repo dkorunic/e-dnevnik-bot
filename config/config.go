@@ -146,9 +146,12 @@ func checkMailConf(config *TomlConfig) {
 			logger.Fatal().Msg("Configuration error: no mail to addresses defined")
 		}
 
-		logger.Info().Msg("Configuration: mail messenger enabled")
+		// check if FROM address is valid (when specified)
+		if config.Mail.From != "" && !isValidMail(config.Mail.From) {
+			logger.Fatal().Msgf("Configuration error: mail from %v is not in mail format", config.Mail.From)
+		}
 
-		// no need to check mail FROM since it can be anything
+		logger.Info().Msg("Configuration: mail messenger enabled")
 
 		// check if all destination mail addresses are valid
 		for _, t := range config.Mail.To {

@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -56,6 +57,7 @@ var (
 	DiscordQueueName = []byte(DiscordQueue)
 	discordCli       *discordgo.Session
 	discordChannels  map[string]string // cached DM channel IDs per user ID
+	discordMu        sync.Mutex        // guards discordCli and discordChannels initialisation
 	DiscordVersion   = version.ReadVersion("github.com/bwmarrin/discordgo")
 )
 
@@ -233,6 +235,9 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 //
 // The function logs errors if there was a problem creating the client or starting the session.
 func discordInit(token string) error {
+	discordMu.Lock()
+	defer discordMu.Unlock()
+
 	var err error
 
 	if discordCli == nil {
