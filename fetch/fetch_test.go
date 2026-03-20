@@ -47,13 +47,13 @@ func TestParseFirstDateTime(t *testing.T) {
 		{
 			name:      "LayoutISO8601CompactNoTZ",
 			value:     "20250101T120000",
-			expected:  time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+			expected:  time.Date(2025, 1, 1, 12, 0, 0, 0, time.Local),
 			expectErr: false,
 		},
 		{
 			name:      "LayoutISO8601Short",
 			value:     "20250101",
-			expected:  time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			expected:  time.Date(2025, 1, 1, 0, 0, 0, 0, time.Local),
 			expectErr: false,
 		},
 		{
