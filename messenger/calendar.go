@@ -42,6 +42,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -195,11 +196,20 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	rl.Take()
 
-	// retryable and cancellable attempt
+	// retryable and cancellable attempt; 409 Conflict means the event already
+	// exists (deterministic ID hit), so do not retry — treat it as success.
 	err = retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
 		retry.Delay(CalendarMinDelay),
+		retry.RetryIf(func(err error) bool {
+			var gaErr *googleapi.Error
+			if errors.As(err, &gaErr) {
+				return gaErr.Code != http.StatusConflict
+			}
+
+			return true
+		}),
 	).Do(
 		func() error {
 			_, err := srv.Events.Insert(calID, newEvent).Context(ctx).Do()
@@ -208,6 +218,13 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		},
 	)
 	if err != nil {
+		var gaErr *googleapi.Error
+		if errors.As(err, &gaErr) && gaErr.Code == http.StatusConflict {
+			logger.Debug().Msgf("Google Calendar event already exists (idempotent insert): %v", newEvent.Id)
+
+			return
+		}
+
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
 		// store failed message

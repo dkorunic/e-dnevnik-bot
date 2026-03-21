@@ -177,7 +177,7 @@ func checkSlackConf(config *TomlConfig) {
 	if config.Slack.Token != "" {
 		// check if token is valid
 		if !isValidSlackToken(config.Slack.Token) {
-			logger.Fatal().Msgf("Configuration error: Slack token %v is not valid", config.Slack.Token)
+			logger.Fatal().Msgf("Configuration error: Slack token %v... is not valid", config.Slack.Token[:min(8, len(config.Slack.Token))])
 		}
 
 		// check if User IDs are defined
@@ -211,7 +211,7 @@ func checkTelegramConf(config *TomlConfig) {
 	if config.Telegram.Token != "" {
 		// check if token is valid
 		if !isValidTelegramToken(config.Telegram.Token) {
-			logger.Fatal().Msgf("Configuration error: Telegram token %v is not valid", config.Telegram.Token)
+			logger.Fatal().Msgf("Configuration error: Telegram token %v... is not valid", config.Telegram.Token[:min(8, len(config.Telegram.Token))])
 		}
 
 		// check if User IDs are defined
@@ -245,7 +245,7 @@ func checkDiscordConf(config *TomlConfig) {
 	if config.Discord.Token != "" {
 		// check if token is valid
 		if !isValidDiscordToken(config.Discord.Token) {
-			logger.Fatal().Msgf("Configuration error: Discord token %v is not valid", config.Discord.Token)
+			logger.Fatal().Msgf("Configuration error: Discord token %v... is not valid", config.Discord.Token[:min(8, len(config.Discord.Token))])
 		}
 
 		// check if User IDs are defined
