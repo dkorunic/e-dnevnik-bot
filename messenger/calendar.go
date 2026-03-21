@@ -25,6 +25,7 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/queue"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/version"
+	"github.com/minio/sha256-simd"
 	"go.uber.org/ratelimit"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -115,6 +117,12 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 
 		processCalendar(ctx, eDB, g, now, rl, srv, calID, retries)
+
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, CalendarQueueName, failedMsgs[i+1:])
+
+			return ctx.Err()
+		}
 	}
 
 	// process all messages
@@ -164,8 +172,17 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		return
 	}
 
+	// derive a deterministic event ID from username+subject+date so that a
+	// retry after a lost HTTP response inserts the same ID and the Calendar
+	// API deduplicates it instead of creating a duplicate entry.
+	// The ID uses lowercase hex (chars 0-9a-f), a valid subset of the
+	// base32hex alphabet required by the Google Calendar API.
+	idHash := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s",
+		g.Username, g.Subject, g.Timestamp.Format(time.DateOnly)))
+
 	// create an all day event
 	newEvent := &calendar.Event{
+		Id:      fmt.Sprintf("%x", idHash),
 		Summary: g.Username + CalendarExamSep + g.Subject,
 		Start: &calendar.EventDateTime{
 			Date: g.Timestamp.Format(time.DateOnly),

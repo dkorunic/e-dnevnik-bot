@@ -253,11 +253,23 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				// check if is the initial run and send only if not
 				//nolint:nestif
 				if !found && eDB.Existing() {
-					// check if it is an old grade edit that should be ignored
+					// check if it is an old grade/exam event that should be ignored
+					if *relevancePeriod > 0 && g.Code == msgtypes.Exam && !g.Timestamp.IsZero() {
+						if time.Since(g.Timestamp) > *relevancePeriod {
+							logger.Warn().Msgf("Ignoring old exam event: %v/%v: %+v", g.Username, g.Subject, g)
+
+							continue
+						}
+					}
+
 					if *relevancePeriod > 0 && g.Code == msgtypes.Grade && len(g.Fields) > 0 {
 						// XXX hardcoded location of the date for grades
 						t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 						if err != nil {
+							// Fail-open: if the date cannot be parsed we cannot determine
+							// relevance, so the event is passed through rather than silently
+							// dropped. This avoids missed alerts at the cost of potentially
+							// delivering a stale grade notification on unexpected date formats.
 							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
 						} else {
 							// assume current or previous year; dates in the "future" relative to today

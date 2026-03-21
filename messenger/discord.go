@@ -100,6 +100,12 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 		}
 
 		processDiscord(ctx, eDB, g, userIDs, rl, retries)
+
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, DiscordQueueName, failedMsgs[i+1:])
+
+			return ctx.Err()
+		}
 	}
 
 	// process all messages
@@ -168,7 +174,9 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		rl.Take()
 
 		// resolve DM channel ID, creating only on first use per recipient
+		discordMu.Lock()
 		channelID, ok := discordChannels[u]
+		discordMu.Unlock()
 
 		var err error
 
@@ -188,7 +196,9 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			}
 
 			channelID = c.ID
+			discordMu.Lock()
 			discordChannels[u] = channelID
+			discordMu.Unlock()
 		}
 
 		// retryable and cancellable attempt to send a message

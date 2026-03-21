@@ -98,6 +98,12 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 		}
 
 		processSlack(ctx, eDB, g, chatIDs, rl, retries)
+
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, SlackQueueName, failedMsgs[i+1:])
+
+			return ctx.Err()
+		}
 	}
 
 	// process all messages

@@ -105,6 +105,12 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 		}
 
 		processMail(ctx, eDB, g, to, from, subject, rl, retries)
+
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, MailQueueName, failedMsgs[i+1:])
+
+			return ctx.Err()
+		}
 	}
 
 	// process all messages

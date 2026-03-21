@@ -185,6 +185,12 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 
 		processWhatsApp(ctx, eDB, g, userIDs, rl, retries)
+
+		if ctx.Err() != nil {
+			queue.RequeueMsgs(eDB, WhatsAppQueueName, failedMsgs[i+1:])
+
+			return ctx.Err()
+		}
 	}
 
 	// process all new messages
