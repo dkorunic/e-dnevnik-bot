@@ -32,7 +32,7 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260321154921-234105b0ae55
+	go.mau.fi/whatsmeow v0.0.0-20260322133016-ce4daa5e5a86
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.272.0

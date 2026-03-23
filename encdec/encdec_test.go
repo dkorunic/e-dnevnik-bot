@@ -99,3 +99,32 @@ func TestEncodeDecode(t *testing.T) {
 		t.Errorf("DecodeMsgs(nil) should return empty slice, got %d messages", len(nilResult))
 	}
 }
+
+// TestEncodeDecodEmptyRoundTrip verifies Bug 14 from TESTING-PLAN:
+// EncodeMsgs([]Message{}) returns a non-nil []byte{} (not nil).
+// DecodeMsgs must treat that non-nil empty slice as "no messages" and return
+// an empty list without error. A mutation changing `len(val)==0` to `val==nil`
+// in DecodeMsgs would cause gob.NewDecoder to receive zero bytes and return EOF.
+func TestEncodeDecodEmptyRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := EncodeMsgs([]msgtypes.Message{})
+	if err != nil {
+		t.Fatalf("EncodeMsgs(empty) failed: %v", err)
+	}
+
+	// The returned value must be non-nil (not nil) so that a nil-check guard
+	// in DecodeMsgs cannot bypass the len==0 guard.
+	if encoded == nil {
+		t.Error("EncodeMsgs(empty) returned nil; want non-nil []byte{}")
+	}
+
+	decoded, err := DecodeMsgs(encoded)
+	if err != nil {
+		t.Fatalf("DecodeMsgs(EncodeMsgs(empty)) failed: %v (len==0 guard replaced with val==nil?)", err)
+	}
+
+	if len(decoded) != 0 {
+		t.Errorf("DecodeMsgs(EncodeMsgs(empty)) returned %d messages, want 0", len(decoded))
+	}
+}

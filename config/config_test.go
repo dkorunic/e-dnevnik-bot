@@ -213,3 +213,43 @@ func TestValidators(t *testing.T) {
 		t.Error("isValidID() failed with zero")
 	}
 }
+
+// TestValidatorsNegativeCases covers the mutation-specific edge cases from
+// TESTING-PLAN section 13 that are not exercised by TestValidators.
+
+// TestIsValidIDRejectsNegative verifies Bug 13A:
+// changing ParseUint → ParseInt would accept "-1" as a valid ID.
+// Discord/WhatsApp user IDs must be non-negative integers.
+func TestIsValidIDRejectsNegative(t *testing.T) {
+	t.Parallel()
+
+	if isValidID("-1") {
+		t.Error("isValidID(\"-1\") returned true — negative IDs must be rejected (ParseUint→ParseInt mutation)")
+	}
+
+	if isValidID("-1234567") {
+		t.Error("isValidID(\"-1234567\") returned true — negative IDs must be rejected")
+	}
+}
+
+// TestIsValidTelegramChatIDAcceptsLargeNegative verifies Bug 13B:
+// removing the leading `-?` from the regex would reject group chat IDs.
+// Telegram supergroup/channel IDs are large negative integers.
+func TestIsValidTelegramChatIDAcceptsLargeNegative(t *testing.T) {
+	t.Parallel()
+
+	if !isValidTelegramChatID("-1001234567890") {
+		t.Error("isValidTelegramChatID(\"-1001234567890\") returned false — large negative group IDs must be accepted")
+	}
+}
+
+// TestIsValidPhoneRejectsLeadingZero verifies Bug 13C:
+// changing [1-9] → [0-9] in the phone regex would accept "+01234567890".
+// No ITU-T country code starts with 0; such a number is invalid.
+func TestIsValidPhoneRejectsLeadingZero(t *testing.T) {
+	t.Parallel()
+
+	if isValidPhone("+01234567890") {
+		t.Error("isValidPhone(\"+01234567890\") returned true — phone numbers with leading zero after + must be rejected")
+	}
+}

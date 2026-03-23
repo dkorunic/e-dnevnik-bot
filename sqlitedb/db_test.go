@@ -243,6 +243,82 @@ func TestFetchAndStoreExpiredKey(t *testing.T) {
 	}
 }
 
+// TestHashContentConcatenationOrder verifies Bugs 6A and 6B from TESTING-PLAN:
+// hashContent must concatenate bucket THEN subBucket THEN target fields.
+// Swapping bucket/subBucket (6A) or dropping subBucket (6B) changes the hash.
+// The expected value is the SHA-256 of the literal bytes "user"+"subject"+"field1"
+// in that order, acting as a golden-value oracle that fails for any reordering.
+func TestHashContentConcatenationOrder(t *testing.T) {
+	t.Parallel()
+
+	// Pre-computed oracle: SHA-256("usersubjectfield1").
+	// Recompute with: echo -n "usersubjectfield1" | sha256sum
+	expected := []byte{
+		0x35, 0xb8, 0x03, 0xf7, 0x3d, 0x4f, 0xe3, 0xbc,
+		0xb9, 0xfc, 0xcd, 0xf1, 0x75, 0x50, 0xe2, 0x34,
+		0x3d, 0x5e, 0x74, 0xc0, 0x55, 0xab, 0x79, 0x9c,
+		0x11, 0x7f, 0xab, 0x3c, 0x92, 0x61, 0x08, 0x22,
+	}
+
+	got := hashContent("user", "subject", []string{"field1"})
+
+	if !bytes.Equal(got, expected) {
+		t.Errorf("hashContent order mismatch:\ngot:  %x\nwant: %x\n(bucket/subBucket swapped or subBucket dropped?)", got, expected)
+	}
+
+	// Bug 6A: swapping bucket and subBucket must produce a DIFFERENT hash.
+	swapped := hashContent("subject", "user", []string{"field1"})
+	if bytes.Equal(got, swapped) {
+		t.Error("hashContent(bucket, subBucket) == hashContent(subBucket, bucket) — swap not detectable")
+	}
+
+	// Bug 6B: dropping subBucket from the computation must produce a DIFFERENT hash.
+	// The "drop subBucket" mutation would hash "user"+"field1" instead of
+	// "user"+"subject"+"field1", changing the digest.
+	// We verify this indirectly: a call that excludes "subject" from the input
+	// bytes must not equal the golden value.
+	droppedSub := hashContent("user", "", []string{"field1"})
+	if bytes.Equal(got, droppedSub) {
+		t.Error("hashContent without subBucket produced same hash — subBucket is not included in hash input")
+	}
+}
+
+// TestCheckAndFlagTTLReturnsTrueImmediately verifies Bug 7A from TESTING-PLAN:
+// a key that was just flagged must be found on the very next call.
+// The inverted-comparison mutation (`<` → `>`) would make every valid key appear
+// expired, causing CheckAndFlagTTL to always return false.
+func TestCheckAndFlagTTLReturnsTrueImmediately(t *testing.T) {
+	t.Parallel()
+
+	tmpFile := filepath.Join(os.TempDir(), "test-db-immediate-recheck.db.sqlite")
+	os.Remove(tmpFile)
+	defer os.Remove(tmpFile)
+
+	eDB, err := New(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer eDB.Close()
+
+	// First call: key is new → must return false.
+	found, err := eDB.CheckAndFlagTTL(context.Background(), "bucket", "sub", []string{"key"})
+	if err != nil {
+		t.Fatalf("first CheckAndFlagTTL failed: %v", err)
+	}
+	if found {
+		t.Fatal("first CheckAndFlagTTL should return false for a new key")
+	}
+
+	// Immediate second call: key now has a future TTL → must return true.
+	found, err = eDB.CheckAndFlagTTL(context.Background(), "bucket", "sub", []string{"key"})
+	if err != nil {
+		t.Fatalf("second CheckAndFlagTTL failed: %v", err)
+	}
+	if !found {
+		t.Error("second CheckAndFlagTTL should return true; inverted comparison bug would make it return false")
+	}
+}
+
 func TestCleanupRemovesExpiredKeys(t *testing.T) {
 	t.Parallel()
 	tmpFile := filepath.Join(os.TempDir(), "test-db-cleanup.db.sqlite")

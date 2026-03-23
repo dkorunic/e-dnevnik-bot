@@ -173,3 +173,56 @@ func TestConsumeICalEmptyCalendar(t *testing.T) {
 		t.Errorf("expected 0 events from empty calendar, got %d", len(*events))
 	}
 }
+
+// TestParseFirstDateTimeUsesLocalForNoTZLayouts verifies Bug 1A from TESTING-PLAN:
+// layouts without embedded timezone info must be parsed in time.Local, not UTC.
+// A mutation that replaces time.ParseInLocation with time.Parse would cause
+// no-TZ timestamps to be interpreted as UTC, producing wrong times in non-UTC zones.
+func TestParseFirstDateTimeUsesLocalForNoTZLayouts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		layout string
+		value  string
+	}{
+		{"compact-no-tz", LayoutISO8601CompactNoTZ, "20250612T080000"},
+		{"date-only", LayoutISO8601Short, "20250612"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseFirstDateTime([]string{tc.layout}, tc.value)
+			if err != nil {
+				t.Fatalf("parseFirstDateTime(%q) unexpected error: %v", tc.value, err)
+			}
+
+			// The result must be in time.Local. Converting to UTC must change the
+			// time value in any non-UTC zone — but we can't assert that directly
+			// because CI may run in UTC. Instead, assert Location() == time.Local,
+			// which is set only by time.ParseInLocation, not time.Parse.
+			if got.Location() != time.Local {
+				t.Errorf("parseFirstDateTime(%q) location = %v, want time.Local", tc.value, got.Location())
+			}
+		})
+	}
+}
+
+// TestParseFirstDateTimeUTCForTZLayouts verifies the counterpart: layouts that
+// embed timezone info (Z/offset) must NOT force time.Local — the parsed result
+// should honour the embedded offset (UTC in the Z case).
+func TestParseFirstDateTimeUTCForTZLayouts(t *testing.T) {
+	t.Parallel()
+
+	got, err := parseFirstDateTime([]string{LayoutISO8601CompactZ}, "20250612T120000Z")
+	if err != nil {
+		t.Fatalf("parseFirstDateTime unexpected error: %v", err)
+	}
+
+	// A "Z" suffix means UTC; the parsed location should be UTC.
+	if got.UTC().Hour() != 12 {
+		t.Errorf("parseFirstDateTime Z-suffix: expected hour 12 UTC, got %d", got.UTC().Hour())
+	}
+}

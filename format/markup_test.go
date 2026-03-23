@@ -39,3 +39,45 @@ func TestMarkupAddHeader(t *testing.T) {
 		t.Errorf("markupAddHeader() = %q, want %q", result, expected)
 	}
 }
+
+// TestMarkupEscapeStringBackslash verifies Bug 11 from TESTING-PLAN:
+// a literal backslash in a subject name must be escaped to `\\`.
+// Omitting the backslash rule from markupReplacer would let raw `\` pass through,
+// breaking Slack/Telegram Markdown rendering.
+func TestMarkupEscapeStringBackslash(t *testing.T) {
+	t.Parallel()
+
+	got := markupEscapeString(`\test`)
+	if got != `\\test` {
+		t.Errorf("markupEscapeString backslash: got %q, want %q", got, `\\test`)
+	}
+}
+
+// TestMarkupEscapeStringSpecialChars verifies that all other Markdown metacharacters
+// are escaped, guarding against partial removal of the replacer rules.
+func TestMarkupEscapeStringSpecialChars(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{`*bold*`, `\*bold\*`},
+		{`_italic_`, `\_italic\_`},
+		{"`code`", "\\`code\\`"},
+		{`~strike~`, `\~strike\~`},
+		{`[link]`, `\[link\]`},
+		{`\back`, `\\back`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
+
+			got := markupEscapeString(tc.input)
+			if got != tc.want {
+				t.Errorf("markupEscapeString(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

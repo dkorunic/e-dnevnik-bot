@@ -49,3 +49,54 @@ func TestTruncateWithEllipsis(t *testing.T) {
 		})
 	}
 }
+
+// TestTruncateWithEllipsisRuneCount verifies Bug 12A from TESTING-PLAN:
+// the result must never exceed max runes. A mutation changing `m-3` to `m-2`
+// in the cutoff calculation produces a result that is m+1 runes long.
+func TestTruncateWithEllipsisRuneCount(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		input string
+		max   int
+	}{
+		{"ascii", "abcdefghijk", 8},
+		{"unicode", "héllo wörld extra", 9},
+		{"exactly-max-plus-1", "abcde", 4},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := truncateWithEllipsis(tc.input, tc.max)
+			runeCount := len([]rune(got))
+
+			if runeCount > tc.max {
+				t.Errorf("truncateWithEllipsis(%q, %d) = %q has %d runes, exceeds max %d (m-3→m-2 mutation?)",
+					tc.input, tc.max, got, runeCount, tc.max)
+			}
+		})
+	}
+}
+
+// TestTruncateWithEllipsisMinimumCase verifies Bug 12B from TESTING-PLAN:
+// with m=4 and a 5-rune string, the result must be exactly 4 runes
+// (1 content rune + "..."). The `>=` mutation would fire one rune too early,
+// producing "..." with no content rune (3 runes) for a 4-rune input.
+func TestTruncateWithEllipsisMinimumCase(t *testing.T) {
+	t.Parallel()
+
+	// 5-rune ASCII string, max=4: should give "a..."
+	got := truncateWithEllipsis("abcde", 4)
+	runeCount := len([]rune(got))
+
+	if runeCount != 4 {
+		t.Errorf("truncateWithEllipsis(%q, 4) = %q has %d runes, want exactly 4", "abcde", got, runeCount)
+	}
+
+	if got != "a..." {
+		t.Errorf("truncateWithEllipsis(%q, 4) = %q, want %q", "abcde", got, "a...")
+	}
+}

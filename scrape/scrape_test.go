@@ -25,6 +25,7 @@ package scrape
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -453,5 +454,157 @@ func TestCleanEventDescription(t *testing.T) {
 				t.Errorf("cleanEventDescription() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCleanEventDescriptionReturnAfterNotBefore verifies Bug 2 from TESTING-PLAN:
+// strings.Cut returns (before, after, found); the function must return the AFTER
+// portion. A mutation that swaps to returning `before` would return the subject
+// label instead of the description, causing all exam events to re-alert.
+func TestCleanEventDescriptionReturnAfterNotBefore(t *testing.T) {
+	t.Parallel()
+
+	input := "Matematika: Pisanje testa"
+	want := "Pisanje testa"
+
+	got := cleanEventDescription(input)
+	if got != want {
+		t.Errorf("cleanEventDescription(%q) = %q, want %q (got before instead of after?)", input, got, want)
+	}
+
+	// Explicitly confirm the subject label is NOT returned.
+	if got == "Matematika" {
+		t.Errorf("cleanEventDescription returned the 'before' part (subject label) instead of the 'after' part (description)")
+	}
+}
+
+// TestTrimAllSpaceConcurrent verifies Bug 3C from TESTING-PLAN:
+// the pool builder must NOT be returned before b.String() is called.
+// Run under -race to detect the data race that would occur if the order were reversed.
+func TestTrimAllSpaceConcurrent(t *testing.T) {
+	t.Parallel()
+
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			// Each goroutine exercises trimAllSpace with inputs that need normalisation
+			// (leading space, trailing space, mid-run spaces) so pass 2 is always taken.
+			inputs := []string{"  hello world  ", "foo  bar", "\nhello\nworld\n", "  a  b  c  "}
+			for _, s := range inputs {
+				_ = trimAllSpace(s)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+// TestParseEventsFieldOrder verifies Bug 5 from TESTING-PLAN:
+// Fields must be ordered [subject, date, description], matching the parallel
+// Descriptions slice ["Predmet", "Datum ispita", "Napomena"].
+// A mutation swapping subject and timestamp in Fields would be caught here.
+func TestParseEventsFieldOrder(t *testing.T) {
+	t.Parallel()
+
+	events := fetch.Events{
+		{
+			Summary:     "Matematika: Pisanje testa",
+			Description: "Algebra poglavlje 3",
+			Start:       time.Date(2025, 6, 12, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	ch := make(chan msgtypes.Message, 1)
+
+	if err := parseEvents(context.Background(), ch, "testuser", events, false, "ClassA"); err != nil {
+		t.Fatalf("parseEvents failed: %v", err)
+	}
+
+	close(ch)
+
+	msg := <-ch
+
+	// Fields[0] must be the subject name (after stripping the "Subject: " prefix).
+	if len(msg.Fields) < 3 {
+		t.Fatalf("expected at least 3 fields, got %d", len(msg.Fields))
+	}
+
+	// Fields[0] is the subject (cleanEventDescription output).
+	if msg.Fields[0] != "Pisanje testa" {
+		t.Errorf("Fields[0] = %q, want %q (subject name)", msg.Fields[0], "Pisanje testa")
+	}
+
+	// Fields[1] is the formatted date.
+	if msg.Fields[1] != "12.06.2025." {
+		t.Errorf("Fields[1] = %q, want %q (formatted date)", msg.Fields[1], "12.06.2025.")
+	}
+
+	// Fields[2] is the description/remark.
+	if msg.Fields[2] != "Algebra poglavlje 3" {
+		t.Errorf("Fields[2] = %q, want %q (description)", msg.Fields[2], "Algebra poglavlje 3")
+	}
+}
+
+// TestParseCourseDistinctFinalGradeSubjectPerClass verifies Bug 4 from TESTING-PLAN:
+// single-class final grades must include the class name in Subject so that
+// grades from different school years with the same subject name produce
+// distinct database hashes. Removing the "if !multiClass" suffix block
+// would make both FinalGrade Messages have identical Subject fields.
+func TestParseCourseDistinctFinalGradeSubjectPerClass(t *testing.T) {
+	t.Parallel()
+
+	html := `
+	<div class="content">
+		<div class="flex-table s grades-table">
+			<div class="row final-grade">
+				<div class="cell bold first"><span>Zaključna ocjena</span></div>
+				<div class="cell"><span>5</span></div>
+			</div>
+		</div>
+	</div>`
+
+	ch1 := make(chan msgtypes.Message, 2)
+
+	if err := parseCourse(context.Background(), ch1, "testuser", []byte(html), false, "ClassA", "Matematika"); err != nil {
+		t.Fatalf("parseCourse ClassA failed: %v", err)
+	}
+
+	close(ch1)
+
+	ch2 := make(chan msgtypes.Message, 2)
+
+	if err := parseCourse(context.Background(), ch2, "testuser", []byte(html), false, "ClassB", "Matematika"); err != nil {
+		t.Fatalf("parseCourse ClassB failed: %v", err)
+	}
+
+	close(ch2)
+
+	var subjectA, subjectB string
+
+	for msg := range ch1 {
+		if msg.Code == msgtypes.FinalGrade {
+			subjectA = msg.Subject
+		}
+	}
+
+	for msg := range ch2 {
+		if msg.Code == msgtypes.FinalGrade {
+			subjectB = msg.Subject
+		}
+	}
+
+	if subjectA == "" || subjectB == "" {
+		t.Fatal("expected FinalGrade messages from both parseCourse calls")
+	}
+
+	if subjectA == subjectB {
+		t.Errorf("FinalGrade subjects must differ per class; both returned %q", subjectA)
 	}
 }

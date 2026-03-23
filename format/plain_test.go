@@ -72,3 +72,43 @@ func TestPlainAddHeader(t *testing.T) {
 		t.Errorf("plainAddHeader() = %q, want %q", result, expected)
 	}
 }
+
+// TestPlainFormatSubjectAllCodes verifies Bug 10 from TESTING-PLAN:
+// each EventCode must map to its own distinct prefix. A mutation swapping the
+// Grade and Exam cases would make grades display the exam prefix and vice versa.
+func TestPlainFormatSubjectAllCodes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		code   msgtypes.EventCode
+		prefix string
+	}{
+		{msgtypes.Grade, GradePrefix},
+		{msgtypes.Exam, ExamPrefix},
+		{msgtypes.Reading, ReadingPrefix},
+		{msgtypes.FinalGrade, FinalGradePrefix},
+		{msgtypes.NationalExam, NationalExamPrefix},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.prefix, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			PlainFormatSubject(&sb, "u", "s", tc.code)
+			got := sb.String()
+
+			if !strings.HasPrefix(got, tc.prefix) {
+				t.Errorf("PlainFormatSubject code %v: got %q, want prefix %q (Grade/Exam prefix swapped?)", tc.code, got, tc.prefix)
+			}
+
+			// Explicitly verify no other prefix appears at the start.
+			for _, other := range cases {
+				if other.code != tc.code && strings.HasPrefix(got, other.prefix) {
+					t.Errorf("PlainFormatSubject code %v: got prefix %q, which belongs to code %v", tc.code, other.prefix, other.code)
+				}
+			}
+		})
+	}
+}
