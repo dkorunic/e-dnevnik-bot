@@ -21,13 +21,13 @@ require (
 	github.com/iguanesolutions/go-systemd/v6 v6.0.0
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
 	github.com/lib4u/fake-useragent v1.0.6
-	github.com/mattn/go-isatty v0.0.20
+	github.com/mattn/go-isatty v0.0.21
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/minio/sha256-simd v1.0.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.0
-	github.com/slack-go/slack v0.21.0
+	github.com/slack-go/slack v0.21.1
 	github.com/spf13/cast v1.10.0
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
@@ -35,8 +35,8 @@ require (
 	go.mau.fi/whatsmeow v0.0.0-20260327181659-02ec817e7cf4
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
-	google.golang.org/api v0.274.0
-	modernc.org/sqlite v1.48.1
+	google.golang.org/api v0.275.0
+	modernc.org/sqlite v1.48.2
 )
 
 require (
@@ -71,16 +71,16 @@ require (
 	go.mau.fi/libsignal v0.2.1 // indirect
 	go.mau.fi/util v0.9.7 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
+	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
 	golang.org/x/net v0.52.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/term v0.41.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/term v0.42.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
