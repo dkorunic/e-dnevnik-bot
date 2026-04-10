@@ -246,7 +246,10 @@ func whatsappPairingEventHandler(rawEvt any) {
 
 		logger.Info().Msg("WhatsApp app state sync completed")
 
-		whatsAppSynced <- struct{}{}
+		select {
+		case whatsAppSynced <- struct{}{}:
+		default:
+		}
 	case *events.Connected, *events.PushNameSetting:
 		if len(whatsAppPairingCli.Store.PushName) > 0 {
 			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceAvailable)

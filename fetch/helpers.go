@@ -86,6 +86,8 @@ func (c *Client) getCSRFToken() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
@@ -143,6 +145,8 @@ func (c *Client) doSAMLRequest() error {
 
 	// reject obvious server/client errors before reading the body
 	if resp.StatusCode >= http.StatusBadRequest {
+		_, _ = io.Copy(io.Discard, resp.Body)
+
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
@@ -206,6 +210,8 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
+		_, _ = io.Copy(io.Discard, resp.Body)
+
 		return nil, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
