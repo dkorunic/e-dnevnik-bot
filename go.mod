@@ -27,12 +27,12 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.0
-	github.com/slack-go/slack v0.21.1
+	github.com/slack-go/slack v0.22.0
 	github.com/spf13/cast v1.10.0
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260327181659-02ec817e7cf4
+	go.mau.fi/whatsmeow v0.0.0-20260410162419-b95d92207080
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.275.0
@@ -76,7 +76,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
-	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
+	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/term v0.42.0 // indirect
@@ -84,7 +84,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	modernc.org/libc v1.71.0 // indirect
+	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
