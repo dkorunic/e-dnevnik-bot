@@ -209,8 +209,12 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 
 	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 
-	// give additional time for WhatsApp to fully sync
-	time.Sleep(initialWhatsAppDelay)
+	// give additional time for WhatsApp to fully sync; honour cancellation
+	select {
+	case <-time.After(initialWhatsAppDelay):
+	case <-ctx.Done():
+		logger.Warn().Msg("Context cancelled while waiting for WhatsApp post-sync delay")
+	}
 }
 
 // whatsappPairingEventHandler is a callback function that handles events from the

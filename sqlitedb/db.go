@@ -86,6 +86,11 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 		return nil, fmt.Errorf("%w: %w", ErrSqliteOpen, err)
 	}
 
+	// SQLite does not benefit from multiple concurrent connections; a single
+	// connection eliminates write-lock contention without relying on busy_timeout.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
 	// Create table if not exists
 	query := `
 	CREATE TABLE IF NOT EXISTS kv (
@@ -126,6 +131,8 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 		edb, importErr = badgerDB2Sqlite(ctx, origFilePath, edb)
 	})
 	if importErr != nil {
+		_ = edb.Close()
+
 		return nil, importErr
 	}
 
