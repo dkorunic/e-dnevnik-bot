@@ -23,7 +23,7 @@ package main
 
 import (
 	"context"
-	"math/rand/v2"
+	"math/rand/v2" //nolint:gosec
 	"os"
 	"os/signal"
 	"runtime"
@@ -363,5 +363,5 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 // math/rand/v2 package.
 func durationRandJitter(x time.Duration) time.Duration {
 	//nolint:gosec,mnd
-	return time.Duration(int64(x) * (rand.Int64N(21) + 90) / 100)
+	return time.Duration(float64(x) * (float64(rand.Int64N(21)+90) / 100.0))
 }
