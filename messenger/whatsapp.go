@@ -90,6 +90,15 @@ var (
 	whatsAppGroupsMu        sync.Mutex // protects whatsAppGroupsResolved and whatsAppResolvedUserIDs
 	whatsAppGroupsResolved  bool       // true once groups have been successfully resolved
 	whatsAppResolvedUserIDs []string   // resolved JIDs cached across poll cycles
+
+	// WhatsAppPairingMu provides an explicit handoff between the one-shot
+	// interactive pairing performed during startup (see init.go's checkWhatsApp)
+	// and the runtime messenger client. The pairing code locks this for the full
+	// duration of its work — including the deferred Disconnect() and
+	// sqlstore.Container.Close() — so that whatsAppInit below cannot touch the
+	// same sqlite store concurrently. It must be exported so the main package
+	// can participate in the handoff.
+	WhatsAppPairingMu sync.Mutex
 )
 
 // WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
@@ -241,6 +250,12 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			continue
 		}
 
+		// Honour cancellation before blocking on the rate limiter so shutdown
+		// is not delayed by a pending token.
+		if ctx.Err() != nil {
+			break
+		}
+
 		rl.Take()
 
 		target, err := types.ParseJID(u)
@@ -283,6 +298,16 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 }
 
+// awaitWhatsAppPairingDone blocks until any in-progress interactive pairing
+// (held by the main package via WhatsAppPairingMu) has released the lock. It
+// exists as a separate function so the intentional empty critical section does
+// not trip linters in whatsAppInit.
+func awaitWhatsAppPairingDone() {
+	WhatsAppPairingMu.Lock()
+	//nolint:staticcheck // SA2001: intentional handoff barrier, no work held under lock
+	WhatsAppPairingMu.Unlock()
+}
+
 // whatsAppInit ensures that the WhatsApp client is initialized and connected.
 //
 // If the WhatsApp client is not already initialized, it calls whatsAppLogin()
@@ -290,6 +315,13 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 // to disconnect and then reconnect the client. The function returns an error
 // if any step of the initialization or connection process fails.
 func whatsAppInit(ctx context.Context) error {
+	// Block until any in-progress interactive pairing (started from
+	// checkWhatsApp in the main package) has fully released its sqlstore
+	// container and disconnected its client. The acquire/release pair is a
+	// deliberate handoff barrier — we only need to observe that Unlock() has
+	// been reached by the pairing goroutine, nothing happens while held.
+	awaitWhatsAppPairingDone()
+
 	whatsAppCliMu.Lock()
 	defer whatsAppCliMu.Unlock()
 

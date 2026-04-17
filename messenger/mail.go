@@ -224,6 +224,12 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetBodyString(mail.TypeTextPlain, plainContent)
 		m.AddAlternativeString(mail.TypeTextHTML, htmlContent)
 
+		// Honour cancellation before blocking on the rate limiter so shutdown
+		// is not delayed by a pending token.
+		if ctx.Err() != nil {
+			break
+		}
+
 		rl.Take()
 
 		// retryable and cancellable attempt to send a message

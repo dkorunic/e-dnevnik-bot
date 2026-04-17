@@ -108,6 +108,15 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		return
 	}
 
+	// Hold the messenger-side pairing mutex for the entire duration of this
+	// function. The deferred Unlock runs last (LIFO), so the messenger package's
+	// whatsAppInit cannot observe the lock as released until the inner defers
+	// — whatsAppPairingCli.Disconnect() and storeContainer.Close() — have both
+	// completed. This gives an explicit handoff point instead of relying on
+	// the implicit sequencing of main().
+	messenger.WhatsAppPairingMu.Lock()
+	defer messenger.WhatsAppPairingMu.Unlock()
+
 	// rename old WhatsApp database if it exists
 	if fi, err := os.Stat(WhatsAppDBOldName); err == nil && fi.Mode().IsRegular() {
 		logger.Debug().Msgf("Found old WhatsApp DB %v, renaming to %v", WhatsAppDBOldName, messenger.WhatsAppDBName)

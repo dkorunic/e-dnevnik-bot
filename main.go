@@ -62,6 +62,11 @@ var (
 	GitCommit     = ""
 	GitDirty      = ""
 	BuildTime     = ""
+
+	// bgWG tracks long-running background goroutines (e.g. the systemd
+	// watchdog) so that the shutdown path can give them a bounded chance to
+	// exit cleanly instead of sleeping unconditionally for exitDelay.
+	bgWG sync.WaitGroup
 )
 
 // fatalIfErrors is a Go function that checks if any errors were encountered during runtime.
@@ -213,7 +218,19 @@ func main() {
 				go spinner(spinnerDone)
 			}
 
-			time.Sleep(exitDelay)
+			// Wait for any in-flight background goroutines (e.g. systemd
+			// watchdog) to exit, capped at exitDelay so a stuck goroutine
+			// cannot stall shutdown indefinitely.
+			bgDone := make(chan struct{})
+			go func() {
+				bgWG.Wait()
+				close(bgDone)
+			}()
+
+			select {
+			case <-bgDone:
+			case <-time.After(exitDelay):
+			}
 
 			if spinnerDone != nil {
 				close(spinnerDone)
@@ -295,7 +312,9 @@ func startSystemdWatchdog(ctx context.Context) {
 	if watchdog != nil {
 		logger.Debug().Msg("Detected and enabled systemd watchdog support")
 
-		go func() {
+		// Track the watchdog goroutine in bgWG so shutdown can await it with
+		// a bounded timeout instead of sleeping unconditionally.
+		bgWG.Go(func() {
 			ticker := watchdog.NewTicker()
 			defer ticker.Stop()
 
@@ -307,7 +326,7 @@ func startSystemdWatchdog(ctx context.Context) {
 					return
 				}
 			}
-		}()
+		})
 	}
 }
 

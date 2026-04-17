@@ -44,20 +44,16 @@ const (
 )
 
 var (
-	ErrSqliteOpen          = errors.New("could not open Sqlite database")
-	ErrSqliteCreateTable   = errors.New("could not create table")
-	ErrSqlitePrepareCheck  = errors.New("failed to prepare check key statement")
-	ErrSqlitePrepareInsert = errors.New("failed to prepare insert key statement")
-	ErrDeleteBadgerDB      = errors.New("could not remove old BadgerDB directory, please delete manually")
-	importOnce             sync.Once // BadgerDB migration must run at most once per process lifetime.
+	ErrSqliteOpen        = errors.New("could not open Sqlite database")
+	ErrSqliteCreateTable = errors.New("could not create table")
+	ErrDeleteBadgerDB    = errors.New("could not remove old BadgerDB directory, please delete manually")
+	importOnce           sync.Once // BadgerDB migration must run at most once per process lifetime.
 )
 
 // Edb holds e-dnevnik structure including sql.DB struct.
 type Edb struct {
-	db            *sql.DB
-	stmtCheckKey  *sql.Stmt
-	stmtInsertKey *sql.Stmt
-	isExisting    bool // already created/initialized db
+	db         *sql.DB
+	isExisting bool // already created/initialized db
 }
 
 // New opens a new database, flagging if the database already preexisting.
@@ -107,22 +103,6 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	}
 
 	edb := &Edb{db: db, isExisting: isExisting}
-
-	// Prepare statements
-	edb.stmtCheckKey, err = db.PrepareContext(ctx, "SELECT expires_at FROM kv WHERE key = ?")
-	if err != nil {
-		_ = db.Close()
-
-		return nil, fmt.Errorf("%w: %w", ErrSqlitePrepareCheck, err)
-	}
-
-	edb.stmtInsertKey, err = db.PrepareContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)")
-	if err != nil {
-		_ = edb.stmtCheckKey.Close()
-		_ = db.Close()
-
-		return nil, fmt.Errorf("%w: %w", ErrSqlitePrepareInsert, err)
-	}
 
 	var importErr error
 
@@ -174,14 +154,6 @@ func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, 
 func (db *Edb) Close() error {
 	logger.Debug().Msg("Closing database")
 
-	if db.stmtCheckKey != nil {
-		_ = db.stmtCheckKey.Close()
-	}
-
-	if db.stmtInsertKey != nil {
-		_ = db.stmtInsertKey.Close()
-	}
-
 	return db.db.Close()
 }
 
@@ -194,35 +166,73 @@ func (db *Edb) Close() error {
 // If the key already exists, the function returns (true, nil). If the key doesn't
 // exist, the function marks the key and returns (false, nil) on success or
 // (false, error) on error.
+//
+// The check-then-insert pair is wrapped in a SQLite BEGIN IMMEDIATE transaction
+// so that two concurrent callers cannot both observe "not found" and each
+// insert the same key. A dedicated *sql.Conn is used because database/sql's
+// BeginTx() issues BEGIN DEFERRED, which acquires the write lock lazily on
+// first write and leaves the SELECT above racing with other writers.
 func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, target []string) (bool, error) {
 	// SHA256 hash of (bucket, subBucket, []target)
 	key := hashContent(bucket, subBucket, target)
 
-	var expiresAt sql.NullInt64
-
 	now := time.Now()
 
-	// Check if key exists
-	err := db.stmtCheckKey.QueryRowContext(ctx, key).Scan(&expiresAt)
-	if err == nil {
-		// Key found
-		// ... Check if expired
-		if expiresAt.Valid && expiresAt.Int64 < now.Unix() { //nolint:revive
-			// Expired, treat as not found (and we will update/overwrite it below)
-		} else {
-			return true, nil
-		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		// Error other than not found
+	conn, err := db.db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close() //nolint:errcheck // releasing the conn back to the pool
+
+	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return false, err
 	}
 
-	// Key not found or expired. Insert/Update with TTL.
+	committed := false
+
+	defer func() {
+		if !committed {
+			// Use a fresh context so rollback still runs if the caller's
+			// context has been cancelled.
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	var expiresAt sql.NullInt64
+
+	err = conn.QueryRowContext(ctx, "SELECT expires_at FROM kv WHERE key = ?", key).Scan(&expiresAt)
+	switch {
+	case err == nil:
+		// Key found — treat as still-valid unless the TTL has expired.
+		if !expiresAt.Valid || expiresAt.Int64 >= now.Unix() {
+			if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+				return false, err
+			}
+
+			committed = true
+
+			return true, nil
+		}
+		// Expired: fall through to re-insert below.
+	case errors.Is(err, sql.ErrNoRows):
+		// Not found: fall through to insert below.
+	default:
+		return false, err
+	}
+
 	expiry := now.Add(DefaultEntryTTL).Unix()
+	if _, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
+		key, []byte(""), expiry); err != nil {
+		return false, err
+	}
 
-	_, err = db.stmtInsertKey.ExecContext(ctx, key, []byte(""), expiry)
+	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return false, err
+	}
 
-	return false, err
+	committed = true
+
+	return false, nil
 }
 
 // Existing returns if the database was freshly initialized.

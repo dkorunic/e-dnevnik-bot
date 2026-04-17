@@ -159,6 +159,8 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	// skip non-exam events
 	if g.Code != msgtypes.Exam {
+		logger.Debug().Msgf("Calendar: skipping non-exam event for %v/%v (code %v)", g.Username, g.Subject, g.Code)
+
 		return
 	}
 
@@ -170,6 +172,8 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	if len(g.Fields) == 0 {
+		logger.Warn().Msgf("Calendar: skipping exam event for %v/%v with no fields: %+v", g.Username, g.Subject, g)
+
 		return
 	}
 
@@ -192,6 +196,12 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			Date: g.Timestamp.AddDate(0, 0, 1).Format(time.DateOnly),
 		},
 		Description: g.Fields[len(g.Fields)-1],
+	}
+
+	// Honour cancellation before blocking on the rate limiter so shutdown
+	// is not delayed by a pending token.
+	if ctx.Err() != nil {
+		return
 	}
 
 	rl.Take()

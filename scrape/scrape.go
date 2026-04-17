@@ -36,10 +36,12 @@ import (
 // individual messages to a message channel and optionally returning an error.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
 	r64, err := cast.ToInt64E(retries)
-	if err != nil {
+	if err != nil || r64 < 1 {
 		r64 = 1
 	}
 
+	// Total scraping budget: one per-request timeout per attempt, with a lower
+	// bound of one so `--retries=0` does not collapse the timeout to zero.
 	ctx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
 	defer stop()
 

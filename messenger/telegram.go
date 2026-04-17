@@ -170,6 +170,12 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			ParseMode: models.ParseModeHTML,
 		}
 
+		// Honour cancellation before blocking on the rate limiter so shutdown
+		// is not delayed by a pending token.
+		if ctx.Err() != nil {
+			break
+		}
+
 		rl.Take()
 
 		// retryable and cancellable attempt to send a message

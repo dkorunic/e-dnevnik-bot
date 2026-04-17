@@ -374,7 +374,6 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 				return
 			}
 
-			slices.SortFunc(releasedVersions, func(a, b *semver.Version) int { return a.Compare(b) })
 			behind := countNewerVersions(currentTag, releasedVersions)
 
 			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v, you are %v releases behind", latestTag, behind)
@@ -458,11 +457,13 @@ func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, re
 //
 // It takes the following parameters:
 // - current: the current version to compare with.
-// - versions: a slice of versions to count (must be sorted ascending).
+// - versions: a slice of versions; will be sorted ascending in place.
 //
 // It returns the number of versions that are newer than the current version.
 func countNewerVersions(current *semver.Version, versions []*semver.Version) int {
-	// versions must be sorted ascending (as ensured by the caller); find first index where v > current
+	// sort ascending so binary search can locate the first v >= current
+	slices.SortFunc(versions, func(a, b *semver.Version) int { return a.Compare(b) })
+
 	idx, found := slices.BinarySearchFunc(versions, current, func(v, c *semver.Version) int {
 		return v.Compare(c)
 	})

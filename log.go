@@ -28,7 +28,6 @@ import (
 
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/rs/zerolog"
-	"github.com/spf13/cast"
 )
 
 // initLog sets the global log level to the level specified by the -v
@@ -46,13 +45,14 @@ func initLog() {
 	logLevel := zerolog.InfoLevel
 	if *debug {
 		logLevel = zerolog.DebugLevel
-	} else {
-		if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
-			if l, err := strconv.Atoi(v); err == nil {
-				if l8, err := cast.ToInt8E(l); err == nil {
-					logLevel = zerolog.Level(l8)
-				}
-			}
+	} else if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
+		// Accept any valid zerolog level (currently Trace=-1 through Panic=5,
+		// plus the Disabled sentinel at 7). A single range check is simpler
+		// and safer than the previous int→int8→Level cast chain, which would
+		// silently reinterpret out-of-range values.
+		if l, err := strconv.Atoi(v); err == nil &&
+			l >= int(zerolog.TraceLevel) && l <= int(zerolog.Disabled) {
+			logLevel = zerolog.Level(l)
 		}
 	}
 
