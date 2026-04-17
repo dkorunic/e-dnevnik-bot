@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
@@ -45,6 +46,22 @@ const (
 	DiscordWindow   = 1 * time.Minute
 	DiscordMinDelay = DiscordWindow / DiscordAPILimit
 	DiscordQueue    = "discord-queue"
+
+	// Discord embed size limits from
+	// https://discord.com/developers/docs/resources/channel#embed-object-embed-limits.
+	// Exceeding any of these causes the API to reject the entire message, so
+	// we truncate client-side.
+	DiscordMaxTitleChars     = 256
+	DiscordMaxFieldNameChars = 256
+	DiscordMaxFieldValChars  = 1024
+	DiscordMaxFields         = 25
+
+	// minDiscordFieldValueRunes is the smallest value budget we are willing to
+	// accept when deciding whether to keep appending fields to an embed. It
+	// must be ≥ 3 so truncateWithEllipsis can emit its ellipsis; values larger
+	// than 3 guarantee the last emitted field carries some actual content in
+	// addition to the ellipsis, rather than just "...".
+	minDiscordFieldValueRunes = 16
 )
 
 var (
@@ -133,24 +150,77 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 //
 // It returns no value and has no side effects except for error logging.
 func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
-	// format message as rich message with embedded data
-	count := min(len(g.Fields), len(g.Descriptions))
-	fields := make([]*discordgo.MessageEmbedField, 0, count)
+	// format message as rich message with embedded data.
+	// Discord rejects any embed that exceeds its per-field/per-embed limits,
+	// so cap the field count and truncate each string individually.
+	available := min(len(g.Fields), len(g.Descriptions))
+	count := min(available, DiscordMaxFields)
 
-	for ii := range count {
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:   g.Descriptions[ii],
-			Value:  truncateWithEllipsis(g.Fields[ii], 1024),
-			Inline: true,
-		})
+	if available > count {
+		logger.Debug().Msgf("Discord: dropping %d of %d fields to fit per-embed field cap (%d)",
+			available-count, available, DiscordMaxFields)
 	}
 
 	sb := strings.Builder{}
 	sb.Grow(len(g.Username) + len(g.Subject) + 40)
 	format.PlainFormatSubject(&sb, g.Username, g.Subject, g.Code)
 
+	title := truncateWithEllipsis(sb.String(), DiscordMaxTitleChars)
+
+	// Enforce the total embed size cap (title + field names + field values ≤
+	// DiscordMaxEmbedChars). Exceeding this sum causes the API to reject the
+	// whole message even when every individual field is within its own limit,
+	// so we track a running budget and truncate/drop trailing fields to fit.
+	budget := DiscordMaxEmbedChars - utf8.RuneCountInString(title)
+
+	fields := make([]*discordgo.MessageEmbedField, 0, count)
+
+	droppedAt := -1
+	truncatedValues := 0
+
+	for ii := range count {
+		name := truncateWithEllipsis(g.Descriptions[ii], DiscordMaxFieldNameChars)
+		value := truncateWithEllipsis(g.Fields[ii], DiscordMaxFieldValChars)
+
+		nameLen := utf8.RuneCountInString(name)
+		valueLen := utf8.RuneCountInString(value)
+
+		// Discord requires Name and Value to be non-empty; require at least
+		// minDiscordFieldValueRunes of value room so the last field carries
+		// some real content rather than just an ellipsis.
+		if nameLen+minDiscordFieldValueRunes > budget {
+			droppedAt = ii
+
+			break
+		}
+
+		if nameLen+valueLen > budget {
+			value = truncateWithEllipsis(value, budget-nameLen)
+			valueLen = utf8.RuneCountInString(value)
+			truncatedValues++
+		}
+
+		budget -= nameLen + valueLen
+
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   name,
+			Value:  value,
+			Inline: true,
+		})
+	}
+
+	if droppedAt >= 0 {
+		logger.Debug().Msgf("Discord: embed total-size cap (%d) reached; dropped %d of %d fields",
+			DiscordMaxEmbedChars, count-droppedAt, count)
+	}
+
+	if truncatedValues > 0 {
+		logger.Debug().Msgf("Discord: truncated %d field value(s) to fit embed total-size cap (%d)",
+			truncatedValues, DiscordMaxEmbedChars)
+	}
+
 	msg := discordgo.MessageEmbed{
-		Title:  sb.String(),
+		Title:  title,
 		Fields: fields,
 	}
 
@@ -235,8 +305,10 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 
 	if anyFailed {
-		// Record who succeeded so they are skipped on the next retry.
-		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+		// Record who succeeded so they are skipped on the next retry. Merge
+		// with dedup: repeated partial failures against the same recipient
+		// would otherwise append duplicate entries on every cycle.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
 		if err := queue.StoreFailedMsgs(ctx, eDB, DiscordQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

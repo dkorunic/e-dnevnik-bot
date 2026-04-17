@@ -29,23 +29,30 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/fetch"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-	"github.com/spf13/cast"
 )
+
+// scrapeRetryMaxJitter bounds the random component added to exponential backoff
+// between retry attempts, smoothing simultaneous reconnect storms.
+const scrapeRetryMaxJitter = 500 * time.Millisecond
 
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
-	r64, err := cast.ToInt64E(retries)
-	if err != nil || r64 < 1 {
-		r64 = 1
-	}
+	// Clamp retries to a lower bound of 1 so `--retries=0` does not collapse
+	// the budget timeout to zero and so retry.Attempts() always sees at least
+	// one attempt (some retry-go versions treat 0 as "retry forever").
+	attempts := max(retries, 1)
+
+	r64 := int64(attempts)
 
 	// Total scraping budget: one per-request timeout per attempt, with a lower
 	// bound of one so `--retries=0` does not collapse the timeout to zero.
-	ctx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
+	// Named budgetCtx to distinguish it from the caller's ctx so it's clear
+	// that every downstream call shares a single deadline for the whole scrape.
+	budgetCtx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
 	defer stop()
 
-	client, err := fetch.NewClientWithContext(ctx, username, password)
+	client, err := fetch.NewClientWithContext(budgetCtx, username, password)
 	if err != nil {
 		return err
 	}
@@ -54,8 +61,10 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	// attempt to login (CSRF, SSO/SAML, etc.)
 	err = retry.New(
-		retry.Attempts(retries),
-		retry.Context(ctx),
+		retry.Attempts(attempts),
+		retry.Context(budgetCtx),
+		retry.DelayType(retry.BackOffDelay),
+		retry.MaxJitter(scrapeRetryMaxJitter),
 	).Do(
 		func() error {
 			return client.Login()
@@ -69,8 +78,10 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	// fetch classes (multiple classes possible)
 	err = retry.New(
-		retry.Attempts(retries),
-		retry.Context(ctx),
+		retry.Attempts(attempts),
+		retry.Context(budgetCtx),
+		retry.DelayType(retry.BackOffDelay),
+		retry.MaxJitter(scrapeRetryMaxJitter),
 	).Do(
 		func() error {
 			var err error
@@ -111,8 +122,10 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		// fetch subjects/grades/exams
 		err = retry.New(
-			retry.Attempts(retries),
-			retry.Context(ctx),
+			retry.Attempts(attempts),
+			retry.Context(budgetCtx),
+			retry.DelayType(retry.BackOffDelay),
+			retry.MaxJitter(scrapeRetryMaxJitter),
 		).Do(
 			func() error {
 				var err error
@@ -126,13 +139,13 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		}
 
 		// parse all subjects and corresponding grades
-		err = parseGrades(ctx, ch, username, rawGrades, multiClass, cName)
+		err = parseGrades(budgetCtx, ch, username, rawGrades, multiClass, cName)
 		if err != nil {
 			return err
 		}
 
 		// parse all exam events
-		err = parseEvents(ctx, ch, username, events, multiClass, cName)
+		err = parseEvents(budgetCtx, ch, username, events, multiClass, cName)
 		if err != nil {
 			return err
 		}
@@ -141,8 +154,10 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		// fetch individual courses
 		err = retry.New(
-			retry.Attempts(retries),
-			retry.Context(ctx),
+			retry.Attempts(attempts),
+			retry.Context(budgetCtx),
+			retry.DelayType(retry.BackOffDelay),
+			retry.MaxJitter(scrapeRetryMaxJitter),
 		).Do(
 			func() error {
 				var err error
@@ -168,8 +183,10 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		for _, s := range subjects {
 			// requires additional fetch, retry-wrapped like all other fetches
 			err = retry.New(
-				retry.Attempts(retries),
-				retry.Context(ctx),
+				retry.Attempts(attempts),
+				retry.Context(budgetCtx),
+				retry.DelayType(retry.BackOffDelay),
+				retry.MaxJitter(scrapeRetryMaxJitter),
 			).Do(
 				func() error {
 					var err error
@@ -183,7 +200,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			}
 
 			// process individual course
-			err = parseCourse(ctx, ch, username, rawCourse, multiClass, cName, s.Name)
+			err = parseCourse(budgetCtx, ch, username, rawCourse, multiClass, cName, s.Name)
 			if err != nil {
 				return err
 			}

@@ -23,6 +23,54 @@ package messenger
 
 import "unicode/utf8"
 
+// Per-platform outbound body/subject size caps. Messages exceeding these limits
+// are rejected by the respective APIs, so we truncate client-side to convert a
+// hard failure into a slightly-lossy delivery.
+const (
+	TelegramMaxMessageChars = 4096  // Telegram sendMessage text limit
+	SlackMaxMessageChars    = 3000  // Slack Block Kit / chat.postMessage soft cap
+	MailMaxSubjectChars     = 256   // conservative; RFC 5322 is 998 bytes per line but most MUAs show ~78 chars
+	WhatsAppMaxMessageChars = 4096  // whatsmeow Conversation field; protocol hard limit is ~65 KiB but most clients truncate
+	DiscordMaxEmbedChars    = 6000  // Discord sum of title + description + field names + field values + footer + author
+)
+
+// mergeSkipRecipients returns existing ∪ extras with duplicates removed while
+// preserving the order of first occurrence. Used when appending newly-successful
+// recipients to SkipRecipients across retries — without deduplication, a message
+// that repeatedly fails for different subsets of recipients accumulates
+// unbounded duplicate entries in the queue.
+func mergeSkipRecipients(existing, extras []string) []string {
+	if len(extras) == 0 {
+		return existing
+	}
+
+	seen := make(map[string]struct{}, len(existing)+len(extras))
+
+	out := make([]string, 0, len(existing)+len(extras))
+
+	for _, s := range existing {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+
+		seen[s] = struct{}{}
+
+		out = append(out, s)
+	}
+
+	for _, s := range extras {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+
+		seen[s] = struct{}{}
+
+		out = append(out, s)
+	}
+
+	return out
+}
+
 // truncateWithEllipsis truncates a string with ellipsis at the end
 // if it's longer than max runes. It returns the original string if it's
 // not longer than max runes.

@@ -24,12 +24,18 @@ package queue
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
+
+// MaxQueueAge caps how long a failed message is retried before being dropped.
+// Older entries are discarded at fetch time to prevent the queue from growing
+// unbounded when a messenger is persistently broken.
+const MaxQueueAge = 30 * 24 * time.Hour
 
 var ErrQueueing = errors.New("problem with persistent queue")
 
@@ -55,6 +61,12 @@ func RequeueMsgs(eDB *sqlitedb.Edb, key []byte, msgs []msgtypes.Message) {
 //
 // If any of the operations fail, the function returns an error.
 func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
+	// Stamp QueuedAt on first enqueue only; preserve the original timestamp
+	// on re-queue so MaxQueueAge is measured from the first failure.
+	if g.QueuedAt.IsZero() {
+		g.QueuedAt = time.Now()
+	}
+
 	return eDB.FetchAndStore(ctx, key, func(old []byte) ([]byte, error) {
 		msgs, err := encdec.DecodeMsgs(old)
 		if err != nil {

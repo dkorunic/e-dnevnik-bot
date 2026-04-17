@@ -215,8 +215,11 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetDate()
 		m.SetBulk()
 
+		// Truncate the subject so a pathologically-long configured value cannot
+		// produce a header line that some MTAs reject. The default MailSubject
+		// constant is well under the cap and passes through unchanged.
 		if subject != "" {
-			m.Subject(subject)
+			m.Subject(truncateWithEllipsis(subject, MailMaxSubjectChars))
 		} else {
 			m.Subject(MailSubject)
 		}
@@ -254,8 +257,10 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	}
 
 	if anyFailed {
-		// Record who succeeded so they are skipped on the next retry.
-		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+		// Record who succeeded so they are skipped on the next retry. Merge
+		// with dedup: repeated partial failures against the same recipient
+		// would otherwise append duplicate entries on every cycle.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
 		if err := queue.StoreFailedMsgs(ctx, eDB, MailQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

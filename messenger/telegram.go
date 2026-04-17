@@ -137,8 +137,9 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// format message as HTML
-	m := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
+	// format message as HTML; truncate to Telegram's sendMessage limit so an
+	// over-long body is delivered (slightly lossy) rather than hard-rejected.
+	m := truncateWithEllipsis(format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), TelegramMaxMessageChars)
 
 	// build a skip set for O(1) lookups
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
@@ -202,8 +203,10 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	if anyFailed {
-		// Record who succeeded so they are skipped on the next retry.
-		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+		// Record who succeeded so they are skipped on the next retry. Merge
+		// with dedup: repeated partial failures against the same recipient
+		// would otherwise append duplicate entries on every cycle.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
 		if err := queue.StoreFailedMsgs(ctx, eDB, TelegramQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

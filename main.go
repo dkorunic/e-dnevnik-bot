@@ -377,10 +377,11 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 // of this program are running at the same time and you don't want them to hit
 // the same external service at the same time.
 //
-// The jitter is a random fraction of the duration x, and is uniformly
-// distributed in the range [0.9, 1.1]. The randomness is generated using the
-// math/rand/v2 package.
+// The jitter factor is drawn from a continuous uniform distribution over
+// [0.9, 1.1) via rand.Float64(), not a 21-step integer distribution, so
+// multiple concurrent daemons do not cluster on a small number of discrete
+// wake times. The randomness is generated using the math/rand/v2 package.
 func durationRandJitter(x time.Duration) time.Duration {
 	//nolint:gosec,mnd
-	return time.Duration(float64(x) * (float64(rand.Int64N(21)+90) / 100.0))
+	return time.Duration(float64(x) * (0.9 + 0.2*rand.Float64()))
 }

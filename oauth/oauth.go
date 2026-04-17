@@ -24,6 +24,7 @@ package oauth
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -139,9 +140,27 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	var once sync.Once
 
-	// redirect uri listener for auth callback
+	// redirect uri listener for auth callback.
+	// Bind the listener up front so the actual port is known before we build
+	// authURL; if the preferred port is busy, fall back to :0 (ephemeral).
+	// Google's OAuth consent flow must use a loopback redirect URI, so we keep
+	// AuthListenAddr (localhost) in both attempts.
 	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
-	authURL := AuthScheme + authListenHost
+
+	listener, err := net.Listen("tcp", authListenHost)
+	if err != nil {
+		logger.Warn().Msgf("Preferred OAuth callback port %v unavailable (%v), falling back to an ephemeral port",
+			AuthListenPort, err)
+
+		listener, err = net.Listen("tcp", net.JoinHostPort(AuthListenAddr, "0"))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrOAuthHTTPServer, err)
+		}
+	}
+
+	// Build authURL from the actual bound address so the port matches what
+	// ListenAndServe is serving (critical when we fell back to :0).
+	authURL := AuthScheme + listener.Addr().String()
 
 	// oauth config auth callback uri
 	config.RedirectURL = authURL + CallBackURL
@@ -160,7 +179,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		WriteTimeout:      WriteTimeout,
 		IdleTimeout:       IdleTimeout,
 		ReadHeaderTimeout: ReadHeaderTimeout,
-		Addr:              authListenHost,
+		Addr:              listener.Addr().String(),
 		Handler:           r,
 	}
 	defer func() {
@@ -190,7 +209,10 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 
-		if receivedState := req.URL.Query().Get("state"); receivedState != authReqState.String() {
+		// Use constant-time comparison to avoid leaking information about the
+		// expected state via response timing on malformed callbacks.
+		expectedState := authReqState.String()
+		if receivedState := req.URL.Query().Get("state"); subtle.ConstantTimeCompare([]byte(receivedState), []byte(expectedState)) != 1 {
 			w.WriteHeader(http.StatusBadRequest)
 
 			if err := t.ExecuteTemplate(w, "failure.html", map[string]any{"error": ErrInvalidCallbackState}); err != nil {
@@ -220,7 +242,9 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	go func() {
 		logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
 
-		if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		// Use Serve on the pre-bound listener; ListenAndServe would attempt to
+		// re-bind s.Addr, racing with the listener we already hold.
+		if err := s.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal().Msgf("%v: %v", ErrOAuthHTTPServer, err)
 		}
 	}()

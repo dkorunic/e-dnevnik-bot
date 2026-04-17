@@ -24,25 +24,43 @@ package encdec
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
+	"fmt"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
+// ErrDecodePanic is returned when gob.Decode panics (malformed/corrupt input
+// that trips an unchecked internal invariant rather than a clean error return).
+var ErrDecodePanic = errors.New("panic while decoding message queue")
+
 // DecodeMsgs takes a byte slice, decodes it as a GOB-encoded
 // slice of msgtypes.Message, and returns the decoded slice and any
 // decoding error.
-func DecodeMsgs(val []byte) ([]msgtypes.Message, error) {
+//
+// The gob decoder is hardened against panics here: on-disk queue bytes may
+// come from an older binary or have been corrupted on disk, and a few
+// historical gob paths panic on malformed type metadata rather than returning
+// an error. Wrapping Decode in defer/recover converts any such panic into a
+// regular error so the caller can log and start fresh instead of crashing the
+// whole daemon.
+func DecodeMsgs(val []byte) (msgs []msgtypes.Message, err error) {
 	if len(val) == 0 {
 		return []msgtypes.Message{}, nil
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			msgs = nil
+			err = fmt.Errorf("%w: %v", ErrDecodePanic, r)
+		}
+	}()
+
 	buf := bytes.NewBuffer(val)
 	dec := gob.NewDecoder(buf)
 
-	var msgs []msgtypes.Message
-
 	// GOB decode []byte to Message list
-	err := dec.Decode(&msgs)
+	err = dec.Decode(&msgs)
 
 	return msgs, err
 }

@@ -23,7 +23,9 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -36,7 +38,7 @@ import (
 func LoadConfig(file string) (TomlConfig, error) {
 	var config TomlConfig
 	if _, err := toml.DecodeFile(file, &config); err != nil {
-		return config, err
+		return config, fmt.Errorf("failed to parse config file %s: %w", file, err)
 	}
 
 	checkUserConf(&config)
@@ -149,6 +151,16 @@ func checkMailConf(config *TomlConfig) {
 		// check if FROM address is valid (when specified)
 		if config.Mail.From != "" && !isValidMail(config.Mail.From) {
 			logger.Fatal().Msgf("Configuration error: mail from %v is not in mail format", config.Mail.From)
+		}
+
+		// validate the SMTP port at config load so a bad port fails early with a
+		// clear message instead of silently falling back to 587 in mail.go. Empty
+		// port is permitted — mail.go will use its default.
+		if config.Mail.Port != "" {
+			portNum, err := strconv.Atoi(config.Mail.Port)
+			if err != nil || portNum < 1 || portNum > 65535 {
+				logger.Fatal().Msgf("Configuration error: mail port %q is not a valid TCP port (1-65535)", config.Mail.Port)
+			}
 		}
 
 		logger.Info().Msg("Configuration: mail messenger enabled")

@@ -49,6 +49,10 @@ const (
 	spinnerRotateDelay = 100 * time.Millisecond // spinner delay
 	githubOrg          = "dkorunic"
 	githubRepo         = "e-dnevnik-bot"
+	// versionCheckTimeout bounds the entire GitHub release-check in one poll
+	// cycle so a stalled GitHub API does not leak the version-check goroutine
+	// past its poll interval.
+	versionCheckTimeout = 30 * time.Second
 )
 
 var (
@@ -341,10 +345,15 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		client := githubClient(ctx)
+		// Bound all GitHub API work in this check behind a single timeout so a
+		// stalled release endpoint cannot hold the goroutine past the poll cycle.
+		vctx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
+		defer cancel()
+
+		client := githubClient(vctx)
 
 		// get latest release from GitHub
-		latestRelease, _, err := client.Repositories.GetLatestRelease(ctx, githubOrg, githubRepo)
+		latestRelease, _, err := client.Repositories.GetLatestRelease(vctx, githubOrg, githubRepo)
 		if err != nil || latestRelease == nil {
 			logger.Error().Msgf("Unable to check for latest release of e-dnevnik-bot: %v", err)
 
@@ -367,7 +376,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 
 		// alert if there is a newer version
 		if latestTag.Compare(currentTag) == 1 {
-			releasedVersions, err := fetchReleasedVersions(ctx, client, githubOrg, githubRepo)
+			releasedVersions, err := fetchReleasedVersions(vctx, client, githubOrg, githubRepo)
 			if err != nil {
 				logger.Error().Msgf("Failed to fetch releases of e-dnevnik-bot: %v", err)
 

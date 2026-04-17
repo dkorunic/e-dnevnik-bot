@@ -26,6 +26,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
@@ -62,6 +63,23 @@ func TestStoreAndFetchFailedMsgs(t *testing.T) {
 
 	// Fetch the messages.
 	fetchedMsgs := FetchFailedMsgs(context.Background(), eDB, key)
+
+	// StoreFailedMsgs stamps QueuedAt on enqueue; verify it is set and within
+	// a reasonable window, then clear it before comparing the rest of the
+	// payload for equality with the originals.
+	now := time.Now()
+	for i := range fetchedMsgs {
+		if fetchedMsgs[i].QueuedAt.IsZero() {
+			t.Errorf("fetched message %d has zero QueuedAt; expected it to be stamped on enqueue", i)
+		}
+
+		if d := now.Sub(fetchedMsgs[i].QueuedAt); d < 0 || d > time.Minute {
+			t.Errorf("fetched message %d has QueuedAt outside expected window: %v", i, fetchedMsgs[i].QueuedAt)
+		}
+
+		fetchedMsgs[i].QueuedAt = time.Time{}
+	}
+
 	expectedMsgs := []msgtypes.Message{msg1, msg2}
 
 	if !reflect.DeepEqual(fetchedMsgs, expectedMsgs) {

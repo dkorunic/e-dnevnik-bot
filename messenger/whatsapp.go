@@ -229,8 +229,10 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
-	// format message as Markup
-	mRaw := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields) //nolint:staticcheck
+	// format message as Markup; truncate to WhatsApp's practical per-message
+	// text cap so a pathologically-long body is delivered (slightly lossy)
+	// rather than hard-rejected or silently clipped by the recipient client.
+	mRaw := truncateWithEllipsis(format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), WhatsAppMaxMessageChars) //nolint:staticcheck
 	m := waE2E.Message{Conversation: &mRaw}
 
 	// build a skip set for O(1) lookups
@@ -289,8 +291,10 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	if anyFailed {
-		// Record who succeeded so they are skipped on the next retry.
-		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+		// Record who succeeded so they are skipped on the next retry. Merge
+		// with dedup: repeated partial failures against the same recipient
+		// would otherwise append duplicate entries on every cycle.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
 		if err := queue.StoreFailedMsgs(ctx, eDB, WhatsAppQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

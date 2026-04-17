@@ -129,8 +129,9 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 // It logs errors for sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// format message as Markup
-	m := format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
+	// format message as Markup; truncate to Slack's text cap so an over-long
+	// body is delivered (slightly lossy) rather than hard-rejected.
+	m := truncateWithEllipsis(format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), SlackMaxMessageChars)
 
 	// build a skip set for O(1) lookups
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
@@ -185,8 +186,10 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	}
 
 	if anyFailed {
-		// Record who succeeded so they are skipped on the next retry.
-		g.SkipRecipients = append(g.SkipRecipients, successfulIDs...)
+		// Record who succeeded so they are skipped on the next retry. Merge
+		// with dedup: repeated partial failures against the same recipient
+		// would otherwise append duplicate entries on every cycle.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
 		if err := queue.StoreFailedMsgs(ctx, eDB, SlackQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

@@ -23,6 +23,7 @@ package queue
 
 import (
 	"context"
+	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/encdec"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -58,6 +59,30 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		logger.Error().Msgf("Error managing failed messages list for queue %v: %v", queueKeyStr, err)
 
 		return []msgtypes.Message{}
+	}
+
+	// Drop entries older than MaxQueueAge to prevent unbounded retries when a
+	// messenger is persistently broken. Entries with a zero QueuedAt predate
+	// this field (legacy/pre-upgrade queue) and are kept so they get at least
+	// one more chance; they will be stamped on next re-queue.
+	now := time.Now()
+	kept := failedList[:0]
+	dropped := 0
+
+	for _, m := range failedList {
+		if !m.QueuedAt.IsZero() && now.Sub(m.QueuedAt) > MaxQueueAge {
+			dropped++
+
+			continue
+		}
+
+		kept = append(kept, m)
+	}
+
+	failedList = kept
+
+	if dropped > 0 {
+		logger.Warn().Msgf("Dropped %v messages older than %v from queue %v", dropped, MaxQueueAge, queueKeyStr)
 	}
 
 	failedCount := len(failedList)

@@ -38,6 +38,7 @@ const (
 // Message structure holds alert subject and description as well as grades fields, as well as corresponding username.
 type Message struct {
 	Timestamp      time.Time // event timestamp
+	QueuedAt       time.Time // time the message first entered the failed-message queue; zero value for non-queued/legacy entries
 	Username       string    // username (SSO/SAML)
 	Subject        string    // subject
 	Descriptions   []string  // descriptions for fields

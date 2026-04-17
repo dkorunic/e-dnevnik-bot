@@ -82,10 +82,12 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 		return nil, fmt.Errorf("%w: %w", ErrSqliteOpen, err)
 	}
 
-	// SQLite does not benefit from multiple concurrent connections; a single
-	// connection eliminates write-lock contention without relying on busy_timeout.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// WAL mode permits multiple concurrent readers alongside a single writer,
+	// so a small connection pool lets read-only queries proceed while a writer
+	// holds the transaction. Writes are still serialised by SQLite itself and
+	// busy_timeout (set via DefaultDBOptions) covers rare lock contention.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
 
 	// Create table if not exists
 	query := `
