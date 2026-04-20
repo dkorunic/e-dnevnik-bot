@@ -73,6 +73,47 @@ var (
 //go:embed templates/*html assets/*ico
 var contentFS embed.FS
 
+// persistingTokenSource wraps an oauth2.TokenSource and persists each
+// refreshed token back to disk so a refresh performed mid-run survives the
+// next process start. Without this, oauth2/google refreshes the token in
+// memory but the on-disk file still contains the original (now-revoked)
+// refresh token, which means every restart requires interactive re-auth.
+type persistingTokenSource struct {
+	src       oauth2.TokenSource
+	last      *oauth2.Token
+	tokenPath string
+	mu        sync.Mutex
+}
+
+// Token returns a cached/refreshed token, and persists it to tokenPath on
+// disk whenever the AccessToken (or RefreshToken) differs from the last
+// token we observed. A persistence error is logged rather than returned —
+// the caller still gets a usable token, we just lose the ability to reuse
+// it across restarts until the next refresh.
+func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
+	tok, err := p.src.Token()
+	if err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	changed := p.last == nil ||
+		p.last.AccessToken != tok.AccessToken ||
+		p.last.RefreshToken != tok.RefreshToken
+	if changed {
+		p.last = tok
+	}
+	p.mu.Unlock()
+
+	if changed {
+		if serr := saveToken(p.tokenPath, tok); serr != nil {
+			logger.Warn().Msgf("Unable to persist refreshed OAuth token: %v", serr)
+		}
+	}
+
+	return tok, nil
+}
+
 // GetClient retrieves an HTTP client with the given context, OAuth2 configuration, and token path.
 //
 // The function takes in the following parameters:
@@ -121,7 +162,18 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 		}
 	}
 
-	return config.Client(ctx, tok), nil
+	// Build an HTTP client whose TokenSource persists every refresh. Without
+	// this wrapper, config.Client keeps the fresh AccessToken in memory but
+	// the on-disk token_*.json stays stuck at the original value — so the
+	// next process start has to interactively re-authorise once the original
+	// AccessToken expires and the ReuseTokenSource cache is gone.
+	ts := &persistingTokenSource{
+		src:       config.TokenSource(ctx, tok),
+		tokenPath: tokenPath,
+		last:      tok,
+	}
+
+	return oauth2.NewClient(ctx, ts), nil
 }
 
 // getTokenFromWeb retrieves an OAuth2 token from a web-based authentication flow.

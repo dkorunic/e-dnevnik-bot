@@ -21,17 +21,42 @@
 
 package messenger
 
-import "unicode/utf8"
+import (
+	"context"
+	"time"
+	"unicode/utf8"
+)
+
+// storeTimeout bounds the shutdown-tolerant context used when persisting
+// failed/pending messages to the queue after the caller's context has
+// already been cancelled. Must be long enough to clear the sqlite WAL but
+// short enough not to delay shutdown noticeably.
+const storeTimeout = 5 * time.Second
+
+// queueStoreCtx returns a context suitable for the post-send StoreFailedMsgs
+// call. If the caller's context is still live, it is used as-is so shutdown
+// requests continue to propagate. If the caller's context has already been
+// cancelled (the common case when the recipient loop broke out of the send
+// early), a short-lived detached context is returned so the sqlite write
+// still runs — otherwise the unsent message would be silently dropped on
+// shutdown. The returned cancel MUST be invoked by the caller (idempotent).
+func queueStoreCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+
+	return context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
+}
 
 // Per-platform outbound body/subject size caps. Messages exceeding these limits
 // are rejected by the respective APIs, so we truncate client-side to convert a
 // hard failure into a slightly-lossy delivery.
 const (
-	TelegramMaxMessageChars = 4096  // Telegram sendMessage text limit
-	SlackMaxMessageChars    = 3000  // Slack Block Kit / chat.postMessage soft cap
-	MailMaxSubjectChars     = 256   // conservative; RFC 5322 is 998 bytes per line but most MUAs show ~78 chars
-	WhatsAppMaxMessageChars = 4096  // whatsmeow Conversation field; protocol hard limit is ~65 KiB but most clients truncate
-	DiscordMaxEmbedChars    = 6000  // Discord sum of title + description + field names + field values + footer + author
+	TelegramMaxMessageChars = 4096 // Telegram sendMessage text limit
+	SlackMaxMessageChars    = 3000 // Slack Block Kit / chat.postMessage soft cap
+	MailMaxSubjectChars     = 256  // conservative; RFC 5322 is 998 bytes per line but most MUAs show ~78 chars
+	WhatsAppMaxMessageChars = 4096 // whatsmeow Conversation field; protocol hard limit is ~65 KiB but most clients truncate
+	DiscordMaxEmbedChars    = 6000 // Discord sum of title + description + field names + field values + footer + author
 )
 
 // mergeSkipRecipients returns existing ∪ extras with duplicates removed while

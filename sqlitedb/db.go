@@ -252,19 +252,41 @@ func (db *Edb) Existing() bool {
 // 3. Calls the given function with the copied value as argument and stores the result.
 // 4. Stores the result in the database with the same key and a TTL of 1+ year.
 //
+// The fetch/modify/store sequence is wrapped in a SQLite BEGIN IMMEDIATE
+// transaction so two concurrent callers (for the same queue key) cannot each
+// read the same snapshot, apply their own transformation, and then race to
+// overwrite the other's result — which would silently drop queue entries. A
+// dedicated *sql.Conn is used because database/sql's BeginTx() issues BEGIN
+// DEFERRED, which acquires the write lock lazily on first write and leaves the
+// initial SELECT racing with other writers.
+//
 // If any of the steps fail, it will return an error.
 func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte) ([]byte, error)) error {
-	tx, err := db.db.BeginTx(ctx, nil)
+	conn, err := db.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer conn.Close() //nolint:errcheck // releasing the conn back to the pool
+
+	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+
+	committed := false
+
+	defer func() {
+		if !committed {
+			// Use a fresh context so rollback still runs if the caller's
+			// context has been cancelled.
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 
 	var val []byte
 
 	var expiresAt sql.NullInt64
 
-	err = tx.QueryRowContext(ctx, "SELECT value, expires_at FROM kv WHERE key = ?", key).Scan(&val, &expiresAt)
+	err = conn.QueryRowContext(ctx, "SELECT value, expires_at FROM kv WHERE key = ?", key).Scan(&val, &expiresAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
@@ -290,23 +312,35 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	// Skip db update if the value has not changed, but always write when the
 	// row was expired so the entry is refreshed with a new expiry.
 	if !wasExpired && bytes.Equal(val, newVal) {
-		return tx.Commit()
+		if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return err
+		}
+
+		committed = true
+
+		return nil
 	}
 
 	if len(newVal) == 0 {
 		// Empty value means the queue has been drained; delete the row entirely
 		// rather than leaving a NULL-TTL zombie that cleanup() never removes.
-		_, err = tx.ExecContext(ctx, "DELETE FROM kv WHERE key = ?", key)
+		_, err = conn.ExecContext(ctx, "DELETE FROM kv WHERE key = ?", key)
 	} else {
 		// Store new value with no TTL (expires_at = NULL)
-		_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, newVal)
+		_, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, newVal)
 	}
 
 	if err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+
+	committed = true
+
+	return nil
 }
 
 // cleanup removes expired keys.

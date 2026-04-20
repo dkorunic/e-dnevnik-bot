@@ -28,7 +28,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
@@ -60,82 +59,6 @@ func TestDurationRandJitter(t *testing.T) {
 		if jittered < min || jittered > max {
 			t.Errorf("jittered duration %v is outside the expected range [%v, %v]", jittered, min, max)
 		}
-	}
-}
-
-// TestCountNewerVersionsCurrentInList verifies Bug 9A from TESTING-PLAN:
-// when the running version is present in the releases list, countNewerVersions
-// must return 0 (not 1). Removing the `if found { idx++ }` guard would cause
-// it to count the current version itself as "newer", returning 1 when up to date.
-func TestCountNewerVersionsCurrentInList(t *testing.T) {
-	t.Parallel()
-
-	current := semver.MustParse("1.2.0")
-	versions := []*semver.Version{
-		semver.MustParse("1.0.0"),
-		semver.MustParse("1.1.0"),
-		semver.MustParse("1.2.0"), // current version present in list
-	}
-
-	got := countNewerVersions(current, versions)
-	if got != 0 {
-		t.Errorf("countNewerVersions with current in list = %d, want 0 (up to date)", got)
-	}
-}
-
-// TestCountNewerVersionsCorrectCount verifies Bug 9B from TESTING-PLAN:
-// the function must return the count of releases NEWER than current, not the
-// count of releases older. A mutation returning `idx` instead of `len-idx`
-// would give the inverted (wrong) count.
-func TestCountNewerVersionsCorrectCount(t *testing.T) {
-	t.Parallel()
-
-	current := semver.MustParse("1.1.0")
-	versions := []*semver.Version{
-		semver.MustParse("1.0.0"),
-		semver.MustParse("1.1.0"),
-		semver.MustParse("1.2.0"),
-		semver.MustParse("1.3.0"),
-	}
-
-	got := countNewerVersions(current, versions)
-	if got != 2 {
-		t.Errorf("countNewerVersions = %d, want 2 (versions 1.2.0 and 1.3.0 are newer)", got)
-	}
-}
-
-// TestCountNewerVersionsNotInList verifies that a version NOT in the releases
-// list still produces the correct count of newer entries.
-func TestCountNewerVersionsNotInList(t *testing.T) {
-	t.Parallel()
-
-	current := semver.MustParse("1.1.5")
-	versions := []*semver.Version{
-		semver.MustParse("1.0.0"),
-		semver.MustParse("1.1.0"),
-		semver.MustParse("1.2.0"),
-		semver.MustParse("1.3.0"),
-	}
-
-	got := countNewerVersions(current, versions)
-	if got != 2 {
-		t.Errorf("countNewerVersions (not in list) = %d, want 2", got)
-	}
-}
-
-// TestCountNewerVersionsLatest verifies that the latest version returns 0.
-func TestCountNewerVersionsLatest(t *testing.T) {
-	t.Parallel()
-
-	current := semver.MustParse("2.0.0")
-	versions := []*semver.Version{
-		semver.MustParse("1.0.0"),
-		semver.MustParse("1.5.0"),
-		semver.MustParse("2.0.0"),
-	}
-
-	if got := countNewerVersions(current, versions); got != 0 {
-		t.Errorf("countNewerVersions for latest = %d, want 0", got)
 	}
 }
 

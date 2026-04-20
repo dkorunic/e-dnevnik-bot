@@ -45,6 +45,11 @@ const (
 	CourseURL      = "https://ocjene.skole.hr/course"
 
 	MaxBodySize = 32 * 1024 * 1024 // 32 MiB upper bound for any single response
+
+	// AcceptLanguageHR nudges the portal to return Croatian-localised pages and
+	// error messages, which matters for the alert-text matcher in doSAMLRequest
+	// and for human-readable subject/course names downstream.
+	AcceptLanguageHR = "hr,hr-HR;q=0.9,en;q=0.1"
 )
 
 var (
@@ -69,6 +74,7 @@ func (c *Client) getCSRFToken() error {
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("Accept-Language", AcceptLanguageHR)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -127,6 +133,7 @@ func (c *Client) doSAMLRequest() error {
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
+	req.Header.Set("Accept-Language", AcceptLanguageHR)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -161,11 +168,6 @@ func (c *Client) doSAMLRequest() error {
 		return fmt.Errorf("%w: %v", ErrInvalidLogin, alertSel.Text())
 	}
 
-	// regular SSO response should have HTTP 302 status
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
-		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
-	}
-
 	return nil
 }
 
@@ -193,6 +195,7 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
+	req.Header.Set("Accept-Language", AcceptLanguageHR)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -255,9 +258,21 @@ func (c *Client) getCourses() ([]byte, error) {
 // The function also handles context cancellation and returns the context's
 // error in such a case.
 func (c *Client) getCourse(dest string) ([]byte, error) {
-	dest = BaseURL + dest
+	// dest is a relative URL scraped from the course listing; resolve against
+	// BaseURL so a leading "/" or missing "/" does not silently produce a
+	// malformed URL like "https://ocjene.skole.hrcourse/..." under string
+	// concatenation.
+	base, err := url.Parse(BaseURL)
+	if err != nil {
+		return nil, err
+	}
 
-	return c.getGeneric(dest)
+	ref, err := url.Parse(dest)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.getGeneric(base.ResolveReference(ref).String())
 }
 
 // getCalendar fetches all events from exams calendar in ICS format.

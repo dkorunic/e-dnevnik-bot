@@ -63,6 +63,11 @@ const (
 	WhatsAppMinDelay                = WhatsAppWindow / WhatsAppAPILimit
 	WhatsAppQueue                   = "whatsapp-queue"
 	ConfFileKey          ContextKey = "confFile"
+
+	// whatsAppPresenceTimeout bounds SendPresence calls from the event handler
+	// so a stalled socket cannot block whatsmeow's callback goroutine
+	// indefinitely.
+	whatsAppPresenceTimeout = 5 * time.Second
 )
 
 var (
@@ -244,6 +249,10 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	var successfulIDs []string
 
 	anyFailed := false
+	// allProcessed is set to false when the recipient loop breaks due to
+	// cancellation before finishing; it forces the message back into the
+	// queue so a shutdown-cancelled send is not silently dropped.
+	allProcessed := true
 
 	// send to all recipients: channels and nicknames are permitted
 	for _, u := range userIDs {
@@ -255,17 +264,22 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		// Honour cancellation before blocking on the rate limiter so shutdown
 		// is not delayed by a pending token.
 		if ctx.Err() != nil {
+			allProcessed = false
+
 			break
 		}
 
-		rl.Take()
-
+		// Parse and validate the JID before consuming a rate-limiter token:
+		// an invalid recipient is never sent, so charging its token would
+		// artificially narrow throughput for the valid recipients that follow.
 		target, err := types.ParseJID(u)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrWhatsAppInvalidJID, err)
 
 			continue
 		}
+
+		rl.Take()
 
 		// retryable and cancellable attempt to send a message
 		err = retry.New(
@@ -290,15 +304,18 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		successfulIDs = append(successfulIDs, u)
 	}
 
-	if anyFailed {
+	if anyFailed || !allProcessed {
 		// Record who succeeded so they are skipped on the next retry. Merge
 		// with dedup: repeated partial failures against the same recipient
 		// would otherwise append duplicate entries on every cycle.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		if err := queue.StoreFailedMsgs(ctx, eDB, WhatsAppQueueName, g); err != nil {
+		sctx, scancel := queueStoreCtx(ctx)
+		if err := queue.StoreFailedMsgs(sctx, eDB, WhatsAppQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
+
+		scancel()
 	}
 }
 
@@ -458,6 +475,20 @@ func whatsAppLogin(ctx context.Context) error {
 //   - *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
 //     logs a message, disconnects the client, and reconnects if possible.
 func whatsAppEventHandler(rawEvt any) {
+	// Snapshot whatsAppCli under the mutex so that concurrent init/teardown
+	// cannot swap the pointer mid-callback. Callbacks fire on goroutines owned
+	// by whatsmeow, outside the init critical section, so direct access to the
+	// package-level variable would race with whatsAppInit. If the client is
+	// not ready we silently drop the event — whatsmeow will resend connection
+	// events once init completes.
+	whatsAppCliMu.Lock()
+	cli := whatsAppCli
+	whatsAppCliMu.Unlock()
+
+	if cli == nil {
+		return
+	}
+
 	switch evt := rawEvt.(type) {
 	case *events.OfflineSyncPreview:
 		logger.Debug().Msgf("WhatsApp offline sync preview: %v messages, %v receipts, %v notifications, %v app data changes",
@@ -467,19 +498,23 @@ func whatsAppEventHandler(rawEvt any) {
 	case *events.OfflineSyncCompleted:
 		logger.Debug().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
-		if len(whatsAppCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceAvailable)
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
+		if len(cli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
+			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
+			_ = cli.SendPresence(presCtx, types.PresenceAvailable)
+			_ = cli.SendPresence(presCtx, types.PresenceUnavailable)
+			presCancel()
 		}
 
 		logger.Debug().Msg("WhatsApp app state sync completed")
 	case *events.Connected, *events.PushNameSetting:
-		if len(whatsAppCli.Store.PushName) > 0 {
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceAvailable)
-			_ = whatsAppCli.SendPresence(context.Background(), types.PresenceUnavailable)
+		if len(cli.Store.PushName) > 0 {
+			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
+			_ = cli.SendPresence(presCtx, types.PresenceAvailable)
+			_ = cli.SendPresence(presCtx, types.PresenceUnavailable)
+			presCancel()
 		}
 	case *events.PairSuccess, *events.PairError:
-		if whatsAppCli.Store.ID == nil {
+		if cli.Store.ID == nil {
 			_ = os.Remove(WhatsAppDBName)
 
 			logger.Fatal().Msgf("%v", ErrWhatsAppFailLinkDevice)

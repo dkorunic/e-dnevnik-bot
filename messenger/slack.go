@@ -114,6 +114,39 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 	return nil
 }
 
+// markSlackPermanent wraps Slack API errors that will never succeed on retry
+// in retry.Unrecoverable so retry-go short-circuits the remaining attempts.
+//
+// Two categories qualify as permanent:
+//   - slack.StatusCodeError with a 4xx code (auth failure, channel missing,
+//     malformed request) — except 408 (timeout) and 429 (rate-limit), which
+//     are transient.
+//   - slack.SlackErrorResponse — API-level "ok":false responses carry an
+//     Err field naming a specific API error (e.g. "invalid_auth",
+//     "channel_not_found"); none of these clear up on retry.
+//
+// Everything else (network errors, 5xx, unclassified) falls through unchanged
+// and keeps its normal retry budget.
+func markSlackPermanent(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var sce slack.StatusCodeError
+	if errors.As(err, &sce) {
+		if sce.Code >= 400 && sce.Code < 500 && sce.Code != 408 && sce.Code != 429 {
+			return retry.Unrecoverable(err)
+		}
+	}
+
+	var ser *slack.SlackErrorResponse
+	if errors.As(err, &ser) {
+		return retry.Unrecoverable(err)
+	}
+
+	return err
+}
+
 // processSlack sends a message to a list of Slack chat IDs.
 //
 // It takes the following parameters:
@@ -142,6 +175,10 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	var successfulIDs []string
 
 	anyFailed := false
+	// allProcessed is set to false when the recipient loop breaks due to
+	// cancellation before finishing; it forces the message back into the
+	// queue so a shutdown-cancelled send is not silently dropped.
+	allProcessed := true
 
 	// send to all recipients: channels and nicknames are permitted
 	for _, u := range chatIDs {
@@ -153,6 +190,8 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 		// Honour cancellation before blocking on the rate limiter so shutdown
 		// is not delayed by a pending token.
 		if ctx.Err() != nil {
+			allProcessed = false
+
 			break
 		}
 
@@ -171,7 +210,7 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 					slack.MsgOptionAsUser(true),
 				)
 
-				return err
+				return markSlackPermanent(err)
 			},
 		)
 		if err != nil {
@@ -185,15 +224,18 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 		successfulIDs = append(successfulIDs, u)
 	}
 
-	if anyFailed {
+	if anyFailed || !allProcessed {
 		// Record who succeeded so they are skipped on the next retry. Merge
 		// with dedup: repeated partial failures against the same recipient
 		// would otherwise append duplicate entries on every cycle.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		if err := queue.StoreFailedMsgs(ctx, eDB, SlackQueueName, g); err != nil {
+		sctx, scancel := queueStoreCtx(ctx)
+		if err := queue.StoreFailedMsgs(sctx, eDB, SlackQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
+
+		scancel()
 	}
 }
 

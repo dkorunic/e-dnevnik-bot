@@ -26,7 +26,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -56,15 +55,19 @@ const (
 )
 
 var (
-	ErrScrapingUser    = errors.New("error scraping data for User")
-	ErrDiscord         = errors.New("Discord messenger issue")  //nolint:staticcheck
-	ErrTelegram        = errors.New("Telegram messenger issue") //nolint:staticcheck
-	ErrSlack           = errors.New("Slack messenger issue")    //nolint:staticcheck
-	ErrMail            = errors.New("Mail messenger issue")     //nolint:staticcheck
-	ErrCalendar        = errors.New("Google Calendar issue")    //nolint:staticcheck
-	ErrWhatsApp        = errors.New("WhatsApp issue")           //nolint:staticcheck
-	ErrNoValidReleases = errors.New("no valid SemVer releases found")
+	ErrScrapingUser = errors.New("error scraping data for User")
+	ErrDiscord      = errors.New("Discord messenger issue")  //nolint:staticcheck
+	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:staticcheck
+	ErrSlack        = errors.New("Slack messenger issue")    //nolint:staticcheck
+	ErrMail         = errors.New("Mail messenger issue")     //nolint:staticcheck
+	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
+	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:staticcheck
 
+	// formatHRDateOnly matches the "D.M." (day.month.) format used in the
+	// portal's grade date column. The digits are Go's magic reference-time
+	// tokens: 2 = day-of-month, 1 = month; the two literal '.' characters are
+	// required separators. Do NOT "normalise" this to "2006-01-02"-style — it
+	// would break parsing of real portal values like "15.4.".
 	formatHRDateOnly = "2.1."
 )
 
@@ -376,16 +379,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 
 		// alert if there is a newer version
 		if latestTag.Compare(currentTag) == 1 {
-			releasedVersions, err := fetchReleasedVersions(vctx, client, githubOrg, githubRepo)
-			if err != nil {
-				logger.Error().Msgf("Failed to fetch releases of e-dnevnik-bot: %v", err)
-
-				return
-			}
-
-			behind := countNewerVersions(currentTag, releasedVersions)
-
-			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v, you are %v releases behind", latestTag, behind)
+			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v (you are on %v)", latestTag, currentTag)
 		}
 	})
 }
@@ -411,77 +405,4 @@ func githubClient(ctx context.Context) *github.Client {
 	tc := oauth2.NewClient(ctx, ts)
 
 	return github.NewClient(tc)
-}
-
-// fetchReleasedVersions fetches all released versions of a given GitHub repository and returns them as a slice of *semver.Version.
-//
-// It takes the following parameters:
-// - ctx: the context.Context for the HTTP client.
-// - client: the *github.Client for the GitHub API.
-// - owner: the string representing the owner of the repository.
-// - repo: the string representing the name of the repository.
-//
-// The function returns the following:
-// - []*semver.Version: a slice of *semver.Version representing all released versions of the repository.
-// - error: an error if any occurred during the execution of the function.
-func fetchReleasedVersions(ctx context.Context, client *github.Client, owner, repo string) ([]*semver.Version, error) {
-	opt := &github.ListOptions{PerPage: 100}
-
-	versions := make([]*semver.Version, 0, opt.PerPage)
-
-	for {
-		releases, resp, err := client.Repositories.ListReleases(ctx, owner, repo, opt)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, r := range releases {
-			if r.TagName == nil {
-				continue
-			}
-
-			v, err := semver.NewVersion(strings.TrimPrefix(*r.TagName, "v"))
-			if err != nil {
-				continue
-			}
-
-			versions = append(versions, v)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-
-		opt.Page = resp.NextPage
-	}
-
-	if len(versions) == 0 {
-		return nil, ErrNoValidReleases
-	}
-
-	return versions, nil
-}
-
-// countNewerVersions counts the number of versions in the versions slice that are newer than the current version.
-//
-// It takes the following parameters:
-// - current: the current version to compare with.
-// - versions: a slice of versions; will be sorted ascending in place.
-//
-// It returns the number of versions that are newer than the current version.
-func countNewerVersions(current *semver.Version, versions []*semver.Version) int {
-	// sort ascending so binary search can locate the first v >= current
-	slices.SortFunc(versions, func(a, b *semver.Version) int { return a.Compare(b) })
-
-	idx, found := slices.BinarySearchFunc(versions, current, func(v, c *semver.Version) int {
-		return v.Compare(c)
-	})
-
-	// BinarySearchFunc returns the first index where v >= current; if current itself is present
-	// in the list, advance past it so the count reflects only strictly newer versions.
-	if found {
-		idx++
-	}
-
-	return len(versions) - idx
 }

@@ -199,8 +199,19 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	// Honour cancellation before blocking on the rate limiter so shutdown
-	// is not delayed by a pending token.
+	// is not delayed by a pending token. A cancelled ctx here means we never
+	// got to attempt the insert — re-queue the message so the next poll
+	// cycle picks it up. Without this, a message pulled from the queue at
+	// shutdown is silently dropped (outer loop slices failedMsgs[i+1:] on
+	// cancellation and assumes `g` was either delivered or re-queued by us).
 	if ctx.Err() != nil {
+		sctx, scancel := queueStoreCtx(ctx)
+		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+		}
+
+		scancel()
+
 		return
 	}
 
@@ -237,10 +248,14 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
-		// store failed message
-		if err = queue.StoreFailedMsgs(ctx, eDB, CalendarQueueName, g); err != nil {
+		// store failed message using a shutdown-tolerant context so a cancelled
+		// ctx does not turn a failed insert into a silently-lost message.
+		sctx, scancel := queueStoreCtx(ctx)
+		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
+
+		scancel()
 
 		return
 	}

@@ -295,6 +295,12 @@ func checkUserConf(config *TomlConfig) {
 		logger.Fatal().Msg("Configuration error: No users defined")
 	}
 
+	// Detect duplicate usernames across [[user]] blocks: the scraper fans out
+	// one goroutine per user, so a duplicate would perform redundant logins
+	// and — more importantly — produce duplicate alerts for every subsequent
+	// event (dedup is keyed on username+subject+fields).
+	seen := make(map[string]struct{}, len(config.User))
+
 	// check if all users have username and password
 	for _, u := range config.User {
 		if u.Username == "" || u.Password == "" {
@@ -311,5 +317,11 @@ func checkUserConf(config *TomlConfig) {
 		if !strings.HasSuffix(u.Username, "@skole.hr") {
 			logger.Warn().Msgf("Configuration issue: username not ending with @skole.hr: %v", u.Username)
 		}
+
+		if _, dup := seen[u.Username]; dup {
+			logger.Fatal().Msgf("Configuration error: duplicate [[user]] block for username %v", u.Username)
+		}
+
+		seen[u.Username] = struct{}{}
 	}
 }

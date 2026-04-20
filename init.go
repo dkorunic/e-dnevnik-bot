@@ -48,6 +48,12 @@ import (
 const (
 	initialWhatsAppDelay = 2 * time.Minute // 2 minutes sleep after successful sync
 	WhatsAppDBOldName    = ".e-dnevnik.sqlite"
+
+	// whatsAppPresenceTimeout bounds SendPresence calls so a stalled WhatsApp
+	// socket cannot block pairing/event-handling callbacks indefinitely. 5 s
+	// is well above round-trip latency for healthy sessions yet short enough
+	// to surface a dead link quickly.
+	whatsAppPresenceTimeout = 5 * time.Second
 )
 
 var (
@@ -253,8 +259,10 @@ func whatsappPairingEventHandler(rawEvt any) {
 		logger.Info().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
 		if len(whatsAppPairingCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceAvailable)
-			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceUnavailable)
+			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
+			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceAvailable)
+			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceUnavailable)
+			presCancel()
 		}
 
 		logger.Info().Msg("WhatsApp app state sync completed")
@@ -265,8 +273,10 @@ func whatsappPairingEventHandler(rawEvt any) {
 		}
 	case *events.Connected, *events.PushNameSetting:
 		if len(whatsAppPairingCli.Store.PushName) > 0 {
-			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceAvailable)
-			_ = whatsAppPairingCli.SendPresence(context.Background(), types.PresenceUnavailable)
+			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
+			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceAvailable)
+			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceUnavailable)
+			presCancel()
 		}
 	case *events.PairSuccess, *events.PairError:
 		if whatsAppPairingCli.Store.ID == nil {

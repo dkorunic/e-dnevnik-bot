@@ -233,6 +233,11 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	var successfulIDs []string
 
 	anyFailed := false
+	// allProcessed is set to false when the recipient loop breaks due to
+	// cancellation before finishing. Without it, a message cancelled before
+	// any recipient is attempted (anyFailed still false) would not be
+	// re-queued, silently dropping an event on shutdown.
+	allProcessed := true
 
 	// send to all recipients
 	for _, u := range userIDs {
@@ -244,6 +249,8 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		// Honour cancellation before blocking on the rate limiter so shutdown
 		// is not delayed by a pending token.
 		if ctx.Err() != nil {
+			allProcessed = false
+
 			break
 		}
 
@@ -304,15 +311,18 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		successfulIDs = append(successfulIDs, u)
 	}
 
-	if anyFailed {
+	if anyFailed || !allProcessed {
 		// Record who succeeded so they are skipped on the next retry. Merge
 		// with dedup: repeated partial failures against the same recipient
 		// would otherwise append duplicate entries on every cycle.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		if err := queue.StoreFailedMsgs(ctx, eDB, DiscordQueueName, g); err != nil {
+		sctx, scancel := queueStoreCtx(ctx)
+		if err := queue.StoreFailedMsgs(sctx, eDB, DiscordQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
+
+		scancel()
 	}
 }
 

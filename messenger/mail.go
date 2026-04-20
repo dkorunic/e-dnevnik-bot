@@ -151,6 +151,27 @@ func mailInit(server string, portInt int, username, password string) error {
 	return nil
 }
 
+// markMailPermanent wraps SMTP errors that cannot succeed on retry in
+// retry.Unrecoverable so retry-go short-circuits the remaining attempts.
+//
+// go-mail's *mail.SendError carries a classifier method IsTemp() that tracks
+// the 4xx-vs-5xx split in SMTP reply codes and the underlying error type.
+// Treat anything explicitly marked non-temporary (permanent 5xx, auth failure,
+// malformed header, broken TLS handshake) as unrecoverable. Any other error
+// — network, 4xx, or non-SendError wrapping — keeps its normal retry budget.
+func markMailPermanent(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var sendErr *mail.SendError
+	if errors.As(err, &sendErr) && !sendErr.IsTemp() {
+		return retry.Unrecoverable(err)
+	}
+
+	return err
+}
+
 // processMail processes a message and sends it to the specified recipients through the mail service.
 //
 // It takes the following parameters:
@@ -185,6 +206,10 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	var successfulIDs []string
 
 	anyFailed := false
+	// allProcessed is set to false when the recipient loop breaks due to
+	// cancellation before finishing; it forces the message back into the
+	// queue so a shutdown-cancelled send is not silently dropped.
+	allProcessed := true
 
 	// send individually to each recipient for per-recipient failure tracking
 	for _, u := range to {
@@ -230,6 +255,8 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		// Honour cancellation before blocking on the rate limiter so shutdown
 		// is not delayed by a pending token.
 		if ctx.Err() != nil {
+			allProcessed = false
+
 			break
 		}
 
@@ -242,7 +269,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 			retry.Delay(MailMinDelay),
 		).Do(
 			func() error {
-				return mailCli.DialAndSendWithContext(ctx, m)
+				return markMailPermanent(mailCli.DialAndSendWithContext(ctx, m))
 			},
 		)
 		if err != nil {
@@ -256,14 +283,17 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		successfulIDs = append(successfulIDs, u)
 	}
 
-	if anyFailed {
+	if anyFailed || !allProcessed {
 		// Record who succeeded so they are skipped on the next retry. Merge
 		// with dedup: repeated partial failures against the same recipient
 		// would otherwise append duplicate entries on every cycle.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		if err := queue.StoreFailedMsgs(ctx, eDB, MailQueueName, g); err != nil {
+		sctx, scancel := queueStoreCtx(ctx)
+		if err := queue.StoreFailedMsgs(sctx, eDB, MailQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 		}
+
+		scancel()
 	}
 }

@@ -23,6 +23,7 @@ package scrape
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -34,6 +35,24 @@ import (
 // scrapeRetryMaxJitter bounds the random component added to exponential backoff
 // between retry attempts, smoothing simultaneous reconnect storms.
 const scrapeRetryMaxJitter = 500 * time.Millisecond
+
+// markPermanent wraps fetch-level errors that cannot succeed on retry in
+// retry.Unrecoverable so retry-go short-circuits the remaining attempts:
+//   - ErrInvalidLogin: bad credentials — retrying just re-submits the same
+//     POST and re-trips the portal's rate limiter.
+//   - ErrBodyTooLarge: response exceeded MaxBodySize — a deterministic
+//     server/content condition, not a transient network fault.
+func markPermanent(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, fetch.ErrInvalidLogin) || errors.Is(err, fetch.ErrBodyTooLarge) {
+		return retry.Unrecoverable(err)
+	}
+
+	return err
+}
 
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
@@ -67,7 +86,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		retry.MaxJitter(scrapeRetryMaxJitter),
 	).Do(
 		func() error {
-			return client.Login()
+			return markPermanent(client.Login())
 		},
 	)
 	if err != nil {
@@ -87,7 +106,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			var err error
 			rawClasses, err = client.GetClasses()
 
-			return err
+			return markPermanent(err)
 		},
 	)
 	if err != nil {
@@ -131,7 +150,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 				var err error
 				rawGrades, events, err = client.GetClassEvents(cID)
 
-				return err
+				return markPermanent(err)
 			},
 		)
 		if err != nil {
@@ -163,7 +182,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 				var err error
 				rawCourses, err = client.GetCourses()
 
-				return err
+				return markPermanent(err)
 			},
 		)
 		if err != nil {
@@ -192,7 +211,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 					var err error
 					rawCourse, err = client.GetCourse(s.URL)
 
-					return err
+					return markPermanent(err)
 				},
 			)
 			if err != nil {
