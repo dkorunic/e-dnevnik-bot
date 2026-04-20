@@ -197,7 +197,7 @@ Steps required:
 
 1. Open the WhatsApp mobile application (iOS, Android, etc.).
 2. A phone number is required for automatic pairing via PIN. If no phone number is configured, pairing falls back to a QR code, which requires an interactive run on a desktop. During the initial sync, keep your Android/iOS WhatsApp application open and active for at least 2 minutes.
-3. Entries in `userids` are either a personal JID (in the form `+385XXYYYYYYY@s.whatsapp.net`, for direct messages) or a group chat JID (in the form `XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net`). If you do not know a group's JID, you can specify groups by name in the `groups` field; the bot will print the group's JID in a debug message. Using `userids` directly is preferred for performance reasons.
+3. Entries in `userids` are either a personal JID (in the form `+385XXYYYYYYY@s.whatsapp.net`, for direct messages) or a group chat JID (in the form `XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net`). If you do not know a group's JID, you can specify groups by name in the `groups` field; the bot will resolve each name to its JID at startup. If the configuration file is writable by the bot, the resolved JIDs will be migrated from `groups` into `userids` automatically, so subsequent runs skip the name-resolution step. Using `userids` directly is preferred for performance reasons.
 4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, include this file in your persistent volume mount so that the pairing survives container restarts.
 
 #### Google Calendar configuration
@@ -291,7 +291,6 @@ user@server:~/docker-compose$ editor docker-compose.yml
 Paste the following into `docker-compose.yml`:
 
 ```yaml
-version: "3"
 # More info at https://github.com/dkorunic/e-dnevnik-bot
 services:
   ednevnik:
@@ -360,7 +359,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Render the config file
         run: |
