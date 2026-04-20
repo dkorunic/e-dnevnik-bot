@@ -61,8 +61,7 @@ func RequeueMsgs(eDB *sqlitedb.Edb, key []byte, msgs []msgtypes.Message) {
 //
 // If any of the operations fail, the function returns an error.
 func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
-	// Stamp QueuedAt on first enqueue only; preserve the original timestamp
-	// on re-queue so MaxQueueAge is measured from the first failure.
+	// Preserve original QueuedAt so MaxQueueAge counts from first failure.
 	if g.QueuedAt.IsZero() {
 		g.QueuedAt = time.Now()
 	}

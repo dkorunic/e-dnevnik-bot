@@ -101,9 +101,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 	wgMsg.Go(func() {
 		relay := broadcast.NewRelay[msgtypes.Message]()
 
-		// wgInner tracks only the inner messenger goroutines so the relay is
-		// closed first (unblocking their listener range loops) and then we wait
-		// for them to finish before the outer goroutine returns.
+		// Close relay first, then wait — reversed order deadlocks listener loops.
 		var wgInner sync.WaitGroup
 
 		defer func() {
@@ -111,7 +109,6 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgInner.Wait()
 		}()
 
-		// Discord sender
 		if cfg.DiscordEnabled {
 			l := relay.Listener(broadcastBufLen)
 
@@ -127,7 +124,6 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// Telegram sender
 		if cfg.TelegramEnabled {
 			l := relay.Listener(broadcastBufLen)
 
@@ -143,7 +139,6 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// Slack sender
 		if cfg.SlackEnabled {
 			l := relay.Listener(broadcastBufLen)
 
@@ -159,7 +154,6 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// Mail Sender
 		if cfg.MailEnabled {
 			l := relay.Listener(broadcastBufLen)
 
@@ -176,7 +170,6 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// Google Calendar Sender
 		if cfg.CalendarEnabled {
 			l := relay.Listener(broadcastBufLen)
 
@@ -192,7 +185,6 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// WhatsApp Sender
 		if cfg.WhatsAppEnabled {
 			l := relay.Listener(broadcastBufLen)
 
@@ -209,7 +201,6 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// broadcast incoming messages with guaranteed delivery and context
 		for g := range gradesMsg {
 			select {
 			case <-ctx.Done():
@@ -225,15 +216,13 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 // and if it is not an initial run, it will pass through to messengers for further alerting.
 func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Go(func() {
-		// Always close gradesMsg so msgSend's broadcast loop terminates even
-		// when the goroutine exits early due to context cancellation.
+		// Close gradesMsg on exit so msgSend's broadcast loop unblocks.
 		defer close(gradesMsg)
 
 		if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")
 		}
 
-		// cache current time for later
 		now := time.Now()
 
 		for g := range gradesScraped {
@@ -241,26 +230,22 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			case <-ctx.Done():
 				return
 			default:
-				// log all events
 				if *debugEvents {
 					logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
 				}
 
-				// skip reading list events
 				if !*readingList && g.Code == msgtypes.Reading {
 					continue
 				}
 
-				// check if it is an already known alert
 				found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
 				if err != nil {
 					logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
 				}
 
-				// check if is the initial run and send only if not
+				// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
 				//nolint:nestif
 				if !found && eDB.Existing() {
-					// check if it is an old grade/exam event that should be ignored
 					if *relevancePeriod > 0 && g.Code == msgtypes.Exam && !g.Timestamp.IsZero() {
 						if time.Since(g.Timestamp) > *relevancePeriod {
 							logger.Warn().Msgf("Ignoring old exam event: %v/%v: %+v", g.Username, g.Subject, g)
@@ -270,20 +255,13 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 					}
 
 					if *relevancePeriod > 0 && g.Code == msgtypes.Grade && len(g.Fields) > 0 {
-						// XXX hardcoded location of the date for grades
+						// XXX Fields[0] assumed to be the grade date.
 						t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 						if err != nil {
-							// Fail-open: if the date cannot be parsed we cannot determine
-							// relevance, so the event is passed through rather than silently
-							// dropped. This avoids missed alerts at the cost of potentially
-							// delivering a stale grade notification on unexpected date formats.
+							// Fail-open on unparseable date: prefer a stale alert to a silent drop.
 							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
 						} else {
-							// assume current or previous year; dates in the "future" relative to today
-							// imply the previous year. When day and month match exactly, the year is
-							// ambiguous: we assume the current year (i.e. today), which means a
-							// grade from the same calendar day of the prior school year will pass
-							// this filter — an inherent limitation of the day.month. format.
+							// "Future" day.month. implies previous year; exact match assumed current year.
 							if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
 								t = t.AddDate(now.Year()-1, 0, 0)
 							} else {
@@ -318,7 +296,7 @@ func spinner(done <-chan struct{}) {
 	for {
 		select {
 		case <-done:
-			fmt.Print("\r") // clear spinner line before next log output
+			fmt.Print("\r")
 
 			return
 		default:
@@ -335,12 +313,11 @@ func spinner(done <-chan struct{}) {
 // It does not check for updates if the program is running from a local source-build, as the user is expected to be aware of the latest version.
 func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	wgVersion.Go(func() {
-		// if we don't have a tag or if it is a local source-build, we don't need to check for updates
+		// Skip local source-builds — user owns their own version.
 		if GitTag == "" || GitDirty != "" {
 			return
 		}
 
-		// semver-parse current version
 		currentTag, err := semver.NewVersion(strings.TrimPrefix(GitTag, "v"))
 		if err != nil || currentTag == nil {
 			logger.Error().Msgf("Unable to parse current version of e-dnevnik-bot: %v", err)
@@ -348,14 +325,12 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		// Bound all GitHub API work in this check behind a single timeout so a
-		// stalled release endpoint cannot hold the goroutine past the poll cycle.
+		// Bounded timeout so a stalled GitHub API can't outlive the poll cycle.
 		vctx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
 		defer cancel()
 
 		client := githubClient(vctx)
 
-		// get latest release from GitHub
 		latestRelease, _, err := client.Repositories.GetLatestRelease(vctx, githubOrg, githubRepo)
 		if err != nil || latestRelease == nil {
 			logger.Error().Msgf("Unable to check for latest release of e-dnevnik-bot: %v", err)
@@ -363,7 +338,6 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		// semver-parse latest version
 		if latestRelease.TagName == nil {
 			logger.Error().Msg("Unable to parse latest release of e-dnevnik-bot: nil TagName")
 
@@ -377,7 +351,6 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		// alert if there is a newer version
 		if latestTag.Compare(currentTag) == 1 {
 			logger.Info().Msgf("Newer version of e-dnevnik-bot is available: %v (you are on %v)", latestTag, currentTag)
 		}

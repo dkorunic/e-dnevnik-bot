@@ -107,7 +107,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
-	// process all failed messages; re-queue any unprocessed on cancellation
+	// Drain queued failures first; re-queue tail on shutdown.
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
@@ -125,7 +125,6 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 		}
 	}
 
-	// process all messages
 	for g := range ch {
 		select {
 		case <-ctx.Done():
@@ -150,9 +149,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 //
 // It returns no value and has no side effects except for error logging.
 func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
-	// format message as rich message with embedded data.
-	// Discord rejects any embed that exceeds its per-field/per-embed limits,
-	// so cap the field count and truncate each string individually.
+	// Cap field count and truncate strings so Discord does not reject the embed.
 	available := min(len(g.Fields), len(g.Descriptions))
 	count := min(available, DiscordMaxFields)
 
@@ -167,10 +164,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 	title := truncateWithEllipsis(sb.String(), DiscordMaxTitleChars)
 
-	// Enforce the total embed size cap (title + field names + field values ≤
-	// DiscordMaxEmbedChars). Exceeding this sum causes the API to reject the
-	// whole message even when every individual field is within its own limit,
-	// so we track a running budget and truncate/drop trailing fields to fit.
+	// Track running budget; the total-embed-chars cap rejects otherwise-valid messages.
 	budget := DiscordMaxEmbedChars - utf8.RuneCountInString(title)
 
 	fields := make([]*discordgo.MessageEmbedField, 0, count)
@@ -185,9 +179,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		nameLen := utf8.RuneCountInString(name)
 		valueLen := utf8.RuneCountInString(value)
 
-		// Discord requires Name and Value to be non-empty; require at least
-		// minDiscordFieldValueRunes of value room so the last field carries
-		// some real content rather than just an ellipsis.
+		// Require real value room: Discord rejects empty Value and bare ellipses are useless.
 		if nameLen+minDiscordFieldValueRunes > budget {
 			droppedAt = ii
 
@@ -224,7 +216,6 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		Fields: fields,
 	}
 
-	// build a skip set for O(1) lookups
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
 	for _, r := range g.SkipRecipients {
 		skipSet[r] = struct{}{}
@@ -233,21 +224,15 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	var successfulIDs []string
 
 	anyFailed := false
-	// allProcessed is set to false when the recipient loop breaks due to
-	// cancellation before finishing. Without it, a message cancelled before
-	// any recipient is attempted (anyFailed still false) would not be
-	// re-queued, silently dropping an event on shutdown.
+	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
 
-	// send to all recipients
 	for _, u := range userIDs {
-		// Skip recipients that already received this message on a previous attempt.
 		if _, skip := skipSet[u]; skip {
 			continue
 		}
 
-		// Honour cancellation before blocking on the rate limiter so shutdown
-		// is not delayed by a pending token.
+		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -256,7 +241,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 		rl.Take()
 
-		// resolve DM channel ID, creating only on first use per recipient
+		// Resolve DM channel lazily; cache across recipients.
 		discordMu.Lock()
 		channelID, ok := discordChannels[u]
 		discordMu.Unlock()
@@ -284,7 +269,6 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			discordMu.Unlock()
 		}
 
-		// retryable and cancellable attempt to send a message
 		err = retry.New(
 			retry.Attempts(retries),
 			retry.Context(ctx),
@@ -312,11 +296,10 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 
 	if anyFailed || !allProcessed {
-		// Record who succeeded so they are skipped on the next retry. Merge
-		// with dedup: repeated partial failures against the same recipient
-		// would otherwise append duplicate entries on every cycle.
+		// Merge-dedup successful recipients to prevent unbounded growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
+		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, DiscordQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -341,7 +324,6 @@ func discordInit(token string) error {
 	if discordCli == nil {
 		logger.Debug().Msg("Initializing Discord client")
 
-		// create a Discord session
 		discordCli, err = discordgo.New("Bot " + token)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrDiscordCreatingSession, err)
@@ -355,7 +337,6 @@ func discordInit(token string) error {
 
 		discordChannels = make(map[string]string)
 
-		// create a Discord websocket
 		return discordCli.Open()
 	}
 

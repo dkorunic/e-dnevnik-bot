@@ -85,25 +85,22 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 	var cancelled bool
 
-	// each subject has a div with class "flex-table new-grades-table"
 	doc.FindMatcher(selNewGradesTable).
 		Each(func(_ int, table *goquery.Selection) {
 			if cancelled {
 				return
 			}
 
-			// subject name is in data-action-id attribute
 			subject, subjectOK := table.Attr("data-action-id")
 			if !subjectOK {
 				return
 			}
 
-			// if multiclass, append class name to subject
+			// Disambiguate subject across classes.
 			if multiClass {
 				subject = subject + " / " + className
 			}
 
-			// row descriptions are in div with class "row header" in each div with class "cell" in a span
 			headerCells := table.FindMatcher(selRowHeaderCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
@@ -112,7 +109,6 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				descriptions = append(descriptions, txt)
 			})
 
-			// grades are in each div with class "row" (header rows excluded) ...
 			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
 					if cancelled {
@@ -122,9 +118,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
-					// ... and in each div with class "cell" in a span
 					spanCells.Each(func(_ int, column *goquery.Selection) {
-						// clean excess whitespace and newlines
 						txt := strings.TrimSpace(column.Text())
 						if len(txt) > 0 {
 							txt = trimAllSpace(txt)
@@ -133,7 +127,6 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						spans = append(spans, txt)
 					})
 
-					// once we have a single grade with all required fields, send it through the channel
 					select {
 					case ch <- msgtypes.Message{
 						Code:         msgtypes.Grade,
@@ -181,12 +174,11 @@ func parseEvents(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		description := cleanEventDescription(ev.Description)
 		timestamp := ev.Start.Format(TimeFormat)
 
-		// if multiclass, append class name to subject
+		// Disambiguate subject across classes.
 		if multiClass {
 			subject = subject + " / " + className
 		}
 
-		// send each event through channel
 		select {
 		case ch <- msgtypes.Message{
 			Code:         msgtypes.Exam,
@@ -220,35 +212,29 @@ func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
 
 	var classes fetch.Classes
 
-	// fetch all active classes
 	doc.FindMatcher(selStudentListClasses).
 		Each(func(_ int, row *goquery.Selection) {
-			// div active classes are class-menu-vertical and not past-schoolyear
 			row.FindMatcher(selClassMenuVerticalClassInfo).
 				Each(func(_ int, column *goquery.Selection) {
 					var c fetch.Class
 
 					var idOK bool
 
-					// class ID
 					c.ID, idOK = column.Attr("data-action-id")
 					if !idOK {
 						return
 					}
 
-					// class name
 					column.FindMatcher(selClassSpanBold).
 						Each(func(_ int, span *goquery.Selection) {
 							c.Name = strings.TrimSpace(span.Text())
 						})
 
-					// class year
 					column.FindMatcher(selClassSpanSchoolyear).
 						Each(func(_ int, span *goquery.Selection) {
 							c.Year = strings.TrimSpace(span.Text())
 						})
 
-					// class school
 					column.FindMatcher(selSchoolSpanSchoolName).
 						Each(func(_ int, span *goquery.Selection) {
 							c.School = strings.TrimSpace(span.Text())
@@ -276,7 +262,6 @@ func parseCourses(rawCourses []byte) (fetch.Courses, error) {
 
 	var courses fetch.Courses
 
-	// list containing URLs for each course (but don't contain https schema or domain)
 	doc.FindMatcher(selContentUlListLiA).
 		Each(func(_ int, row *goquery.Selection) {
 			href, hrefOK := row.Attr("href")
@@ -284,7 +269,6 @@ func parseCourses(rawCourses []byte) (fetch.Courses, error) {
 				return
 			}
 
-			// and a course name
 			span := row.FindMatcher(selCourseInfoSpan)
 			if span.Length() > 0 {
 				courseName := strings.TrimSpace(span.First().Text())
@@ -307,22 +291,20 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		return err
 	}
 
-	// if multiclass, append class name to subject
+	// Disambiguate subject across classes.
 	if multiClass {
 		subject = subject + " / " + className
 	}
 
 	var cancelled bool
 
-	// process national-exam-table
 	doc.FindMatcher(selNationalExamTable).
 		Each(func(_ int, table *goquery.Selection) {
 			if cancelled {
 				return
 			}
 
-			// row descriptions are in div with class "row header" in each div with class "cell" in a span
-			// skip over block header
+			// Skip block header row.
 			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
@@ -340,9 +322,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
-					// ... and in each div with class "cell" in a span
 					spanCells.Each(func(_ int, column *goquery.Selection) {
-						// clean excess whitespace and newlines
 						txt := strings.TrimSpace(column.Text())
 						if len(txt) > 0 {
 							txt = trimAllSpace(txt)
@@ -351,7 +331,6 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						spans = append(spans, txt)
 					})
 
-					// we have a national-exam table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
 						select {
 						case ch <- msgtypes.Message{
@@ -368,15 +347,13 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				})
 		})
 
-	// process readings-table
 	doc.FindMatcher(selReadingsTable).
 		Each(func(_ int, table *goquery.Selection) {
 			if cancelled {
 				return
 			}
 
-			// row descriptions are in div with class "row header" in each div with class "cell" in a span
-			// skip over block header
+			// Skip block header row.
 			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
@@ -394,9 +371,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 					spanCells := row.FindMatcher(selCellSpan)
 					spans := make([]string, 0, spanCells.Length())
 
-					// ... and in each div with class "cell" in a span
 					spanCells.Each(func(_ int, column *goquery.Selection) {
-						// clean excess whitespace and newlines
 						txt := strings.TrimSpace(column.Text())
 						if len(txt) > 0 {
 							txt = trimAllSpace(txt)
@@ -405,7 +380,6 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						spans = append(spans, txt)
 					})
 
-					// we have a readings table entry, send it through the channel
 					if len(spans) > 0 && len(descriptions) > 0 {
 						select {
 						case ch <- msgtypes.Message{
@@ -426,20 +400,18 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		return ctx.Err()
 	}
 
-	// final grades need additional subject suffix to have unique content for hash (which in case of multicass=false
-	// was not added yet)
+	// Ensure unique hash content; multiClass branch already appended className.
 	if !multiClass {
 		subject = subject + " / " + className
 	}
 
-	// process final grades
 	doc.FindMatcher(selFinalGradeRow).
 		Each(func(_ int, row *goquery.Selection) {
 			if cancelled {
 				return
 			}
 
-			// first cell is a description ("ZAKLJUČENO")
+			// First cell holds the description ("ZAKLJUČENO").
 			descCells := row.FindMatcher(selCellBoldFirstSpan)
 			descriptions := make([]string, 0, descCells.Length())
 
@@ -448,21 +420,18 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				descriptions = append(descriptions, txt)
 			})
 
-			// following cells are final grades
 			spanCells := row.FindMatcher(selCellNotBoldFirstSpan)
 			spans := make([]string, 0, spanCells.Length())
 
 			spanCells.Each(func(_ int, column *goquery.Selection) {
-				// clean excess whitespace and newlines
 				txt := strings.TrimSpace(column.Text())
 
-				// it can be empty (ie. divisor)
+				// Skip empty cells (divisors).
 				if len(txt) > 0 {
 					spans = append(spans, txt)
 				}
 			})
 
-			// send only if we have a final grade
 			if len(spans) > 0 && len(descriptions) > 0 {
 				select {
 				case ch <- msgtypes.Message{
@@ -495,14 +464,12 @@ func trimAllSpace(s string) string {
 	for _, r := range s {
 		if unicode.IsSpace(r) {
 			if !firstNonSpace {
-				// Leading space
 				needsMod = true
 
 				break
 			}
 
 			if inSpace || r != ' ' {
-				// Consecutive space or non-standard space
 				needsMod = true
 
 				break
@@ -515,8 +482,8 @@ func trimAllSpace(s string) string {
 		}
 	}
 
+	// Trailing space needs trimming too.
 	if !needsMod && inSpace {
-		// Trailing space
 		needsMod = true
 	}
 

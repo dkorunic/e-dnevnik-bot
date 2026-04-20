@@ -51,13 +51,12 @@ func dbExists(filePath string) bool {
 // produce identical hashes. This is acceptable here because bucket and subBucket are fixed, application-controlled
 // values, not arbitrary user input.
 func hashContent(bucket, subBucket string, target []string) []byte {
-	// get total length of all strings
 	totalLen := len(bucket) + len(subBucket)
 	for i := range target {
 		totalLen += len(target[i])
 	}
 
-	// get a pooled buffer, growing it in-place if the current input exceeds its capacity
+	// Pooled buffer; grow in place when input exceeds current capacity.
 	bufp := hashBufPool.Get().(*[]byte)
 
 	if cap(*bufp) < totalLen {
@@ -73,7 +72,7 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 		buf = append(buf, target[i]...)
 	}
 
-	// calculate SHA-256 using SIMD AVX512 or SHA Extensions where possible
+	// SIMD/SHA-extension accelerated where available.
 	targetHash256 := sha256.Sum256(buf)
 
 	*bufp = buf

@@ -64,7 +64,6 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	origFilePath := filePath
 
-	// Add .sqlite suffix if not present
 	if !strings.HasSuffix(filePath, ".sqlite") {
 		filePath += ".sqlite"
 	}
@@ -73,23 +72,17 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	logger.Debug().Msgf("Opening database: %v", filePath)
 
-	// Add DB options
 	sqlitePath := "file:" + filePath + DefaultDBOptions
 
-	// Open database
 	db, err := sql.Open("sqlite", sqlitePath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSqliteOpen, err)
 	}
 
-	// WAL mode permits multiple concurrent readers alongside a single writer,
-	// so a small connection pool lets read-only queries proceed while a writer
-	// holds the transaction. Writes are still serialised by SQLite itself and
-	// busy_timeout (set via DefaultDBOptions) covers rare lock contention.
+	// WAL allows concurrent readers alongside one writer; busy_timeout handles rare lock contention.
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
-	// Create table if not exists
 	query := `
 	CREATE TABLE IF NOT EXISTS kv (
 		key BLOB PRIMARY KEY,
@@ -109,7 +102,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	var importErr error
 
 	importOnce.Do(func() {
-		// Check if old BadgerDB directory exists and convert data
+		// One-shot, destructive BadgerDB migration; runs at most once per process.
 		edb, importErr = badgerDB2Sqlite(ctx, origFilePath, edb)
 	})
 	if importErr != nil {
@@ -118,7 +111,6 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 		return nil, importErr
 	}
 
-	// Perform initial cleanup of expired keys
 	edb.cleanup(ctx)
 
 	return edb, nil
@@ -139,7 +131,7 @@ func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, 
 			return nil, err
 		}
 
-		// New database has been populated with data
+		// Imported rows count as pre-existing data to suppress first-run seeding.
 		edb.isExisting = true
 
 		logger.Info().Msgf("Removing BadgerDB directory post-import at %v", origFilePath)
@@ -175,7 +167,6 @@ func (db *Edb) Close() error {
 // BeginTx() issues BEGIN DEFERRED, which acquires the write lock lazily on
 // first write and leaves the SELECT above racing with other writers.
 func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, target []string) (bool, error) {
-	// SHA256 hash of (bucket, subBucket, []target)
 	key := hashContent(bucket, subBucket, target)
 
 	now := time.Now()
@@ -194,8 +185,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 
 	defer func() {
 		if !committed {
-			// Use a fresh context so rollback still runs if the caller's
-			// context has been cancelled.
+			// Fresh context ensures rollback runs even if caller's ctx is cancelled.
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
@@ -205,7 +195,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	err = conn.QueryRowContext(ctx, "SELECT expires_at FROM kv WHERE key = ?", key).Scan(&expiresAt)
 	switch {
 	case err == nil:
-		// Key found — treat as still-valid unless the TTL has expired.
+		// Still within TTL: report as already-flagged.
 		if !expiresAt.Valid || expiresAt.Int64 >= now.Unix() {
 			if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
 				return false, err
@@ -215,9 +205,8 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 
 			return true, nil
 		}
-		// Expired: fall through to re-insert below.
+		// Expired row: re-insert below so stale events re-fire after ~1 year.
 	case errors.Is(err, sql.ErrNoRows):
-		// Not found: fall through to insert below.
 	default:
 		return false, err
 	}
@@ -276,8 +265,7 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 
 	defer func() {
 		if !committed {
-			// Use a fresh context so rollback still runs if the caller's
-			// context has been cancelled.
+			// Fresh context ensures rollback runs even if caller's ctx is cancelled.
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
@@ -291,26 +279,23 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 		return err
 	}
 
-	// If expired, treat as not found
 	wasExpired := false
 
 	if err == nil {
 		if expiresAt.Valid && expiresAt.Int64 < time.Now().Unix() {
-			val = nil         // Treat as not found/empty
-			wasExpired = true // Must always write to refresh the expired entry
+			val = nil
+			wasExpired = true // force write to refresh expiry
 		}
 	} else {
-		val = nil // Not found
+		val = nil
 	}
 
-	// Call conversion function
 	newVal, err := f(val)
 	if err != nil {
 		return err
 	}
 
-	// Skip db update if the value has not changed, but always write when the
-	// row was expired so the entry is refreshed with a new expiry.
+	// Skip write when unchanged; always write if expired to refresh expiry.
 	if !wasExpired && bytes.Equal(val, newVal) {
 		if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
 			return err
@@ -322,11 +307,10 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	}
 
 	if len(newVal) == 0 {
-		// Empty value means the queue has been drained; delete the row entirely
-		// rather than leaving a NULL-TTL zombie that cleanup() never removes.
+		// Drained queue: delete the row so cleanup() isn't left with a NULL-TTL zombie.
 		_, err = conn.ExecContext(ctx, "DELETE FROM kv WHERE key = ?", key)
 	} else {
-		// Store new value with no TTL (expires_at = NULL)
+		// Queue rows use NULL expires_at (no TTL).
 		_, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, newVal)
 	}
 

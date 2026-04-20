@@ -92,7 +92,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
-	// process all failed messages; re-queue any unprocessed on cancellation
+	// Drain queued failures first; re-queue tail on shutdown.
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
@@ -110,7 +110,6 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}
 
-	// process all messages
 	for g := range ch {
 		select {
 		case <-ctx.Done():
@@ -137,11 +136,9 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// format message as HTML; truncate to Telegram's sendMessage limit so an
-	// over-long body is delivered (slightly lossy) rather than hard-rejected.
+	// Truncate to sendMessage cap so oversize bodies deliver instead of being rejected.
 	m := truncateWithEllipsis(format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), TelegramMaxMessageChars)
 
-	// build a skip set for O(1) lookups
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
 	for _, r := range g.SkipRecipients {
 		skipSet[r] = struct{}{}
@@ -150,14 +147,10 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	var successfulIDs []string
 
 	anyFailed := false
-	// allProcessed is set to false when the recipient loop breaks due to
-	// cancellation before finishing; it forces the message back into the
-	// queue so a shutdown-cancelled send is not silently dropped.
+	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
 
-	// send to all recipients
 	for _, u := range chatIDs {
-		// Skip recipients that already received this message on a previous attempt.
 		if _, skip := skipSet[u]; skip {
 			continue
 		}
@@ -175,8 +168,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			ParseMode: models.ParseModeHTML,
 		}
 
-		// Honour cancellation before blocking on the rate limiter so shutdown
-		// is not delayed by a pending token.
+		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -185,7 +177,6 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		rl.Take()
 
-		// retryable and cancellable attempt to send a message
 		err = retry.New(
 			retry.Attempts(retries),
 			retry.Context(ctx),
@@ -209,11 +200,10 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	if anyFailed || !allProcessed {
-		// Record who succeeded so they are skipped on the next retry. Merge
-		// with dedup: repeated partial failures against the same recipient
-		// would otherwise append duplicate entries on every cycle.
+		// Merge-dedup successful recipients to prevent unbounded growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
+		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, TelegramQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -240,7 +230,6 @@ func telegramInit(ctx context.Context, apiKey string) error {
 	if telegramCli == nil {
 		logger.Debug().Msg("Initializing Telegram client")
 
-		// create a Telegram bot session
 		telegramCli, err = bot.New(apiKey)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrTelegramSession, err)
@@ -248,7 +237,7 @@ func telegramInit(ctx context.Context, apiKey string) error {
 			return err
 		}
 
-		// needs a separate goroutine
+		// Start blocks until ctx cancel; run off the main goroutine.
 		go telegramCli.Start(ctx)
 	}
 

@@ -90,13 +90,11 @@ func SaveConfig(file string, config TomlConfig) error {
 // the whatsAppEnabled field of the TomlConfig object to true.
 func checkWhatsAppConf(config *TomlConfig) {
 	if len(config.WhatsApp.UserIDs) > 0 || len(config.WhatsApp.Groups) > 0 {
-		// check if phone number is valid
 		if config.WhatsApp.PhoneNumber != "" && !isValidPhone(config.WhatsApp.PhoneNumber) {
 			logger.Fatal().Msgf("WhatsApp phone number %s is not in international format",
 				config.WhatsApp.PhoneNumber)
 		}
 
-		// check if all User IDs are valid
 		for _, u := range config.WhatsApp.UserIDs {
 			if !isValidWhatsAppJID(u) {
 				logger.Fatal().Msgf("Configuration error: WhatsApp User ID %v is not valid", u)
@@ -105,14 +103,13 @@ func checkWhatsAppConf(config *TomlConfig) {
 
 		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
 
-		// check if all group names are non-empty
 		for _, g := range config.WhatsApp.Groups {
 			if g == "" {
 				logger.Fatal().Msg("Configuration error: empty WhatsApp group name")
 			}
 		}
 
-		// sort group names for binary search in WhatsApp messenger
+		// Pre-sort for binary search in messenger.
 		slices.SortFunc(config.WhatsApp.Groups, strings.Compare)
 
 		config.WhatsAppEnabled = true
@@ -143,19 +140,15 @@ func checkCalendarConf(config *TomlConfig) {
 // mailEnabled field of the TomlConfig object to true.
 func checkMailConf(config *TomlConfig) {
 	if config.Mail.Server != "" {
-		// check if any of mail destinations (TO) are defined
 		if len(config.Mail.To) == 0 {
 			logger.Fatal().Msg("Configuration error: no mail to addresses defined")
 		}
 
-		// check if FROM address is valid (when specified)
 		if config.Mail.From != "" && !isValidMail(config.Mail.From) {
 			logger.Fatal().Msgf("Configuration error: mail from %v is not in mail format", config.Mail.From)
 		}
 
-		// validate the SMTP port at config load so a bad port fails early with a
-		// clear message instead of silently falling back to 587 in mail.go. Empty
-		// port is permitted — mail.go will use its default.
+		// Fail fast instead of silently defaulting to 587; empty = mail.go default.
 		if config.Mail.Port != "" {
 			portNum, err := strconv.Atoi(config.Mail.Port)
 			if err != nil || portNum < 1 || portNum > 65535 {
@@ -165,7 +158,6 @@ func checkMailConf(config *TomlConfig) {
 
 		logger.Info().Msg("Configuration: mail messenger enabled")
 
-		// check if all destination mail addresses are valid
 		for _, t := range config.Mail.To {
 			if !isValidMail(t) {
 				logger.Fatal().Msgf("Configuration error: mail to %v is not in mail format", t)
@@ -185,19 +177,15 @@ func checkMailConf(config *TomlConfig) {
 // If all conditions are met, the program will log an info message about Slack integration being enabled and will set the
 // slackEnabled field of the TomlConfig object to true.
 func checkSlackConf(config *TomlConfig) {
-	// check if Slack token is defined
 	if config.Slack.Token != "" {
-		// check if token is valid
 		if !isValidSlackToken(config.Slack.Token) {
 			logger.Fatal().Msgf("Configuration error: Slack token %v... is not valid", config.Slack.Token[:min(8, len(config.Slack.Token))])
 		}
 
-		// check if User IDs are defined
 		if len(config.Slack.ChatIDs) == 0 {
 			logger.Fatal().Msg("Configuration error: Slack chat IDs not defined")
 		}
 
-		// check if all chat IDs are valid
 		for _, c := range config.Slack.ChatIDs {
 			if !isValidSlackChatID(c) {
 				logger.Fatal().Msgf("Configuration error: Slack chat ID %v is not valid", c)
@@ -219,19 +207,15 @@ func checkSlackConf(config *TomlConfig) {
 // If all conditions are met, the program will log an info message about Telegram integration being enabled and will set the
 // telegramEnabled field of the TomlConfig object to true.
 func checkTelegramConf(config *TomlConfig) {
-	// check if Telegram token is defined
 	if config.Telegram.Token != "" {
-		// check if token is valid
 		if !isValidTelegramToken(config.Telegram.Token) {
 			logger.Fatal().Msgf("Configuration error: Telegram token %v... is not valid", config.Telegram.Token[:min(8, len(config.Telegram.Token))])
 		}
 
-		// check if User IDs are defined
 		if len(config.Telegram.ChatIDs) == 0 {
 			logger.Fatal().Msg("Configuration error: Telegram chat IDs not defined")
 		}
 
-		// check if all chat IDs are valid
 		for _, c := range config.Telegram.ChatIDs {
 			if !isValidTelegramChatID(c) {
 				logger.Fatal().Msgf("Configuration error: Telegram chat ID %v is not valid", c)
@@ -253,19 +237,15 @@ func checkTelegramConf(config *TomlConfig) {
 // If all conditions are met, the program will log an info message about Discord integration being enabled and will set the
 // discordEnabled field of the TomlConfig object to true.
 func checkDiscordConf(config *TomlConfig) {
-	// check if Discord token is defined
 	if config.Discord.Token != "" {
-		// check if token is valid
 		if !isValidDiscordToken(config.Discord.Token) {
 			logger.Fatal().Msgf("Configuration error: Discord token %v... is not valid", config.Discord.Token[:min(8, len(config.Discord.Token))])
 		}
 
-		// check if User IDs are defined
 		if len(config.Discord.UserIDs) == 0 {
 			logger.Fatal().Msg("Configuration error: Discord User IDs not defined")
 		}
 
-		// check if all User IDs are valid
 		for _, u := range config.Discord.UserIDs {
 			if !isValidID(u) {
 				logger.Fatal().Msgf("Configuration error: Discord User ID %v is not valid", u)
@@ -290,30 +270,23 @@ func checkDiscordConf(config *TomlConfig) {
 //
 // If all conditions are met, the program will log an info message about User configuration being enabled.
 func checkUserConf(config *TomlConfig) {
-	// check if users are defined
 	if len(config.User) == 0 {
 		logger.Fatal().Msg("Configuration error: No users defined")
 	}
 
-	// Detect duplicate usernames across [[user]] blocks: the scraper fans out
-	// one goroutine per user, so a duplicate would perform redundant logins
-	// and — more importantly — produce duplicate alerts for every subsequent
-	// event (dedup is keyed on username+subject+fields).
+	// Duplicates would cause redundant logins and duplicate alerts (dedup key is username+subject+fields).
 	seen := make(map[string]struct{}, len(config.User))
 
-	// check if all users have username and password
 	for _, u := range config.User {
 		if u.Username == "" || u.Password == "" {
 			logger.Fatal().Msgf("Configuration error: User requires username and password: %v - %v",
 				u.Username, u.Password)
 		}
 
-		// check if username is in User@domain format
 		if !isValidUserAtDomain(u.Username) {
 			logger.Fatal().Msgf("Configuration error: username not in proper User@domain format: %v", u.Username)
 		}
 
-		// check if username ends with @skole.hr
 		if !strings.HasSuffix(u.Username, "@skole.hr") {
 			logger.Warn().Msgf("Configuration issue: username not ending with @skole.hr: %v", u.Username)
 		}

@@ -102,7 +102,6 @@ func (c *Client) getCSRFToken() error {
 		return err
 	}
 
-	// csrf_token is hidden in the first matching input form
 	csrfToken, csrfTokenExists := doc.FindMatcher(selCsrfToken).First().Attr("value")
 	if !csrfTokenExists {
 		return fmt.Errorf("%w", ErrCSRFToken)
@@ -116,7 +115,6 @@ func (c *Client) getCSRFToken() error {
 // doSAMLRequest goes through SSO/SAML authentication, getting SimpleSAMLSessionID SSO cookie and refreshing cnOcjene
 // security cookie set in getCSRFToken() step.
 func (c *Client) doSAMLRequest() error {
-	// POST data struct corresponding to input form fields
 	data := url.Values{
 		"username":   {c.username},
 		"password":   {c.password},
@@ -150,7 +148,7 @@ func (c *Client) doSAMLRequest() error {
 	}
 	defer resp.Body.Close()
 
-	// reject obvious server/client errors before reading the body
+	// Reject obvious errors before parsing the body.
 	if resp.StatusCode >= http.StatusBadRequest {
 		_, _ = io.Copy(io.Discard, resp.Body)
 
@@ -162,7 +160,7 @@ func (c *Client) doSAMLRequest() error {
 		return err
 	}
 
-	// check if this is a login error
+	// Portal surfaces login failures as a flash-message alert div.
 	alertSel := doc.FindMatcher(selLoginAlert)
 	if alertSel.Length() > 0 {
 		return fmt.Errorf("%w: %v", ErrInvalidLogin, alertSel.Text())
@@ -218,8 +216,7 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	// Read at most MaxBodySize+1 bytes; the extra byte lets us distinguish
-	// "fits within limit" from "truncated" without reading the whole body.
+	// +1 byte lets us detect truncation without reading the whole body.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodySize+1))
 	if err != nil {
 		return nil, err
@@ -258,10 +255,7 @@ func (c *Client) getCourses() ([]byte, error) {
 // The function also handles context cancellation and returns the context's
 // error in such a case.
 func (c *Client) getCourse(dest string) ([]byte, error) {
-	// dest is a relative URL scraped from the course listing; resolve against
-	// BaseURL so a leading "/" or missing "/" does not silently produce a
-	// malformed URL like "https://ocjene.skole.hrcourse/..." under string
-	// concatenation.
+	// Proper URL resolution avoids malformed concatenation of scraped relative paths.
 	base, err := url.Parse(BaseURL)
 	if err != nil {
 		return nil, err
@@ -282,7 +276,6 @@ func (c *Client) getCalendar() (Events, error) {
 		return Events{}, err
 	}
 
-	// decode ICS events
 	d := goics.NewDecoder(bytes.NewReader(body))
 	evs := Events{}
 

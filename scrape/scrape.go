@@ -57,17 +57,12 @@ func markPermanent(err error) error {
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
-	// Clamp retries to a lower bound of 1 so `--retries=0` does not collapse
-	// the budget timeout to zero and so retry.Attempts() always sees at least
-	// one attempt (some retry-go versions treat 0 as "retry forever").
+	// Clamp to 1: retry-go may treat 0 as "retry forever" and zero budget would collapse timeout.
 	attempts := max(retries, 1)
 
 	r64 := int64(attempts)
 
-	// Total scraping budget: one per-request timeout per attempt, with a lower
-	// bound of one so `--retries=0` does not collapse the timeout to zero.
-	// Named budgetCtx to distinguish it from the caller's ctx so it's clear
-	// that every downstream call shares a single deadline for the whole scrape.
+	// Shared deadline across the whole scrape; distinct from caller's ctx.
 	budgetCtx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
 	defer stop()
 
@@ -78,7 +73,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	defer client.CloseConnections()
 
-	// attempt to login (CSRF, SSO/SAML, etc.)
 	err = retry.New(
 		retry.Attempts(attempts),
 		retry.Context(budgetCtx),
@@ -95,7 +89,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	var rawClasses []byte
 
-	// fetch classes (multiple classes possible)
 	err = retry.New(
 		retry.Attempts(attempts),
 		retry.Context(budgetCtx),
@@ -113,7 +106,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		return err
 	}
 
-	// parse active classes
 	classes, err := parseClasses(username, rawClasses)
 	if err != nil {
 		return err
@@ -127,7 +119,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		logger.Debug().Msgf("Found active class for user %v: %+v", username, classes)
 	}
 
-	// iterate all active classes
 	for _, c := range classes {
 		cID := c.ID
 		cName := c.Name
@@ -139,7 +130,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		var events fetch.Events
 
-		// fetch subjects/grades/exams
 		err = retry.New(
 			retry.Attempts(attempts),
 			retry.Context(budgetCtx),
@@ -157,13 +147,11 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
-		// parse all subjects and corresponding grades
 		err = parseGrades(budgetCtx, ch, username, rawGrades, multiClass, cName)
 		if err != nil {
 			return err
 		}
 
-		// parse all exam events
 		err = parseEvents(budgetCtx, ch, username, events, multiClass, cName)
 		if err != nil {
 			return err
@@ -171,7 +159,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		var rawCourses []byte
 
-		// fetch individual courses
 		err = retry.New(
 			retry.Attempts(attempts),
 			retry.Context(budgetCtx),
@@ -191,7 +178,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		var subjects fetch.Courses
 
-		// parse all courses and reading lists and final grades
 		subjects, err = parseCourses(rawCourses)
 		if err != nil {
 			return err
@@ -200,7 +186,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		var rawCourse []byte
 
 		for _, s := range subjects {
-			// requires additional fetch, retry-wrapped like all other fetches
 			err = retry.New(
 				retry.Attempts(attempts),
 				retry.Context(budgetCtx),
@@ -218,7 +203,6 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 				return err
 			}
 
-			// process individual course
 			err = parseCourse(budgetCtx, ch, username, rawCourse, multiClass, cName, s.Name)
 			if err != nil {
 				return err

@@ -85,13 +85,11 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	}
 
 	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
-		// check if we are not running under a terminal
 		if !isTerminal() {
 			logger.Warn().Msgf("Google Calendar token file %q not found; first-run OAuth requires an interactive terminal. Disabling Calendar integration.", *calTokFile)
 
 			config.CalendarEnabled = false
 		} else {
-			// early Google Calendar API initialization and token refresh
 			_, _, err := messenger.InitCalendar(ctx, *calTokFile, config.Calendar.Name)
 			if err != nil {
 				logger.Error().Msgf("Error initializing Google Calendar API: %v. Disabling Calendar integration.", err)

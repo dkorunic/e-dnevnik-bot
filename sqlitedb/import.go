@@ -45,7 +45,7 @@ var (
 // ImportFromBadger imports all data from a BadgerDB database into the current Edb.
 func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 	if badgerPath == "" {
-		badgerPath = ".e-dnevnik.db" // Default from db package
+		badgerPath = ".e-dnevnik.db"
 	}
 
 	if !dbExists(badgerPath) {
@@ -54,11 +54,10 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 
 	logger.Info().Msgf("Importing data from BadgerDB at %s", badgerPath)
 
-	// Open BadgerDB
 	opts := badger.DefaultOptions(badgerPath).
-		WithLogger(nil) // Disable badger logging
+		WithLogger(nil)
 
-	// BadgerDB adapt for 32-bit architecture
+	// 32-bit hosts get a smaller value log to avoid mmap pressure.
 	if strconv.IntSize == 32 {
 		logger.Info().Msg("Detected 32-bit environment, tuning DB for lower memory usage")
 
@@ -71,10 +70,9 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 	}
 	defer bdb.Close()
 
-	// Count for progress logging
 	var count int
 
-	// Start a transaction in SQLite for faster bulk insert
+	// Single transaction keeps bulk insert fast.
 	tx, err := db.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSqliteTx, err)
@@ -99,13 +97,10 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 			k := item.Key()
 
 			err := item.Value(func(v []byte) error {
-				// Copy key and value to ensure they persist outside the closure if needed,
-				// though here we use them immediately.
-				expiresAt := item.ExpiresAt() // Unix timestamp
+				expiresAt := item.ExpiresAt()
 
 				var expiry sql.NullInt64
 
-				// Valid expiry
 				if expiresAt > 0 && expiresAt <= math.MaxInt64 {
 					expiry.Int64 = int64(expiresAt)
 					expiry.Valid = true

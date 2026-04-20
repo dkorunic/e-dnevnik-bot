@@ -96,7 +96,7 @@ func main() {
 	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on %v, with %v", GitTag, GitCommit, GitDirty,
 		BuildTime, runtime.Version())
 
-	// configure GOMEMLIMIT to 90% of available memory (Cgroups v2/v1 or system)
+	// Cap heap at 90% of cgroup/system memory to play nice with containers.
 	limit, err := memlimit.SetGoMemLimitWithOpts(
 		memlimit.WithRatio(maxMemRatio),
 		memlimit.WithProvider(
@@ -119,20 +119,17 @@ func main() {
 		logger.Debug().Msg("Detected and enabled systemd notify support")
 	}
 
-	// context with signal integration
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// load TOML config
 	cfg, err := config.LoadConfig(*confFile)
 	if err != nil {
 		logger.Fatal().Msgf("Error loading configuration: %v", err)
 	}
 
-	// add config file to context
+	// Pass config path to messengers that reload credentials on token refresh.
 	ctx = context.WithValue(ctx, messenger.ConfFileKey, *confFile)
 
-	// enable CPU profiling dump on exit
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
 		if err != nil {
@@ -146,7 +143,6 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	// enable memory profile dump on exit
 	if *memProfile != "" {
 		f, err := os.Create(*memProfile)
 		if err != nil {
@@ -163,24 +159,23 @@ func main() {
 		}()
 	}
 
-	// Google Calendar API initial setup -- needs to be in the main thread
+	// Interactive OAuth flow must run on the main goroutine.
 	if cfg.CalendarEnabled {
 		checkCalendar(ctx, &cfg)
 	}
 
-	// WhatsApp initial setup and sync -- needs to be in the main thread
+	// Pairing/QR flow must run on the main goroutine.
 	if cfg.WhatsAppEnabled {
 		checkWhatsApp(ctx, &cfg)
 	}
 
-	// test mode: send messages and exit
 	if *emulation {
 		testSingleRun(ctx, cfg)
 
 		return
 	}
 
-	// initial ticker delay of 1s
+	// Fire the first poll almost immediately; real interval takes over after Reset.
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -203,7 +198,6 @@ func main() {
 
 	for {
 		select {
-		// in case of context cancellation, try to propagate and exit
 		case <-ctx.Done():
 			logger.Info().Msg("Received stop signal, asking all routines to stop")
 			ticker.Stop()
@@ -218,9 +212,7 @@ func main() {
 				go spinner(spinnerDone)
 			}
 
-			// Wait for any in-flight background goroutines (e.g. systemd
-			// watchdog) to exit, capped at exitDelay so a stuck goroutine
-			// cannot stall shutdown indefinitely.
+			// Bounded wait for bgWG (e.g. systemd watchdog) — stuck goroutine must not stall shutdown.
 			bgDone := make(chan struct{})
 			go func() {
 				bgWG.Wait()
@@ -242,7 +234,7 @@ func main() {
 		case <-ticker.C:
 			logger.Info().Msg(scheduledActive)
 
-			// use +-10% random jitter to avoid stampede
+			// Jitter spreads concurrent daemons so they don't hammer the portal together.
 			if *jitter {
 				ticker.Reset(durationRandJitter(*tickInterval))
 			} else {
@@ -251,7 +243,6 @@ func main() {
 
 			_ = sysdnotify.Status(scheduledActive)
 
-			// reset exit error status
 			exitWithError.Store(false)
 
 			gradesScraped := make(chan msgtypes.Message, chanBufLen)
@@ -259,19 +250,14 @@ func main() {
 
 			var wgVersion, wgScrape, wgFilter, wgMsg sync.WaitGroup
 
-			// self-check
 			versionCheck(ctx, &wgVersion)
 
-			// open KV store
 			eDB := openDB(ctx, *dbFile)
 
-			// subjects/grades/exams scraper routines
 			scrapers(ctx, &wgScrape, gradesScraped, cfg)
 
-			// message/alert database checking routine
 			msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg)
 
-			// messenger routines
 			msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
 
 			wgScrape.Wait()
@@ -307,13 +293,11 @@ func main() {
 // Parameters:
 // - ctx: the context object for cancellation and timeout.
 func startSystemdWatchdog(ctx context.Context) {
-	// systemd watchdog
 	watchdog, _ := sysdwatchdog.New()
 	if watchdog != nil {
 		logger.Debug().Msg("Detected and enabled systemd watchdog support")
 
-		// Track the watchdog goroutine in bgWG so shutdown can await it with
-		// a bounded timeout instead of sleeping unconditionally.
+		// Tracked in bgWG so shutdown awaits it with a bounded timeout.
 		bgWG.Go(func() {
 			ticker := watchdog.NewTicker()
 			defer ticker.Stop()

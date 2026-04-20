@@ -37,7 +37,7 @@ const (
 
 // NewClientWithContext creates new *Client, initializing HTTP Cookie Jar, context and username with password.
 func NewClientWithContext(ctx context.Context, username, password string) (*Client, error) {
-	// Cookie Jar needed for SSO and security cookie checks
+	// Jar required for SSO and security cookies.
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func NewClientWithContext(ctx context.Context, username, password string) (*Clie
 
 // Login attempts get CSRF Token and do SSO/SAML authentication with random User-Agent per session.
 func (c *Client) Login() error {
-	// generate random User-Agent per fetch dialog
+	// Randomised per-session UA reduces bot fingerprinting.
 	ua, err := fakeua.New()
 	if err != nil || ua == nil {
 		c.userAgent = ChromeUA
@@ -67,31 +67,27 @@ func (c *Client) Login() error {
 		c.userAgent = ua.Filter().Chrome().Platform(fakeua.Desktop).Get()
 	}
 
-	// get secret CSRF Token from /
 	if err := c.getCSRFToken(); err != nil {
 		return err
 	}
 
-	// do SSO/SAML authentication
 	return c.doSAMLRequest()
 }
 
 // GetClassEvents attempts to fetch all subjects and their grades, as well as all calendar events for exams in ICS
 // format, returning raw grades listing body bytes, parsed exam events and optional error.
 func (c *Client) GetClassEvents(classID string) ([]byte, Events, error) {
-	// do class action to switch active class to class ID
+	// Switch session to the requested class before scraping.
 	err := c.doClassAction(classID)
 	if err != nil {
 		return nil, Events{}, err
 	}
 
-	// fetch all grades as raw body bytes
 	rawGrades, err := c.getGrades()
 	if err != nil {
 		return nil, Events{}, err
 	}
 
-	// fetch all exam dates from ICS calendar
 	events, err := c.getCalendar()
 	if err != nil {
 		return nil, Events{}, err

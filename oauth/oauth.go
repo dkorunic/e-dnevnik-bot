@@ -130,24 +130,22 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 
 	//nolint:nestif
 	if err == nil {
-		// we have a token, but it has expired so attempt to refresh it
 		if !tok.Valid() {
 			src := config.TokenSource(ctx, tok)
 
-			// refresh token
 			newTok, err := src.Token()
 			if err != nil {
 				return nil, err
 			}
 
-			// token has been refreshed, and we will try to save it
+			// Persist the refreshed token on the next save pass.
 			if newTok.AccessToken != tok.AccessToken {
 				saveToFile = true
 				tok = newTok
 			}
 		}
 	} else {
-		// we don't have a token, so we will obtain interactively
+		// No existing token — obtain one interactively.
 		tok, err = getTokenFromWeb(ctx, config)
 		if err != nil {
 			return nil, err
@@ -162,11 +160,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 		}
 	}
 
-	// Build an HTTP client whose TokenSource persists every refresh. Without
-	// this wrapper, config.Client keeps the fresh AccessToken in memory but
-	// the on-disk token_*.json stays stuck at the original value — so the
-	// next process start has to interactively re-authorise once the original
-	// AccessToken expires and the ReuseTokenSource cache is gone.
+	// Persist refreshes to disk so restarts survive token rotation.
 	ts := &persistingTokenSource{
 		src:       config.TokenSource(ctx, tok),
 		tokenPath: tokenPath,
@@ -182,7 +176,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 // config is the *oauth2.Config object that contains the OAuth2 configuration.
 // It returns the retrieved *oauth2.Token and an error if any occurred.
 func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token, error) {
-	// random UUID as a state
+	// Random state for CSRF protection on the OAuth callback.
 	authReqState, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOAuthUUID, err)
@@ -192,11 +186,8 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	var once sync.Once
 
-	// redirect uri listener for auth callback.
-	// Bind the listener up front so the actual port is known before we build
-	// authURL; if the preferred port is busy, fall back to :0 (ephemeral).
-	// Google's OAuth consent flow must use a loopback redirect URI, so we keep
-	// AuthListenAddr (localhost) in both attempts.
+	// Bind before building authURL so the actual port is known; fall back to :0 if busy.
+	// Google's consent flow requires a loopback redirect, so keep localhost in both attempts.
 	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
 
 	listener, err := net.Listen("tcp", authListenHost)
@@ -210,22 +201,17 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		}
 	}
 
-	// Build authURL from the actual bound address so the port matches what
-	// ListenAndServe is serving (critical when we fell back to :0).
+	// Use the bound address so the redirect matches the ephemeral port if :0 was used.
 	authURL := AuthScheme + listener.Addr().String()
 
-	// oauth config auth callback uri
 	config.RedirectURL = authURL + CallBackURL
 
-	// chi router setup
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(LoggingMiddleware)
 
-	// setup template engine
 	t := template.Must(template.ParseFS(contentFS, "templates/*html"))
 
-	// HTTP server setup
 	s := http.Server{
 		ReadTimeout:       ReadTimeout,
 		WriteTimeout:      WriteTimeout,
@@ -242,7 +228,6 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 
-	// root handler: /
 	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
@@ -255,14 +240,12 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		}
 	})
 
-	// callback handler: /callback
 	r.Get(CallBackURL, func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 
-		// Use constant-time comparison to avoid leaking information about the
-		// expected state via response timing on malformed callbacks.
+		// Constant-time compare to avoid timing leaks on malformed callbacks.
 		expectedState := authReqState.String()
 		if receivedState := req.URL.Query().Get("state"); subtle.ConstantTimeCompare([]byte(receivedState), []byte(expectedState)) != 1 {
 			w.WriteHeader(http.StatusBadRequest)
@@ -286,7 +269,6 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		}
 	})
 
-	// favicon handler: /favicon.ico
 	r.Get("/favicon.ico", func(w http.ResponseWriter, req *http.Request) {
 		http.ServeFileFS(w, req, contentFS, "assets/favicon.ico")
 	})
@@ -294,8 +276,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	go func() {
 		logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
 
-		// Use Serve on the pre-bound listener; ListenAndServe would attempt to
-		// re-bind s.Addr, racing with the listener we already hold.
+		// Serve on the pre-bound listener; ListenAndServe would race by re-binding s.Addr.
 		if err := s.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal().Msgf("%v: %v", ErrOAuthHTTPServer, err)
 		}
@@ -303,7 +284,6 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	logger.Info().Msgf("Opening local Web server through system browser: %v", authURL)
 
-	// oauth dialog through system browser
 	if err := browser.OpenURL(authURL); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOAuthBrowser, err)
 	}
@@ -322,7 +302,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		return nil, ErrOAuthTimeout
 	}
 
-	// short-circuit on callback error (empty state)
+	// Empty code indicates a state-mismatch callback.
 	if authCode == "" {
 		return nil, ErrInvalidCallbackState
 	}

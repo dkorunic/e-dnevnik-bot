@@ -42,7 +42,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 
 	queueKeyStr := string(queueKey)
 
-	// fetch failed messages list, store empty list
+	// Read-and-drain: callback returns empty so queue is cleared atomically.
 	err := eDB.FetchAndStore(ctx, queueKey, func(old []byte) ([]byte, error) {
 		var decErr error
 
@@ -61,10 +61,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		return []msgtypes.Message{}
 	}
 
-	// Drop entries older than MaxQueueAge to prevent unbounded retries when a
-	// messenger is persistently broken. Entries with a zero QueuedAt predate
-	// this field (legacy/pre-upgrade queue) and are kept so they get at least
-	// one more chance; they will be stamped on next re-queue.
+	// Drop entries older than MaxQueueAge; zero QueuedAt is legacy, kept for one more attempt.
 	now := time.Now()
 	kept := failedList[:0]
 	dropped := 0

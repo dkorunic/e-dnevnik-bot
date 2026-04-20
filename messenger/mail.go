@@ -95,7 +95,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
-	// process all failed messages; re-queue any unprocessed on cancellation
+	// Drain queued failures first; re-queue tail on shutdown.
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, MailQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
@@ -113,7 +113,6 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 		}
 	}
 
-	// process all messages
 	for g := range ch {
 		select {
 		case <-ctx.Done():
@@ -193,11 +192,10 @@ func markMailPermanent(err error) error {
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) {
-	// format message, have both text/plain and text/html alternative
+	// Build both plain and HTML alternatives for multipart/alternative delivery.
 	plainContent := format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
-	// build a skip set for O(1) lookups
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
 	for _, r := range g.SkipRecipients {
 		skipSet[r] = struct{}{}
@@ -206,14 +204,11 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	var successfulIDs []string
 
 	anyFailed := false
-	// allProcessed is set to false when the recipient loop breaks due to
-	// cancellation before finishing; it forces the message back into the
-	// queue so a shutdown-cancelled send is not silently dropped.
+	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
 
-	// send individually to each recipient for per-recipient failure tracking
+	// Send per-recipient so partial failures are tracked individually.
 	for _, u := range to {
-		// Skip recipients that already received this message on a previous attempt.
 		if _, skip := skipSet[u]; skip {
 			continue
 		}
@@ -240,9 +235,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetDate()
 		m.SetBulk()
 
-		// Truncate the subject so a pathologically-long configured value cannot
-		// produce a header line that some MTAs reject. The default MailSubject
-		// constant is well under the cap and passes through unchanged.
+		// Cap subject length so misconfigured values cannot produce MTA-rejected headers.
 		if subject != "" {
 			m.Subject(truncateWithEllipsis(subject, MailMaxSubjectChars))
 		} else {
@@ -252,8 +245,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetBodyString(mail.TypeTextPlain, plainContent)
 		m.AddAlternativeString(mail.TypeTextHTML, htmlContent)
 
-		// Honour cancellation before blocking on the rate limiter so shutdown
-		// is not delayed by a pending token.
+		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -262,7 +254,6 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 
 		rl.Take()
 
-		// retryable and cancellable attempt to send a message
 		err := retry.New(
 			retry.Attempts(retries),
 			retry.Context(ctx),
@@ -284,11 +275,10 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	}
 
 	if anyFailed || !allProcessed {
-		// Record who succeeded so they are skipped on the next retry. Merge
-		// with dedup: repeated partial failures against the same recipient
-		// would otherwise append duplicate entries on every cycle.
+		// Merge-dedup successful recipients to prevent unbounded growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
+		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, MailQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

@@ -108,7 +108,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	now := time.Now()
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
-	// process all failed messages; re-queue any unprocessed on cancellation
+	// Drain queued failures first; re-queue tail on shutdown.
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
@@ -126,7 +126,6 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}
 
-	// process all messages
 	for g := range ch {
 		select {
 		case <-ctx.Done():
@@ -157,14 +156,13 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 ) {
 	var err error
 
-	// skip non-exam events
+	// Calendar only receives exams; everything else is a no-op.
 	if g.Code != msgtypes.Exam {
 		logger.Debug().Msgf("Calendar: skipping non-exam event for %v/%v (code %v)", g.Username, g.Subject, g.Code)
 
 		return
 	}
 
-	// skip events in the past
 	if g.Timestamp.Before(now) {
 		logger.Info().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)
 
@@ -177,15 +175,11 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		return
 	}
 
-	// derive a deterministic event ID from username+subject+date so that a
-	// retry after a lost HTTP response inserts the same ID and the Calendar
-	// API deduplicates it instead of creating a duplicate entry.
-	// The ID uses lowercase hex (chars 0-9a-f), a valid subset of the
-	// base32hex alphabet required by the Google Calendar API.
+	// Deterministic hex ID (valid base32hex) lets the API dedupe on retry.
 	idHash := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s",
 		g.Username, g.Subject, g.Timestamp.Format(time.DateOnly)))
 
-	// create an all day event
+	// All-day event spanning a single date.
 	newEvent := &calendar.Event{
 		Id:      fmt.Sprintf("%x", idHash),
 		Summary: g.Username + CalendarExamSep + g.Subject,
@@ -198,13 +192,9 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		Description: g.Fields[len(g.Fields)-1],
 	}
 
-	// Honour cancellation before blocking on the rate limiter so shutdown
-	// is not delayed by a pending token. A cancelled ctx here means we never
-	// got to attempt the insert — re-queue the message so the next poll
-	// cycle picks it up. Without this, a message pulled from the queue at
-	// shutdown is silently dropped (outer loop slices failedMsgs[i+1:] on
-	// cancellation and assumes `g` was either delivered or re-queued by us).
+	// Cancelled before insert: re-queue so the caller's tail-slice does not drop us.
 	if ctx.Err() != nil {
+		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -217,8 +207,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	rl.Take()
 
-	// retryable and cancellable attempt; 409 Conflict means the event already
-	// exists (deterministic ID hit), so do not retry — treat it as success.
+	// 409 Conflict means the deterministic ID already exists — success, do not retry.
 	err = retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
@@ -248,8 +237,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
-		// store failed message using a shutdown-tolerant context so a cancelled
-		// ctx does not turn a failed insert into a silently-lost message.
+		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -317,14 +305,14 @@ func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service,
 
 // getCalendarID gets a Google calendar ID out of a symbolic calendar name.
 func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName string) string {
-	// If the calendar name is not specified, use default (primary) calendar
+	// Empty name resolves to the user's primary calendar.
 	if calendarName == "" {
 		return "primary"
 	}
 
 	nextPageToken := ""
 
-	// Get calendar listing (paginated) and try to match name
+	// Paginate the calendar list, matching by Summary.
 	for {
 		calendarsCall := srv.CalendarList.List().
 			MaxResults(CalendarMaxResults).
@@ -337,14 +325,12 @@ func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName stri
 			return ""
 		}
 
-		// Match calendar name
 		for _, item := range listCal.Items {
 			if item.Summary == calendarName {
 				return item.Id
 			}
 		}
 
-		// Handle pagination
 		nextPageToken = listCal.NextPageToken
 		if nextPageToken == "" {
 			break

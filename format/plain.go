@@ -62,7 +62,6 @@ func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 	n := min(len(descriptions), len(grade))
 
 	for i := range n {
-		// grade listing will print scraped corresponding descriptions
 		sb.WriteString(descriptions[i])
 		sb.WriteString(": ")
 		sb.WriteString(grade[i])

@@ -59,7 +59,6 @@ func DecodeMsgs(val []byte) (msgs []msgtypes.Message, err error) {
 	buf := bytes.NewBuffer(val)
 	dec := gob.NewDecoder(buf)
 
-	// GOB decode []byte to Message list
 	err = dec.Decode(&msgs)
 
 	return msgs, err
@@ -76,7 +75,6 @@ func EncodeMsgs(msgs []msgtypes.Message) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, len(msgs)*512))
 	enc := gob.NewEncoder(buf)
 
-	// GOB encode Message list to []byte
 	err := enc.Encode(msgs)
 	if err != nil {
 		return nil, err

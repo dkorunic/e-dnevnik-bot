@@ -83,7 +83,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 
 	rl := ratelimit.New(SlackAPILimit, ratelimit.Per(SlackWindow))
 
-	// process all failed messages; re-queue any unprocessed on cancellation
+	// Drain queued failures first; re-queue tail on shutdown.
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, SlackQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
@@ -101,7 +101,6 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 		}
 	}
 
-	// process all messages
 	for g := range ch {
 		select {
 		case <-ctx.Done():
@@ -162,11 +161,9 @@ func markSlackPermanent(err error) error {
 // It logs errors for sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// format message as Markup; truncate to Slack's text cap so an over-long
-	// body is delivered (slightly lossy) rather than hard-rejected.
+	// Truncate to Slack's text cap so oversize bodies deliver instead of being rejected.
 	m := truncateWithEllipsis(format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), SlackMaxMessageChars)
 
-	// build a skip set for O(1) lookups
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
 	for _, r := range g.SkipRecipients {
 		skipSet[r] = struct{}{}
@@ -175,20 +172,16 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	var successfulIDs []string
 
 	anyFailed := false
-	// allProcessed is set to false when the recipient loop breaks due to
-	// cancellation before finishing; it forces the message back into the
-	// queue so a shutdown-cancelled send is not silently dropped.
+	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
 
-	// send to all recipients: channels and nicknames are permitted
+	// chatIDs may be channels or nicknames; Slack resolves either.
 	for _, u := range chatIDs {
-		// Skip recipients that already received this message on a previous attempt.
 		if _, skip := skipSet[u]; skip {
 			continue
 		}
 
-		// Honour cancellation before blocking on the rate limiter so shutdown
-		// is not delayed by a pending token.
+		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -197,7 +190,6 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 
 		rl.Take()
 
-		// retryable and cancellable attempt to send a message
 		err := retry.New(
 			retry.Attempts(retries),
 			retry.Context(ctx),
@@ -225,11 +217,10 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	}
 
 	if anyFailed || !allProcessed {
-		// Record who succeeded so they are skipped on the next retry. Merge
-		// with dedup: repeated partial failures against the same recipient
-		// would otherwise append duplicate entries on every cycle.
+		// Merge-dedup successful recipients to prevent unbounded growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
+		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, SlackQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
