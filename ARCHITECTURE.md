@@ -57,8 +57,8 @@
 ### `main` (entry point, orchestration)
 
 **Responsibility:** Flag parsing, config loading, polling ticker loop, goroutine lifecycle, systemd integration, profiling, graceful shutdown.
-**Key deps:** `peterbourgon/ff/v4`, `iguanesolutions/go-systemd`, `KimMachineGun/automemlimit`
-**Patterns:** Signal-context cancellation, atomic error flag (`sync/atomic.Bool`), jitter-based polling ticker, GOMEMLIMIT tuning to 90% of container/host memory.
+**Key deps:** `peterbourgon/ff/v4`, `iguanesolutions/go-systemd/v6`, `KimMachineGun/automemlimit`
+**Patterns:** Signal-context cancellation, atomic error flag (`sync/atomic.Bool`), jitter-based polling ticker, GOMEMLIMIT tuning to 90% of container/host memory. Long-running background goroutines (systemd watchdog) are tracked via a dedicated `bgWG sync.WaitGroup` so shutdown waits for them with a bounded `exitDelay` ceiling instead of sleeping unconditionally.
 
 ### `config/`
 
@@ -82,13 +82,13 @@
 
 **Responsibility:** Shared domain types — `Message` struct and `EventCode` enum (Grade/Exam/Reading/FinalGrade/NationalExam).
 **Key deps:** none
-**Patterns:** Unified event model across all pipeline stages; `SkipRecipients` field enables partial retry on failure.
+**Patterns:** Unified event model across all pipeline stages; `SkipRecipients` field enables partial retry on failure; `QueuedAt` tracks when a message first entered the failed-message queue (zero value for non-queued/legacy entries).
 
 ### `sqlitedb/`
 
-**Responsibility:** Pure-Go SQLite KV store for deduplication. Keys are SHA-256 hashes of `(username, subject, fields)`. TTL ≈ 1 year.
-**Key deps:** `modernc.org/sqlite` (no CGO), `dgraph-io/badger/v4` (migration source only)
-**Patterns:** WAL mode, prepared statements, TTL-indexed expiry, automatic BadgerDB migration on first run.
+**Responsibility:** Pure-Go SQLite KV store for deduplication. Keys are SHA-256 hashes of `(username, subject, fields)`. Entries carry a `DefaultEntryTTL` of ~9 000 h (slightly over one year).
+**Key deps:** `modernc.org/sqlite` (no CGO), `dgraph-io/badger/v4` (migration source only), `minio/sha256-simd` (hardware-accelerated hashing)
+**Patterns:** WAL mode with a small shared connection pool (`MaxOpenConns=4`), prepared statements, TTL-indexed expiry (expired rows are re-inserted via `CheckAndFlagTTL` so stale dedup keys re-fire), background `cleanup` sweep, automatic BadgerDB migration on first run via `sync.Once` (runs at most once per process lifetime).
 
 ### `queue/`
 
@@ -106,16 +106,16 @@
 
 **Responsibility:** Six independent messenger goroutines, each consuming from a `broadcast.Relay` listener.
 **Key deps:** `teivah/broadcast`, `go.uber.org/ratelimit`, per-backend SDK
-**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Rate-limited API calls.
+**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence uses a shutdown-tolerant context (`queueStoreCtx` / `storeTimeout = 5s`, built on `context.WithoutCancel`) so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries.
 
-| Messenger | Backend Library               | Rate Limit | Format   |
-| --------- | ----------------------------- | ---------- | -------- |
-| Discord   | `bwmarrin/discordgo`          | 10/min     | Markdown |
-| Telegram  | `go-telegram/bot`             | 20/min     | HTML     |
-| Slack     | `slack-go/slack`              | 20/min     | Markdown |
-| Mail      | `wneessen/go-mail`            | 20/hr      | HTML     |
-| Calendar  | `google/google-api-go-client` | 20/min     | Event    |
-| WhatsApp  | `go.mau.fi/whatsmeow`         | 10/min     | Plain    |
+| Messenger | Backend Library               | Rate Limit | Format   | Max body/subject   |
+| --------- | ----------------------------- | ---------- | -------- | ------------------ |
+| Discord   | `bwmarrin/discordgo`          | 10/min     | Markdown | 6000 embed chars   |
+| Telegram  | `go-telegram/bot`             | 20/min     | HTML     | 4096 chars         |
+| Slack     | `slack-go/slack`              | 20/min     | Markdown | 3000 chars         |
+| Mail      | `wneessen/go-mail`            | 20/hr      | HTML     | 256 chars subject  |
+| Calendar  | `google/google-api-go-client` | 20/min     | Event    | —                  |
+| WhatsApp  | `go.mau.fi/whatsmeow`         | 10/min     | Plain    | 4096 chars         |
 
 ### `format/`
 
@@ -162,10 +162,17 @@
 [msgDedup goroutine]             ← wgFilter (single goroutine)
   For each Message:
     hash = SHA-256(username + subject + fields)
-    if hash exists in SQLite → discard
-    if relevance period set and event is stale → discard
-    if firstRun → store hash, do NOT forward
-    else → store hash, send to gradesMsg (buffered chan)
+    if hash exists and not TTL-expired → discard
+    if --readinglist not set and Code == Reading → discard
+    if firstRun (fresh DB) → store hash, do NOT forward
+    if relevance period > 0 and event is stale → discard
+        * Exam: uses Message.Timestamp directly
+        * Grade: parses Fields[0] as "D.M." (formatHRDateOnly),
+          year inferred from current calendar position
+          (future day/month → previous year, else current year);
+          parse failure is fail-open (event passed through)
+    else → store hash + TTL, send to gradesMsg (buffered chan)
+    On ctx.Done: defer close(gradesMsg) unblocks the broadcast loop
         │
         ▼
 [wgFilter.Wait() + broadcast relay]
@@ -194,7 +201,7 @@
 
 | Technology              | Reason                                                                          |
 | ----------------------- | ------------------------------------------------------------------------------- |
-| **Go 1.26+**            | Strong concurrency primitives, static binary, no runtime dependencies           |
+| **Go 1.26+**            | Required for `sync.WaitGroup.Go` (1.25) and `context.WithoutCancel` (1.21) usage; static binary, no runtime dependencies |
 | `modernc.org/sqlite`    | CGO-free SQLite — enables fully static binary without C toolchain               |
 | `teivah/broadcast`      | Fanout broadcaster: one writer, N concurrent goroutine readers, no shared state |
 | `avast/retry-go/v5`     | Declarative retry with context awareness; wraps scraping and messaging          |
@@ -218,16 +225,19 @@
 
 ### Concurrency model
 
-- **Per-user goroutines** for scraping (fully independent HTTP sessions).
+- **Per-user goroutines** for scraping (fully independent HTTP sessions); launched with `wgScrape.Go` (Go 1.25+ API).
 - **Single-threaded dedup** — intentional; ensures consistent first-run detection and avoids SQLite write contention.
 - **Parallel messengers** via broadcast relay — each messenger goroutine gets its own buffered channel listener; a slow API (e.g. WhatsApp) does not block Discord.
+- **Two-level WaitGroup in `msgSend`**: `wgInner` tracks the per-messenger goroutines so `relay.Close()` can unblock their listener `range` loops *before* the outer wait — closing first and waiting second avoids a deadlock where listeners never exit.
+- **Shutdown-tolerant queue writes**: on ctx cancellation mid-send, messengers re-queue un-delivered messages through a detached short-lived context (`queueStoreCtx`, `context.WithoutCancel` + `storeTimeout = 5s`) so in-flight work is not silently dropped.
+- **Bounded background goroutines**: the systemd watchdog is tracked in a separate `bgWG` that shutdown waits on with a ceiling of `exitDelay` (10 s).
 - Synchronization via `sync.WaitGroup` and explicit channel close signals (no polling, no sleeps).
 
 ### Error handling
 
 - **Fail-fast on startup:** config validation, DB init, and messenger credential checks are all fatal.
 - **Isolated runtime failures:** a scraping failure for one user sets an atomic error flag but does not cancel other users.
-- **Graceful degradation:** messenger failures store messages to queue; partial delivery tracked via `SkipRecipients`.
+- **Graceful degradation:** messenger failures store messages to queue; partial delivery tracked via `SkipRecipients` (deduplicated across retries via `mergeSkipRecipients`). Failed-message persistence survives context cancellation through a detached shutdown-tolerant context so no message is silently dropped on SIGTERM.
 - **Error flag propagation:** `atomic.Bool exitWithError` — goroutines write it, main reads it at shutdown to set exit code.
 
 ### Domain modeling
@@ -253,8 +263,8 @@
 
 **Async processing:**
 
-- Version check runs in a separate `wgVersion` goroutine — never delays the scrape cycle.
-- ±10% jitter on polling interval prevents two instances started simultaneously from hammering the portal together.
+- Version check runs in a separate `wgVersion` goroutine — never delays the scrape cycle. Bounded by `versionCheckTimeout = 30s` so a stalled GitHub Releases endpoint cannot hold the goroutine past the poll interval.
+- ±10% jitter on polling interval prevents two instances started simultaneously from hammering the portal together. The factor is drawn from a *continuous* uniform distribution over `[0.9, 1.1)` via `math/rand/v2.Float64()` — not a 21-step discrete one — so concurrent daemons do not alias on a small number of discrete wake times.
 
 **PGO:** Production builds use `-pgo=auto` for CPU-profile-guided optimization. The profile is expected to live in the repo root (Go toolchain auto-discovery).
 
@@ -340,6 +350,8 @@
 | **SQLite as shared state**                | WAL mode is robust, but all scrapers must access the same file. Docker volume mounts on NFS/FUSE can cause corruption.                          |
 | **Embedded Google credentials**           | OAuth2 client ID/secret compiled into binary. Binary should be treated as a secret if Google credentials are sensitive.                         |
 | **First-run behavior**                    | If the DB is deleted accidentally, the next run silently re-seeds without sending alerts. Users may think the bot missed events.                |
-| **Retry queue is best-effort**            | If the process crashes mid-delivery, messages in-flight (not yet queued) are lost. Queue is only populated after a confirmed API error.         |
+| **Retry queue is best-effort**            | If the process crashes mid-delivery, messages in-flight (not yet queued) are lost. Queue is only populated after a confirmed API error. A graceful shutdown (SIGTERM/ctx cancel) still flushes pending failures via `queueStoreCtx`, but a hard crash bypasses it.         |
+| **TTL-based dedup re-fires on expiry**    | After ~9 000 h (>1 year) an entry can be re-inserted by `CheckAndFlagTTL` and the same historical event will alert again. Long-lived installations will see "echoes" of year-old grades unless the DB is manually cleaned.         |
+| **`D.M.` year inference for Grade relevance** | When today's day/month exactly matches a grade's `Fields[0]` date, the year is assumed to be the current year — so a grade from the same calendar day of the prior school year will slip past the relevance filter. Inherent limitation of the portal's date format. |
 | **BadgerDB migration is destructive**     | Old BadgerDB directory deleted after import. No rollback if import fails partway.                                                               |
 | **Go version pinned to 1.26+**            | Cutting-edge; some CI environments may not have 1.26 toolchain.                                                                                 |
