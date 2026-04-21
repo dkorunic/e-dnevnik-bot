@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2" //nolint:gosec
 	"os"
 	"os/signal"
@@ -47,13 +48,14 @@ import (
 const (
 	chanBufLen      = 500              // broadcast channel buffer length
 	exitDelay       = 10 * time.Second // sleep time before giving up on cancellation
+	statusInterval  = 1 * time.Minute  // cadence of sysd status countdown updates between runs
 	testUsername    = "korisnik@test.domena"
 	testSubject     = "Ovo je testni predmet"
 	testDescription = "Testni opis"
 	testField       = "Testna vrijednost"
 	maxMemRatio     = 0.9
 	scheduledActive = "Scheduled run in progress"
-	scheduledSleep  = "Scheduled run completed, will sleep now"
+	scheduledNext   = "Next scheduled run in %s"
 )
 
 var (
@@ -179,6 +181,13 @@ func main() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	// Countdown to next scrape; paused during runs, starts stopped until nextRunAt is set.
+	statusTicker := time.NewTicker(statusInterval)
+	statusTicker.Stop()
+	defer statusTicker.Stop()
+
+	var nextRunAt time.Time
+
 	if *daemon {
 		interval := durafmt.Parse(*tickInterval).String()
 		if *jitter {
@@ -201,6 +210,7 @@ func main() {
 		case <-ctx.Done():
 			logger.Info().Msg("Received stop signal, asking all routines to stop")
 			ticker.Stop()
+			statusTicker.Stop()
 
 			_ = sysdnotify.Stopping()
 
@@ -231,15 +241,26 @@ func main() {
 			fatalIfErrors()
 
 			return
+		case <-statusTicker.C:
+			// Countdown heartbeat while idling between scheduled runs.
+			if remaining := time.Until(nextRunAt); remaining > 0 {
+				_ = sysdnotify.Status(fmt.Sprintf(scheduledNext,
+					durafmt.Parse(remaining.Round(time.Second)).String()))
+			}
 		case <-ticker.C:
+			// Pause countdown while scraping.
+			statusTicker.Stop()
+
 			logger.Info().Msg(scheduledActive)
 
 			// Jitter spreads concurrent daemons so they don't hammer the portal together.
+			nextInterval := *tickInterval
 			if *jitter {
-				ticker.Reset(durationRandJitter(*tickInterval))
-			} else {
-				ticker.Reset(*tickInterval)
+				nextInterval = durationRandJitter(*tickInterval)
 			}
+
+			ticker.Reset(nextInterval)
+			nextRunAt = time.Now().Add(nextInterval)
 
 			_ = sysdnotify.Status(scheduledActive)
 
@@ -275,9 +296,14 @@ func main() {
 				return
 			}
 
-			logger.Info().Msg(scheduledSleep)
+			remaining := max(time.Until(nextRunAt), 0)
+			scheduledSleep := fmt.Sprintf(scheduledNext, durafmt.Parse(remaining.Round(time.Second)).String())
 
+			logger.Info().Msg(scheduledSleep)
 			_ = sysdnotify.Status(scheduledSleep)
+
+			// Resume countdown for the idle window.
+			statusTicker.Reset(statusInterval)
 		}
 	}
 }
