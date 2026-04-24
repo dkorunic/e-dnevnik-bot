@@ -36,6 +36,12 @@ import (
 // between retry attempts, smoothing simultaneous reconnect storms.
 const scrapeRetryMaxJitter = 500 * time.Millisecond
 
+// scrapeMaxAttempts caps the retry budget so `attempts * fetch.Timeout` cannot
+// overflow int64 nanoseconds if the config sets an absurdly large retries
+// value. The product at the cap (100 * 120s = 200 min) is already far beyond
+// any realistic scrape budget.
+const scrapeMaxAttempts = 100
+
 // markPermanent wraps fetch-level errors that cannot succeed on retry in
 // retry.Unrecoverable so retry-go short-circuits the remaining attempts:
 //   - ErrInvalidLogin: bad credentials — retrying just re-submits the same
@@ -57,12 +63,12 @@ func markPermanent(err error) error {
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
-	// Clamp to 1: retry-go may treat 0 as "retry forever" and zero budget would collapse timeout.
-	attempts := max(retries, 1)
+	// Clamp [1, scrapeMaxAttempts]: avoid retry-forever on 0 and duration overflow.
+	attempts := min(max(retries, 1), uint(scrapeMaxAttempts))
 
 	r64 := int64(attempts)
 
-	// Shared deadline across the whole scrape; distinct from caller's ctx.
+	// Shared deadline across entire scrape.
 	budgetCtx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
 	defer stop()
 

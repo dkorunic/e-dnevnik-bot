@@ -138,6 +138,32 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
+// markCalendarPermanent wraps Google Calendar API errors that will never
+// succeed on retry in retry.Unrecoverable. 4xx responses other than 408
+// (timeout) and 429 (rate-limit) indicate permanent failures (bad request,
+// auth failure, missing calendar, revoked access). 409 Conflict is also
+// classified permanent here; the post-Do block treats it as success — the
+// deterministic event ID means the insert already happened.
+// Everything else — 5xx, transport errors, timeouts — falls through with its
+// normal retry budget.
+func markCalendarPermanent(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var gaErr *googleapi.Error
+	if errors.As(err, &gaErr) {
+		code := gaErr.Code
+		if code >= 400 && code < 500 &&
+			code != http.StatusRequestTimeout &&
+			code != http.StatusTooManyRequests {
+			return retry.Unrecoverable(err)
+		}
+	}
+
+	return err
+}
+
 // processCalendar is a helper function that processes a message from a channel and creates an event in Google Calendar.
 //
 // It takes the following parameters:
@@ -192,9 +218,9 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		Description: g.Fields[len(g.Fields)-1],
 	}
 
-	// Cancelled before insert: re-queue so the caller's tail-slice does not drop us.
+	// Cancelled before insert: re-queue so caller's tail-slice does not drop us.
 	if ctx.Err() != nil {
-		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
+		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -207,24 +233,16 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	rl.Take()
 
-	// 409 Conflict means the deterministic ID already exists — success, do not retry.
+	// 409 Conflict short-circuits via Unrecoverable, then post-Do treats it as idempotent success.
 	err = retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
 		retry.Delay(CalendarMinDelay),
-		retry.RetryIf(func(err error) bool {
-			var gaErr *googleapi.Error
-			if errors.As(err, &gaErr) {
-				return gaErr.Code != http.StatusConflict
-			}
-
-			return true
-		}),
 	).Do(
 		func() error {
 			_, err := srv.Events.Insert(calID, newEvent).Context(ctx).Do()
 
-			return err
+			return markCalendarPermanent(err)
 		},
 	)
 	if err != nil {
@@ -237,7 +255,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
-		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
+		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -312,7 +330,6 @@ func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName stri
 
 	nextPageToken := ""
 
-	// Paginate the calendar list, matching by Summary.
 	for {
 		calendarsCall := srv.CalendarList.List().
 			MaxResults(CalendarMaxResults).

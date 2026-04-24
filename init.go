@@ -112,25 +112,18 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		return
 	}
 
-	// Hold the messenger-side pairing mutex for the entire duration of this
-	// function. The deferred Unlock runs last (LIFO), so the messenger package's
-	// whatsAppInit cannot observe the lock as released until the inner defers
-	// — whatsAppPairingCli.Disconnect() and storeContainer.Close() — have both
-	// completed. This gives an explicit handoff point instead of relying on
-	// the implicit sequencing of main().
+	// LIFO defers ensure Disconnect/Close complete before messenger's whatsAppInit sees the lock released.
 	messenger.WhatsAppPairingMu.Lock()
 	defer messenger.WhatsAppPairingMu.Unlock()
 
-	// rename old WhatsApp database if it exists
 	if fi, err := os.Stat(WhatsAppDBOldName); err == nil && fi.Mode().IsRegular() {
 		logger.Debug().Msgf("Found old WhatsApp DB %v, renaming to %v", WhatsAppDBOldName, messenger.WhatsAppDBName)
 		_ = os.Rename(WhatsAppDBOldName, messenger.WhatsAppDBName)
 	}
 
-	// request syncing for last 3-months
+	// Request 3-month sync only.
 	store.DeviceProps.RequireFullSync = new(false)
 
-	// set OS to Linux
 	store.DeviceProps.Os = new(messenger.WhatsAppOS)
 
 	storeContainer, err := sqlstore.New(ctx, "sqlite",
@@ -139,7 +132,6 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableConnect, err)
 	}
 
-	// make sure to close WhatsApp sqlite database after the init
 	defer storeContainer.Close()
 
 	err = storeContainer.Upgrade(ctx)
@@ -147,7 +139,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableUpgrade, err)
 	}
 
-	// use only first device, we don't support multiple sessions
+	// Single-device only; multi-session is unsupported.
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableDeviceID, err)
@@ -158,11 +150,9 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	whatsAppPairingCli.AutoTrustIdentity = true
 	whatsAppPairingCli.AddEventHandler(whatsappPairingEventHandler)
 
-	// create separate cancellable context for WhatsApp pairing QR channel
 	qrCtx, qrCancel := context.WithCancel(ctx)
 	defer qrCancel()
 
-	// prepare pairing through QR or pair code
 	ch, err := whatsAppPairingCli.GetQRChannel(qrCtx)
 	if err != nil {
 		if !errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
@@ -174,13 +164,11 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		}
 	}
 
-	// handle QR code and initiate code pairing
 	//nolint:nestif
 	go func() {
 		for evt := range ch {
-			// pair/link event
 			if evt.Event == "code" {
-				// prefer pairing through code if phone number is enabled
+				// Pair via code when a phone number is configured.
 				if config.WhatsApp.PhoneNumber != "" {
 					linkCode, err := whatsAppPairingCli.PairPhone(qrCtx, config.WhatsApp.PhoneNumber, true,
 						whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)
@@ -190,7 +178,6 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 
 					logger.Info().Msgf("WhatsApp link code: %v", linkCode)
 				} else {
-					// display QR code only on interactive terminal
 					if isTerminal() {
 						logger.Info().Msg("WhatsApp QR code below")
 						qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
@@ -207,7 +194,6 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Fatal().Msgf("Failed to connect to WhatsApp: %v", err)
 	}
 
-	// make sure to disconnect WhatsApp after the init
 	defer whatsAppPairingCli.Disconnect()
 
 	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep Android/iOS mobile app active and open")
@@ -222,7 +208,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 
 	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 
-	// give additional time for WhatsApp to fully sync; honour cancellation
+	// Extra grace period for full sync; honours cancellation.
 	select {
 	case <-time.After(initialWhatsAppDelay):
 	case <-ctx.Done():

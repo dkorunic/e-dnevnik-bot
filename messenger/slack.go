@@ -161,7 +161,7 @@ func markSlackPermanent(err error) error {
 // It logs errors for sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// Truncate to Slack's text cap so oversize bodies deliver instead of being rejected.
+	// Truncate over Slack's text cap — oversize bodies are rejected outright.
 	m := truncateWithEllipsis(format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), SlackMaxMessageChars)
 
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
@@ -181,7 +181,7 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 			continue
 		}
 
-		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
+		// Check before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -217,10 +217,10 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	}
 
 	if anyFailed || !allProcessed {
-		// Merge-dedup successful recipients to prevent unbounded growth across retries.
+		// Dedup prevents unbounded SkipRecipients growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
+		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, SlackQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

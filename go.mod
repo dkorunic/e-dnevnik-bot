@@ -27,11 +27,11 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.1
-	github.com/slack-go/slack v0.22.0
+	github.com/slack-go/slack v0.23.0
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.2
-	go.mau.fi/whatsmeow v0.0.0-20260416104156-3ff20cd3462a
+	go.mau.fi/whatsmeow v0.0.0-20260421083005-5b8886176ff7
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.276.0
@@ -77,6 +77,7 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/term v0.42.0 // indirect
 	golang.org/x/text v0.36.0 // indirect

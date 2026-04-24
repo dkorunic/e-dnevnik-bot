@@ -41,15 +41,11 @@ import (
 //
 //nolint:nestif
 func initLog() {
-	// set global log level
 	logLevel := zerolog.InfoLevel
 	if *debug {
 		logLevel = zerolog.DebugLevel
 	} else if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
-		// Accept any valid zerolog level (currently Trace=-1 through Panic=5,
-		// plus the Disabled sentinel at 7). A single range check is simpler
-		// and safer than the previous int→int8→Level cast chain, which would
-		// silently reinterpret out-of-range values.
+		// Range-check avoids silent reinterpret of out-of-range casts.
 		if l, err := strconv.Atoi(v); err == nil &&
 			l >= int(zerolog.TraceLevel) && l <= int(zerolog.Disabled) {
 			logLevel = zerolog.Level(l)
@@ -58,7 +54,6 @@ func initLog() {
 
 	zerolog.SetGlobalLevel(logLevel)
 
-	// enable slow colored console logging
 	if *colorLogs {
 		logger.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).
 			Level(logLevel).

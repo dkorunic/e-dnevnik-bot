@@ -137,6 +137,28 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 	return nil
 }
 
+// markDiscordPermanent wraps Discord API errors that will never succeed on
+// retry in retry.Unrecoverable so retry-go short-circuits the remaining
+// attempts. 4xx responses (auth failure, unknown channel, malformed embed) are
+// permanent — except 408 (timeout) and 429 (rate-limit), which are transient.
+// Non-REST errors (transport/network) fall through with their normal retry
+// budget.
+func markDiscordPermanent(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var rerr *discordgo.RESTError
+	if errors.As(err, &rerr) && rerr.Response != nil {
+		code := rerr.Response.StatusCode
+		if code >= 400 && code < 500 && code != 408 && code != 429 {
+			return retry.Unrecoverable(err)
+		}
+	}
+
+	return err
+}
+
 // processDiscord processes a message from a channel and sends it to the specified user IDs on Discord.
 //
 // It takes the following parameters:
@@ -164,7 +186,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 	title := truncateWithEllipsis(sb.String(), DiscordMaxTitleChars)
 
-	// Track running budget; the total-embed-chars cap rejects otherwise-valid messages.
+	// Total-embed-chars cap rejects otherwise-valid messages.
 	budget := DiscordMaxEmbedChars - utf8.RuneCountInString(title)
 
 	fields := make([]*discordgo.MessageEmbedField, 0, count)
@@ -232,7 +254,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			continue
 		}
 
-		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
+		// Check before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -281,7 +303,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 					discordgo.WithRetryOnRatelimit(true),
 					discordgo.WithRestRetries(1))
 
-				return err
+				return markDiscordPermanent(err)
 			},
 		)
 		if err != nil {
@@ -296,10 +318,10 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 
 	if anyFailed || !allProcessed {
-		// Merge-dedup successful recipients to prevent unbounded growth across retries.
+		// Dedup prevents unbounded SkipRecipients growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
+		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, DiscordQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

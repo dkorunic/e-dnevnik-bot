@@ -42,7 +42,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 
 	queueKeyStr := string(queueKey)
 
-	// Read-and-drain: callback returns empty so queue is cleared atomically.
+	// Read-and-drain atomically: returning empty clears the queue.
 	err := eDB.FetchAndStore(ctx, queueKey, func(old []byte) ([]byte, error) {
 		var decErr error
 
@@ -61,7 +61,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		return []msgtypes.Message{}
 	}
 
-	// Drop entries older than MaxQueueAge; zero QueuedAt is legacy, kept for one more attempt.
+	// Zero QueuedAt is legacy; keep one more attempt.
 	now := time.Now()
 	kept := failedList[:0]
 	dropped := 0

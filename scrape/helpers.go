@@ -304,7 +304,6 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				return
 			}
 
-			// Skip block header row.
 			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
@@ -353,7 +352,6 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				return
 			}
 
-			// Skip block header row.
 			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
 			descriptions := make([]string, 0, headerCells.Length())
 
@@ -400,7 +398,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		return ctx.Err()
 	}
 
-	// Ensure unique hash content; multiClass branch already appended className.
+	// Dedup hash key; multiClass branch already appended className.
 	if !multiClass {
 		subject = subject + " / " + className
 	}
@@ -411,7 +409,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				return
 			}
 
-			// First cell holds the description ("ZAKLJUČENO").
+			// First cell: description ("ZAKLJUČENO").
 			descCells := row.FindMatcher(selCellBoldFirstSpan)
 			descriptions := make([]string, 0, descCells.Length())
 
@@ -426,7 +424,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 			spanCells.Each(func(_ int, column *goquery.Selection) {
 				txt := strings.TrimSpace(column.Text())
 
-				// Skip empty cells (divisors).
+				// Skip divisor cells.
 				if len(txt) > 0 {
 					spans = append(spans, txt)
 				}
@@ -482,7 +480,7 @@ func trimAllSpace(s string) string {
 		}
 	}
 
-	// Trailing space needs trimming too.
+	// Trailing space also needs trimming.
 	if !needsMod && inSpace {
 		needsMod = true
 	}

@@ -122,6 +122,43 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
+// markTelegramPermanent wraps Telegram API errors that will never succeed on
+// retry in retry.Unrecoverable so retry-go short-circuits the remaining
+// attempts.
+//
+// Permanent categories:
+//   - Forbidden (bot blocked), BadRequest (malformed), Unauthorized
+//     (invalid token), NotFound (chat gone), Conflict.
+//   - MigrateError: the chat was upgraded to a supergroup, the old ChatID will
+//     never accept sends again.
+//
+// TooManyRequests (both the sentinel and *TooManyRequestsError) is transient
+// and keeps its normal retry budget. Network/transport errors fall through
+// unchanged.
+func markTelegramPermanent(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// errors.As survives wrapping in future library versions.
+	var tmr *bot.TooManyRequestsError
+	if errors.As(err, &tmr) || errors.Is(err, bot.ErrorTooManyRequests) {
+		return err
+	}
+
+	var mig *bot.MigrateError
+	if errors.As(err, &mig) ||
+		errors.Is(err, bot.ErrorForbidden) ||
+		errors.Is(err, bot.ErrorBadRequest) ||
+		errors.Is(err, bot.ErrorUnauthorized) ||
+		errors.Is(err, bot.ErrorNotFound) ||
+		errors.Is(err, bot.ErrorConflict) {
+		return retry.Unrecoverable(err)
+	}
+
+	return err
+}
+
 // processTelegram processes a message and sends it to the specified Telegram chat IDs.
 //
 // It takes the following parameters:
@@ -136,7 +173,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// Truncate to sendMessage cap so oversize bodies deliver instead of being rejected.
+	// Truncate over sendMessage cap — oversize bodies are rejected outright.
 	m := truncateWithEllipsis(format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), TelegramMaxMessageChars)
 
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
@@ -168,7 +205,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			ParseMode: models.ParseModeHTML,
 		}
 
-		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
+		// Check before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -185,7 +222,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			func() error {
 				_, err := telegramCli.SendMessage(ctx, &msg)
 
-				return err
+				return markTelegramPermanent(err)
 			},
 		)
 		if err != nil {
@@ -200,10 +237,10 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	if anyFailed || !allProcessed {
-		// Merge-dedup successful recipients to prevent unbounded growth across retries.
+		// Dedup prevents unbounded SkipRecipients growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
+		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, TelegramQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

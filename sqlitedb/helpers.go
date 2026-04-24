@@ -56,7 +56,7 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 		totalLen += len(target[i])
 	}
 
-	// Pooled buffer; grow in place when input exceeds current capacity.
+	// Pooled buffer; grow when input exceeds capacity.
 	bufp := hashBufPool.Get().(*[]byte)
 
 	if cap(*bufp) < totalLen {
@@ -72,7 +72,6 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 		buf = append(buf, target[i]...)
 	}
 
-	// SIMD/SHA-extension accelerated where available.
 	targetHash256 := sha256.Sum256(buf)
 
 	*bufp = buf

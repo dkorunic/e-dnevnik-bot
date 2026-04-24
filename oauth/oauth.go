@@ -138,14 +138,13 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 				return nil, err
 			}
 
-			// Persist the refreshed token on the next save pass.
-			if newTok.AccessToken != tok.AccessToken {
+			// Persist rotated refresh tokens; otherwise startup bricks after old one expires.
+			if newTok.AccessToken != tok.AccessToken || newTok.RefreshToken != tok.RefreshToken {
 				saveToFile = true
 				tok = newTok
 			}
 		}
 	} else {
-		// No existing token — obtain one interactively.
 		tok, err = getTokenFromWeb(ctx, config)
 		if err != nil {
 			return nil, err
@@ -160,7 +159,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 		}
 	}
 
-	// Persist refreshes to disk so restarts survive token rotation.
+	// Persist refreshes so restarts survive token rotation.
 	ts := &persistingTokenSource{
 		src:       config.TokenSource(ctx, tok),
 		tokenPath: tokenPath,
@@ -186,8 +185,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	var once sync.Once
 
-	// Bind before building authURL so the actual port is known; fall back to :0 if busy.
-	// Google's consent flow requires a loopback redirect, so keep localhost in both attempts.
+	// Bind first so authURL carries the actual port; loopback is required by Google.
 	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
 
 	listener, err := net.Listen("tcp", authListenHost)
@@ -201,7 +199,6 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		}
 	}
 
-	// Use the bound address so the redirect matches the ephemeral port if :0 was used.
 	authURL := AuthScheme + listener.Addr().String()
 
 	config.RedirectURL = authURL + CallBackURL
@@ -276,7 +273,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	go func() {
 		logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
 
-		// Serve on the pre-bound listener; ListenAndServe would race by re-binding s.Addr.
+		// Serve on pre-bound listener; ListenAndServe would race by re-binding.
 		if err := s.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal().Msgf("%v: %v", ErrOAuthHTTPServer, err)
 		}

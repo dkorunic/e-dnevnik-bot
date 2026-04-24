@@ -274,13 +274,13 @@ func checkUserConf(config *TomlConfig) {
 		logger.Fatal().Msg("Configuration error: No users defined")
 	}
 
-	// Duplicates would cause redundant logins and duplicate alerts (dedup key is username+subject+fields).
+	// Dupes cause redundant logins — dedup key is username+subject+fields.
 	seen := make(map[string]struct{}, len(config.User))
 
 	for _, u := range config.User {
 		if u.Username == "" || u.Password == "" {
-			logger.Fatal().Msgf("Configuration error: User requires username and password: %v - %v",
-				u.Username, u.Password)
+			logger.Fatal().Msgf("Configuration error: user entry requires both username and password (username: %q)",
+				u.Username)
 		}
 
 		if !isValidUserAtDomain(u.Username) {

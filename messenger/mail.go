@@ -192,7 +192,6 @@ func markMailPermanent(err error) error {
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) {
-	// Build both plain and HTML alternatives for multipart/alternative delivery.
 	plainContent := format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
 
@@ -207,7 +206,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
 
-	// Send per-recipient so partial failures are tracked individually.
+	// Per-recipient sends track partial failures individually.
 	for _, u := range to {
 		if _, skip := skipSet[u]; skip {
 			continue
@@ -235,7 +234,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetDate()
 		m.SetBulk()
 
-		// Cap subject length so misconfigured values cannot produce MTA-rejected headers.
+		// Cap subject length to avoid MTA-rejected headers.
 		if subject != "" {
 			m.Subject(truncateWithEllipsis(subject, MailMaxSubjectChars))
 		} else {
@@ -245,7 +244,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetBodyString(mail.TypeTextPlain, plainContent)
 		m.AddAlternativeString(mail.TypeTextHTML, htmlContent)
 
-		// Check cancellation before rl.Take() so shutdown is not blocked on a token.
+		// Check before rl.Take() so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
 			allProcessed = false
 
@@ -275,10 +274,10 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	}
 
 	if anyFailed || !allProcessed {
-		// Merge-dedup successful recipients to prevent unbounded growth across retries.
+		// Dedup prevents unbounded SkipRecipients growth across retries.
 		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
 
-		// queueStoreCtx: shutdown-tolerant so the queue write survives ctx cancel.
+		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, MailQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)

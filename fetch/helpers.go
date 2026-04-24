@@ -223,6 +223,9 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 	}
 
 	if len(body) > MaxBodySize {
+		// Drain remainder so the connection can be reused.
+		_, _ = io.Copy(io.Discard, resp.Body)
+
 		return nil, fmt.Errorf("%w: %v", ErrBodyTooLarge, resp.Request.URL)
 	}
 
@@ -255,7 +258,7 @@ func (c *Client) getCourses() ([]byte, error) {
 // The function also handles context cancellation and returns the context's
 // error in such a case.
 func (c *Client) getCourse(dest string) ([]byte, error) {
-	// Proper URL resolution avoids malformed concatenation of scraped relative paths.
+	// Resolve relative URLs; naive concat would malform them.
 	base, err := url.Parse(BaseURL)
 	if err != nil {
 		return nil, err

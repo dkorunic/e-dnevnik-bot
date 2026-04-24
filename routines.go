@@ -258,10 +258,10 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 						// XXX Fields[0] assumed to be the grade date.
 						t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 						if err != nil {
-							// Fail-open on unparseable date: prefer a stale alert to a silent drop.
+							// Fail-open: prefer stale alert to silent drop.
 							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
 						} else {
-							// "Future" day.month. implies previous year; exact match assumed current year.
+							// Future day.month. implies previous year.
 							if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
 								t = t.AddDate(now.Year()-1, 0, 0)
 							} else {

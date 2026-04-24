@@ -222,7 +222,7 @@ func main() {
 				go spinner(spinnerDone)
 			}
 
-			// Bounded wait for bgWG (e.g. systemd watchdog) — stuck goroutine must not stall shutdown.
+			// Bounded wait — stuck goroutine must not stall shutdown.
 			bgDone := make(chan struct{})
 			go func() {
 				bgWG.Wait()
