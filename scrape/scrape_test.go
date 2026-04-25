@@ -101,7 +101,12 @@ func TestParseEvents(t *testing.T) {
 		Timestamp: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
-	// Zero out the timestamp for comparison as it's not set in the expected message
+	// Compare Timestamp explicitly with .Equal (handles tz/monotonic differences)
+	// before falling back to DeepEqual on the rest.
+	if !msg.Timestamp.Equal(expected.Timestamp) {
+		t.Errorf("Timestamp mismatch: got %v, want %v", msg.Timestamp, expected.Timestamp)
+	}
+
 	msg.Timestamp = time.Time{}
 	expected.Timestamp = time.Time{}
 
@@ -224,20 +229,25 @@ func TestParseCourse(t *testing.T) {
 		t.Fatalf("Expected %d messages, got %d", len(expected), len(msgs))
 	}
 
-	// Sort for consistent comparison
-	for i := range msgs {
-		if msgs[i].Code == msgtypes.FinalGrade {
-			msgs[i], msgs[0] = msgs[0], msgs[i]
-			break
+	// Match by Code rather than position so the assertion is independent of
+	// parseCourse's emission order. A future ordering change would otherwise
+	// silently break the comparison.
+	byCode := make(map[msgtypes.EventCode]msgtypes.Message, len(msgs))
+	for _, m := range msgs {
+		byCode[m.Code] = m
+	}
+
+	for _, exp := range expected {
+		got, ok := byCode[exp.Code]
+		if !ok {
+			t.Errorf("Expected message with code %v, none found", exp.Code)
+
+			continue
 		}
-	}
 
-	if !reflect.DeepEqual(msgs[1], expected[0]) {
-		t.Errorf("Expected %+v, got %+v", expected[0], msgs[1])
-	}
-
-	if !reflect.DeepEqual(msgs[0], expected[1]) {
-		t.Errorf("Expected %+v, got %+v", expected[1], msgs[0])
+		if !reflect.DeepEqual(got, exp) {
+			t.Errorf("Expected %+v, got %+v", exp, got)
+		}
 	}
 }
 

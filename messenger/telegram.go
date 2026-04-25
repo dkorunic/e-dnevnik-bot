@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/queue"
@@ -173,8 +172,12 @@ func markTelegramPermanent(err error) error {
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// Truncate over sendMessage cap — oversize bodies are rejected outright.
-	m := truncateWithEllipsis(format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), TelegramMaxMessageChars)
+	// Trim trailing description/grade pairs before formatting so the resulting
+	// HTML keeps balanced <b>/<pre> tags. Truncating the rendered HTML at a
+	// rune boundary risks slicing inside a tag, which Telegram's HTML parser
+	// classifies as an unrecoverable BadRequest (markTelegramPermanent), and
+	// the message would then be silently quarantined as a permanent failure.
+	m := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, TelegramMaxMessageChars)
 
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
 	for _, r := range g.SkipRecipients {

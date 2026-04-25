@@ -46,16 +46,17 @@ import (
 )
 
 const (
-	chanBufLen      = 500              // broadcast channel buffer length
-	exitDelay       = 10 * time.Second // sleep time before giving up on cancellation
-	statusInterval  = 1 * time.Minute  // cadence of sysd status countdown updates between runs
-	testUsername    = "korisnik@test.domena"
-	testSubject     = "Ovo je testni predmet"
-	testDescription = "Testni opis"
-	testField       = "Testna vrijednost"
-	maxMemRatio     = 0.9
-	scheduledActive = "Scheduled run in progress"
-	scheduledNext   = "Next scheduled run in %s"
+	chanBufLen       = 500              // broadcast channel buffer length
+	exitDelay        = 10 * time.Second // sleep time before giving up on cancellation
+	statusInterval   = 1 * time.Minute  // cadence of sysd status countdown updates between runs
+	testUsername     = "korisnik@test.domena"
+	testSubject      = "Ovo je testni predmet"
+	testDescription  = "Testni opis"
+	testField        = "Testna vrijednost"
+	maxMemRatio      = 0.9
+	scheduledActive  = "Scheduled run in progress"
+	scheduledNext    = "Next scheduled run in %s"
+	scheduledOverdue = "Scheduled run is overdue"
 )
 
 var (
@@ -243,9 +244,13 @@ func main() {
 			return
 		case <-statusTicker.C:
 			// Countdown heartbeat while idling between scheduled runs.
+			// If the scrape overran nextRunAt, surface "overdue" so operators
+			// see a live signal instead of a frozen prior status string.
 			if remaining := time.Until(nextRunAt); remaining > 0 {
 				_ = sysdnotify.Status(fmt.Sprintf(scheduledNext,
 					durafmt.Parse(remaining.Round(time.Second)).String()))
+			} else {
+				_ = sysdnotify.Status(scheduledOverdue)
 			}
 		case <-ticker.C:
 			// Pause countdown while scraping.
@@ -296,11 +301,24 @@ func main() {
 				return
 			}
 
-			remaining := max(time.Until(nextRunAt), 0)
-			scheduledSleep := fmt.Sprintf(scheduledNext, durafmt.Parse(remaining.Round(time.Second)).String())
+			// On overrun (scrape ran past its scheduled window) emit the
+			// "overdue" string instead of "Next scheduled run in 0 second",
+			// which is technically true but useless to operators.
+			var scheduledSleep string
+			if remaining := time.Until(nextRunAt); remaining > 0 {
+				scheduledSleep = fmt.Sprintf(scheduledNext, durafmt.Parse(remaining.Round(time.Second)).String())
+			} else {
+				scheduledSleep = scheduledOverdue
+			}
 
 			logger.Info().Msg(scheduledSleep)
 			_ = sysdnotify.Status(scheduledSleep)
+
+			// Drain stale tick; Stop()+Reset() don't flush the buffered value.
+			select {
+			case <-statusTicker.C:
+			default:
+			}
 
 			// Resume countdown for the idle window.
 			statusTicker.Reset(statusInterval)

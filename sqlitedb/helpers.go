@@ -29,6 +29,11 @@ import (
 	"github.com/minio/sha256-simd"
 )
 
+// hashBufPoolMaxCap is the largest buffer capacity returned to hashBufPool.
+// Buffers grown beyond this for an unusually large input are dropped on Put
+// so a one-off oversized hash does not inflate steady-state pool memory.
+const hashBufPoolMaxCap = 4 * 1024
+
 var hashBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 0, 256)
@@ -74,8 +79,11 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 
 	targetHash256 := sha256.Sum256(buf)
 
-	*bufp = buf
-	hashBufPool.Put(bufp)
+	// Skip re-pooling oversized buffers to bound steady-state pool memory.
+	if cap(buf) <= hashBufPoolMaxCap {
+		*bufp = buf
+		hashBufPool.Put(bufp)
+	}
 
 	return targetHash256[:]
 }

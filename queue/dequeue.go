@@ -63,7 +63,9 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 
 	// Zero QueuedAt is legacy; keep one more attempt.
 	now := time.Now()
-	kept := failedList[:0]
+	// Fresh backing array — aliasing failedList[:0] is correct only as long as
+	// the loop reads each index before overwriting it, a fragile invariant.
+	kept := make([]msgtypes.Message, 0, len(failedList))
 	dropped := 0
 
 	for _, m := range failedList {

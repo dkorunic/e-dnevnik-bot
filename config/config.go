@@ -101,13 +101,15 @@ func checkWhatsAppConf(config *TomlConfig) {
 			}
 		}
 
-		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
-
 		for _, g := range config.WhatsApp.Groups {
 			if g == "" {
 				logger.Fatal().Msg("Configuration error: empty WhatsApp group name")
 			}
 		}
+
+		// Logged after all validators so the last visible line on a Fatal
+		// is the validation error, not a misleading "enabled" message.
+		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
 
 		// Pre-sort for binary search in messenger.
 		slices.SortFunc(config.WhatsApp.Groups, strings.Compare)

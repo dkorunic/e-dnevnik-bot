@@ -43,7 +43,7 @@ func TestProcessWhatsApp(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	processWhatsApp(context.Background(), eDB, msg, []string{"12345@s.whatsapp.net"}, rl, 1)
+	processWhatsApp(context.Background(), whatsAppCli, eDB, msg, []string{"12345@s.whatsapp.net"}, rl, 1)
 }
 
 // TestWhatsAppLoginReturnsErrorOnConnectFailure verifies that whatsAppLogin propagates
@@ -84,13 +84,15 @@ func TestWhatsAppLoginReturnsErrorOnConnectFailure(t *testing.T) {
 	}
 }
 
-// TestFilterGroupsByNameWorksOnUnsortedInput verifies that filterGroupsByName uses
-// linear search (slices.Contains) instead of binary search, so unsorted config
-// values still match correctly (Fix 2).
-func TestFilterGroupsByNameWorksOnUnsortedInput(t *testing.T) {
+// TestFilterGroupsByNameMatchesConfiguredGroups verifies that filterGroupsByName
+// returns the JIDs whose group names appear in the (config-sorted) wantGroups
+// slice and excludes the rest. Production relies on slices.BinarySearch over a
+// list pre-sorted by config.go (slices.SortFunc, see checkWhatsAppConf); this
+// test passes wantGroups already sorted, mirroring that contract.
+func TestFilterGroupsByNameMatchesConfiguredGroups(t *testing.T) {
 	t.Parallel()
 
-	// Group names as a user might write them in TOML — config loading sorts them.
+	// Sorted, as config loading guarantees.
 	wantGroups := []string{"Alpha", "Gamma", "Zeta"}
 
 	jid1, _ := types.ParseJID("111111111111111111@g.us")

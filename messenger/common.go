@@ -25,6 +25,9 @@ import (
 	"context"
 	"time"
 	"unicode/utf8"
+
+	"github.com/dkorunic/e-dnevnik-bot/format"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 // storeTimeout bounds the shutdown-tolerant context used when persisting
@@ -94,6 +97,32 @@ func mergeSkipRecipients(existing, extras []string) []string {
 	}
 
 	return out
+}
+
+// truncateHTMLBody formats username/subject/code/descriptions/grade as an HTML
+// message and, if the result exceeds maxRunes, drops trailing description/grade
+// pairs until it fits. Trimming the input rather than the output preserves the
+// surrounding <b>/<pre> tag balance, so Telegram's HTML parser does not reject
+// the message as malformed. If even the header exceeds the budget, returns the
+// header-only formatted string (Telegram will reject it but the caller will at
+// least see a clear error rather than a silent truncation defect).
+func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descriptions, grade []string, maxRunes int) string {
+	formatted := format.HTMLMsg(username, subject, code, descriptions, grade)
+	if utf8.RuneCountInString(formatted) <= maxRunes {
+		return formatted
+	}
+
+	n := min(len(descriptions), len(grade))
+	for n > 0 {
+		n--
+
+		formatted = format.HTMLMsg(username, subject, code, descriptions[:n], grade[:n])
+		if utf8.RuneCountInString(formatted) <= maxRunes {
+			return formatted
+		}
+	}
+
+	return formatted
 }
 
 // truncateWithEllipsis truncates a string with ellipsis at the end

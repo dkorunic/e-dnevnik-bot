@@ -294,14 +294,15 @@ func spinner(done <-chan struct{}) {
 	s := spin.New()
 
 	for {
+		fmt.Printf("\rWaiting... %v", s.Next())
+
+		// Cancellable wait so shutdown isn't held by an in-flight Sleep.
 		select {
 		case <-done:
 			fmt.Print("\r")
 
 			return
-		default:
-			fmt.Printf("\rWaiting... %v", s.Next())
-			time.Sleep(spinnerRotateDelay)
+		case <-time.After(spinnerRotateDelay):
 		}
 	}
 }

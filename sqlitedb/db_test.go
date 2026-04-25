@@ -32,11 +32,9 @@ import (
 
 func TestDBOperations(t *testing.T) {
 	t.Parallel()
-	// Create a temporary file path for the database
-	tmpFile := filepath.Join(os.TempDir(), "test-db-for-testing.db.sqlite")
-	// Clean up any previous test runs.
-	os.Remove(tmpFile)
-	defer os.Remove(tmpFile)
+	// t.TempDir() yields a unique, auto-cleaned directory per test run, so
+	// concurrent or repeat invocations cannot race on a shared filename.
+	tmpFile := filepath.Join(t.TempDir(), "test-db-for-testing.db.sqlite")
 
 	// Test database creation.
 	eDB, err := New(context.Background(), tmpFile)
@@ -171,9 +169,7 @@ func TestDbExists(t *testing.T) {
 
 func TestCheckAndFlagTTLExpiredKey(t *testing.T) {
 	t.Parallel()
-	tmpFile := filepath.Join(os.TempDir(), "test-db-ttl-expired.db.sqlite")
-	os.Remove(tmpFile)
-	defer os.Remove(tmpFile)
+	tmpFile := filepath.Join(t.TempDir(), "test-db-ttl-expired.db.sqlite")
 
 	eDB, err := New(context.Background(), tmpFile)
 	if err != nil {
@@ -204,9 +200,7 @@ func TestCheckAndFlagTTLExpiredKey(t *testing.T) {
 
 func TestFetchAndStoreExpiredKey(t *testing.T) {
 	t.Parallel()
-	tmpFile := filepath.Join(os.TempDir(), "test-db-fetchstore-expired.db.sqlite")
-	os.Remove(tmpFile)
-	defer os.Remove(tmpFile)
+	tmpFile := filepath.Join(t.TempDir(), "test-db-fetchstore-expired.db.sqlite")
 
 	eDB, err := New(context.Background(), tmpFile)
 	if err != nil {
@@ -290,9 +284,7 @@ func TestHashContentConcatenationOrder(t *testing.T) {
 func TestCheckAndFlagTTLReturnsTrueImmediately(t *testing.T) {
 	t.Parallel()
 
-	tmpFile := filepath.Join(os.TempDir(), "test-db-immediate-recheck.db.sqlite")
-	os.Remove(tmpFile)
-	defer os.Remove(tmpFile)
+	tmpFile := filepath.Join(t.TempDir(), "test-db-immediate-recheck.db.sqlite")
 
 	eDB, err := New(context.Background(), tmpFile)
 	if err != nil {
@@ -321,9 +313,7 @@ func TestCheckAndFlagTTLReturnsTrueImmediately(t *testing.T) {
 
 func TestCleanupRemovesExpiredKeys(t *testing.T) {
 	t.Parallel()
-	tmpFile := filepath.Join(os.TempDir(), "test-db-cleanup.db.sqlite")
-	os.Remove(tmpFile)
-	defer os.Remove(tmpFile)
+	tmpFile := filepath.Join(t.TempDir(), "test-db-cleanup.db.sqlite")
 
 	eDB, err := New(context.Background(), tmpFile)
 	if err != nil {

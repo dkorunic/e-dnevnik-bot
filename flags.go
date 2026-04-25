@@ -97,7 +97,7 @@ func parseFlags() {
 
 	if *tickInterval < DefaultTickInterval {
 		logger.Info().Msgf("Poll interval is below %v, so I will default to %v",
-			durafmt.Parse(DefaultTickInterval).String(), durafmt.Parse(DefaultTickInterval))
+			durafmt.Parse(DefaultTickInterval).String(), durafmt.Parse(DefaultTickInterval).String())
 
 		*tickInterval = DefaultTickInterval
 	}

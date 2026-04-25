@@ -96,16 +96,16 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 
+	// Hold across saveToken so concurrent refreshes can't reorder renames.
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	changed := p.last == nil ||
 		p.last.AccessToken != tok.AccessToken ||
 		p.last.RefreshToken != tok.RefreshToken
 	if changed {
 		p.last = tok
-	}
-	p.mu.Unlock()
 
-	if changed {
 		if serr := saveToken(p.tokenPath, tok); serr != nil {
 			logger.Warn().Msgf("Unable to persist refreshed OAuth token: %v", serr)
 		}

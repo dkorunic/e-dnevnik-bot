@@ -131,6 +131,11 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		return err
 	}
 
+	// Snapshot under mutex; only whatsAppLogin replaces the global.
+	whatsAppCliMu.Lock()
+	cli := whatsAppCli
+	whatsAppCliMu.Unlock()
+
 	logger.Debug().Msgf("Started WhatsApp messenger (%v, protocol %v)", WhatsAppVersion,
 		store.GetWAVersion().String())
 
@@ -145,7 +150,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		if needsResolution {
 			userIDSize := len(userIDs)
 
-			userIDs = whatsAppProcessGroups(ctx, userIDs, groups)
+			userIDs = whatsAppProcessGroups(ctx, cli, userIDs, groups)
 
 			if len(userIDs) > userIDSize {
 				// Cache on first success to skip future resolution.
@@ -193,7 +198,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 			return ctx.Err()
 		}
 
-		processWhatsApp(ctx, eDB, g, userIDs, rl, retries)
+		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(eDB, WhatsAppQueueName, failedMsgs[i+1:])
@@ -207,7 +212,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processWhatsApp(ctx, eDB, g, userIDs, rl, retries)
+			processWhatsApp(ctx, cli, eDB, g, userIDs, rl, retries)
 		}
 	}
 
@@ -253,7 +258,7 @@ func markWhatsAppPermanent(err error) error {
 // It formats the message as Markup and attempts to send it to each user ID.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+func processWhatsApp(ctx context.Context, cli *whatsmeow.Client, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// PlainMsg avoids leaking Markdown metacharacters via Conversation rendering.
 	mRaw := truncateWithEllipsis(format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), WhatsAppMaxMessageChars)
 	m := waE2E.Message{Conversation: &mRaw}
@@ -297,7 +302,7 @@ func processWhatsApp(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			retry.Delay(WhatsAppMinDelay),
 		).Do(
 			func() error {
-				_, err := whatsAppCli.SendMessage(ctx, target, &m)
+				_, err := cli.SendMessage(ctx, target, &m)
 
 				return markWhatsAppPermanent(err)
 			},
@@ -383,9 +388,9 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
 // and appends the JIDs of any matching groups to the user IDs slice. If an error occurs while fetching
 // the groups, it logs the error. The function returns the updated list of user IDs which now includes
 // the JIDs of the specified groups.
-func whatsAppProcessGroups(ctx context.Context, userIDs, groups []string) []string {
+func whatsAppProcessGroups(ctx context.Context, cli *whatsmeow.Client, userIDs, groups []string) []string {
 	if len(groups) > 0 {
-		g, err := whatsAppCli.GetJoinedGroups(ctx)
+		g, err := cli.GetJoinedGroups(ctx)
 		if err != nil {
 			logger.Error().Msgf("%v %v", ErrWhatsAppUnableGroups, err)
 

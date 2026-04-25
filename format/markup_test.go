@@ -68,6 +68,13 @@ func TestMarkupEscapeStringSpecialChars(t *testing.T) {
 		{`~strike~`, `\~strike\~`},
 		{`[link]`, `\[link\]`},
 		{`\back`, `\\back`},
+		// HTML-entity triplet for Slack mrkdwn.
+		{`&`, `&amp;`},
+		{`<`, `&lt;`},
+		{`>`, `&gt;`},
+		{`<a&b>`, `&lt;a&amp;b&gt;`},
+		// Combined: NewReplacer is single-pass, no double-escape.
+		{`a & <b> *c*`, `a &amp; &lt;b&gt; \*c\*`},
 	}
 
 	for _, tc := range cases {
