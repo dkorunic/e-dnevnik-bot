@@ -108,6 +108,13 @@ func parseFlags() {
 		*relevancePeriod = 0
 	}
 
+	// retry-go treats Attempts(0) as unlimited; clamp to bound retries.
+	if *retries == 0 {
+		logger.Info().Msg("Retries flag set to 0; clamping to 1 (no retries) — retry-go interprets 0 as unlimited")
+
+		*retries = 1
+	}
+
 	if *debugEvents {
 		*debug = true
 	}

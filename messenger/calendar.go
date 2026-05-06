@@ -105,7 +105,6 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	logger.Debug().Msgf("Started Google Calendar API messenger (%v)", CalendarVersion)
 
-	now := time.Now()
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
 	// Drain queued failures first; re-queue tail on shutdown.
@@ -117,7 +116,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 			return ctx.Err()
 		}
 
-		processCalendar(ctx, eDB, g, now, rl, srv, calID, retries)
+		processCalendar(ctx, eDB, g, rl, srv, calID, retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(eDB, CalendarQueueName, failedMsgs[i+1:])
@@ -131,7 +130,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processCalendar(ctx, eDB, g, now, rl, srv, calID, retries)
+			processCalendar(ctx, eDB, g, rl, srv, calID, retries)
 		}
 	}
 
@@ -170,14 +169,13 @@ func markCalendarPermanent(err error) error {
 // - ctx: the context.Context object for managing the execution of the function
 // - eDB: the database instance for checking failed messages
 // - g: the message to be processed
-// - now: the current time
 // - rl: the rate limiter
 // - srv: the Google Calendar service client
 // - calID: the ID of the Google Calendar
 // - retries: the number of retry attempts for inserting a Google Calendar event
 //
 // It returns an error indicating any issues encountered during the execution of the function.
-func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, now time.Time, rl ratelimit.Limiter,
+func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, rl ratelimit.Limiter,
 	srv *calendar.Service, calID string, retries uint,
 ) {
 	var err error
@@ -188,6 +186,9 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		return
 	}
+
+	// Refresh per call: long-running daemons must not use a stale boundary.
+	now := time.Now()
 
 	if g.Timestamp.Before(now) {
 		logger.Info().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)

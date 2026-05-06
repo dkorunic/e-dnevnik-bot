@@ -31,6 +31,8 @@ import (
 // HTMLMsg formats grade report as preformatted HTML block in a string.
 func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := builderPool.Get().(*strings.Builder)
+	defer putBuilder(sb)
+
 	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
 
@@ -40,10 +42,7 @@ func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, gr
 	htmlFormatGrades(sb, descriptions, grade)
 	sb.WriteString("</pre>\n")
 
-	result := sb.String()
-	builderPool.Put(sb)
-
-	return result
+	return sb.String()
 }
 
 // htmlAddHeader adds bold header containing username and subject name, and a delimiter.

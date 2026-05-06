@@ -53,7 +53,7 @@ func TestProcessCalendar(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	processCalendar(ctx, eDB, msg, time.Now(), rl, srv, "primary", 1)
+	processCalendar(ctx, eDB, msg, rl, srv, "primary", 1)
 }
 
 func TestGetCalendarID(t *testing.T) {

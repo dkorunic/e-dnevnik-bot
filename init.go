@@ -54,6 +54,13 @@ const (
 	// is well above round-trip latency for healthy sessions yet short enough
 	// to surface a dead link quickly.
 	whatsAppPresenceTimeout = 5 * time.Second
+
+	// whatsAppPairingTimeout bounds the interactive pairing/sync wait so that
+	// a user who walks away from the QR code or PIN prompt does not leave the
+	// process hanging indefinitely. 10 minutes is well above realistic scan
+	// latency yet short enough to surface a stalled pairing on the next CI run
+	// or systemd retry.
+	whatsAppPairingTimeout = 10 * time.Minute
 )
 
 var (
@@ -202,6 +209,11 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	case <-whatsAppSynced:
 	case <-ctx.Done():
 		logger.Warn().Msg("Context cancelled while waiting for WhatsApp sync")
+
+		return
+	case <-time.After(whatsAppPairingTimeout):
+		logger.Warn().Msgf("Timed out after %v waiting for WhatsApp pairing/sync; restart the bot and re-scan the QR code or re-enter the PIN",
+			durafmt.Parse(whatsAppPairingTimeout).String())
 
 		return
 	}

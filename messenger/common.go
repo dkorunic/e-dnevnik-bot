@@ -106,20 +106,35 @@ func mergeSkipRecipients(existing, extras []string) []string {
 // the message as malformed. If even the header exceeds the budget, returns the
 // header-only formatted string (Telegram will reject it but the caller will at
 // least see a clear error rather than a silent truncation defect).
+//
+// A binary search over the pair count converges in O(log N) renders instead of
+// the O(N) renders of a linear shrink — meaningful for messages with many
+// description/grade pairs.
 func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descriptions, grade []string, maxRunes int) string {
-	formatted := format.HTMLMsg(username, subject, code, descriptions, grade)
+	nMax := min(len(descriptions), len(grade))
+
+	formatted := format.HTMLMsg(username, subject, code, descriptions[:nMax], grade[:nMax])
 	if utf8.RuneCountInString(formatted) <= maxRunes {
 		return formatted
 	}
 
-	n := min(len(descriptions), len(grade))
-	for n > 0 {
-		n--
+	// Invariant: lo is the largest pair count known to fit (-1 if none yet).
+	lo, hi := -1, nMax
+	for lo+1 < hi {
+		mid := lo + (hi-lo)/2
+		candidate := format.HTMLMsg(username, subject, code, descriptions[:mid], grade[:mid])
 
-		formatted = format.HTMLMsg(username, subject, code, descriptions[:n], grade[:n])
-		if utf8.RuneCountInString(formatted) <= maxRunes {
-			return formatted
+		if utf8.RuneCountInString(candidate) <= maxRunes {
+			lo = mid
+			formatted = candidate
+		} else {
+			hi = mid
 		}
+	}
+
+	if lo < 0 {
+		// Even the header alone exceeds the budget; return the smallest variant as best-effort.
+		return format.HTMLMsg(username, subject, code, nil, nil)
 	}
 
 	return formatted

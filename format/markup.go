@@ -49,6 +49,8 @@ var markupReplacer = strings.NewReplacer(
 // MarkupMsg formats grade report as preformatted Markup block in a string.
 func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	sb := builderPool.Get().(*strings.Builder)
+	defer putBuilder(sb)
+
 	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
 
@@ -58,10 +60,7 @@ func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, 
 	plainFormatGrades(sb, descriptions, grade)
 	sb.WriteString("```\n")
 
-	result := sb.String()
-	builderPool.Put(sb)
-
-	return result
+	return sb.String()
 }
 
 // markupEscapeString escapes Markdown special characters in s to prevent them

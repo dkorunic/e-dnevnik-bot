@@ -116,6 +116,10 @@ Other flags:
 
 The configuration file consists of several blocks. The user block can be repeated as many times as needed. The Telegram, Discord, Slack, and e-mail blocks can each appear only once, but all can be enabled or disabled independently. Recipient lists (user IDs, chat IDs, and `to` addresses) are defined as arrays and support any number of entries. Alerts are broadcast to all enabled messaging services simultaneously.
 
+> **File permissions are your responsibility.** The bot does not enforce restrictive permissions on the configuration file, even though it contains AAI/AOSI passwords and messenger tokens. Set `chmod 0600 .e-dnevnik.toml` (or equivalent) yourself, and ensure the file's directory is not world-readable. Containerised deployments should use a dedicated volume that is mounted with appropriate ownership.
+>
+> **The bot may rewrite your configuration file.** When the WhatsApp `groups` field contains a name that resolves to a JID (see the [WhatsApp configuration](#whatsapp-configuration) section), and the file is writable by the bot's user, the resolved JID is migrated from `groups` into `userids` and the file is rewritten in place. Comments and key ordering are **not preserved** — the rewrite uses a TOML encoder that emits a canonical form. If you maintain the file under version control or rely on inline comments, either keep the file read-only and manage the JIDs yourself, or expect a single one-time rewrite on first successful resolution.
+
 #### User configuration
 
 ```toml

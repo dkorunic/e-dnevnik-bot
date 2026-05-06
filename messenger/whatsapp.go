@@ -95,6 +95,7 @@ var (
 	whatsAppGroupsMu        sync.Mutex // protects whatsAppGroupsResolved and whatsAppResolvedUserIDs
 	whatsAppGroupsResolved  bool       // true once groups have been successfully resolved
 	whatsAppResolvedUserIDs []string   // resolved JIDs cached across poll cycles
+	whatsAppGroupsWarnOnce  sync.Once  // ensures the "no group matched" warning logs at most once per process
 
 	// WhatsAppPairingMu provides an explicit handoff between the one-shot
 	// interactive pairing performed during startup (see init.go's checkWhatsApp)
@@ -180,6 +181,12 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 						logger.Info().Msg("Detected WhatsApp group with a name but rewriting configuration is impossible due to lack of permissions")
 					}
 				}
+			} else {
+				// Warn once so a typo in group names surfaces without spamming every tick.
+				whatsAppGroupsWarnOnce.Do(func() {
+					logger.Warn().Msgf("No WhatsApp groups matched the configured names %v; verify the bot is a member and the names match exactly",
+						groups)
+				})
 			}
 			// Cache empty on failure — next tick retries.
 		} else {
@@ -436,6 +443,9 @@ func whatsAppLogin(ctx context.Context) error {
 
 	err = storeContainer.Upgrade(ctx)
 	if err != nil {
+		// Not yet published to whatsAppStore; close to avoid leaking the sqlite handle on retry.
+		_ = storeContainer.Close()
+
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableUpgrade, err)
 
 		return err
@@ -444,6 +454,8 @@ func whatsAppLogin(ctx context.Context) error {
 	// Single-session only.
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
+		_ = storeContainer.Close()
+
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableDeviceID, err)
 
 		return err
