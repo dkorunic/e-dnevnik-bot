@@ -96,7 +96,6 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				return
 			}
 
-			// Disambiguate subject across classes.
 			if multiClass {
 				subject = subject + " / " + className
 			}
@@ -174,7 +173,6 @@ func parseEvents(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		description := cleanEventDescription(ev.Description)
 		timestamp := ev.Start.Format(TimeFormat)
 
-		// Disambiguate subject across classes.
 		if multiClass {
 			subject = subject + " / " + className
 		}
@@ -225,20 +223,29 @@ func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
 						return
 					}
 
-					column.FindMatcher(selClassSpanBold).
-						Each(func(_ int, span *goquery.Selection) {
-							c.Name = strings.TrimSpace(span.Text())
-						})
+					if sel := column.FindMatcher(selClassSpanBold); sel.Length() > 0 {
+						if sel.Length() > 1 {
+							logger.Warn().Msgf("portal HTML drift: %d matches for class-name span on user %v (expected 1); using first", sel.Length(), username)
+						}
 
-					column.FindMatcher(selClassSpanSchoolyear).
-						Each(func(_ int, span *goquery.Selection) {
-							c.Year = strings.TrimSpace(span.Text())
-						})
+						c.Name = strings.TrimSpace(sel.First().Text())
+					}
 
-					column.FindMatcher(selSchoolSpanSchoolName).
-						Each(func(_ int, span *goquery.Selection) {
-							c.School = strings.TrimSpace(span.Text())
-						})
+					if sel := column.FindMatcher(selClassSpanSchoolyear); sel.Length() > 0 {
+						if sel.Length() > 1 {
+							logger.Warn().Msgf("portal HTML drift: %d matches for class-schoolyear span on user %v (expected 1); using first", sel.Length(), username)
+						}
+
+						c.Year = strings.TrimSpace(sel.First().Text())
+					}
+
+					if sel := column.FindMatcher(selSchoolSpanSchoolName); sel.Length() > 0 {
+						if sel.Length() > 1 {
+							logger.Warn().Msgf("portal HTML drift: %d matches for school-name span on user %v (expected 1); using first", sel.Length(), username)
+						}
+
+						c.School = strings.TrimSpace(sel.First().Text())
+					}
 
 					classes = append(classes, c)
 					parsedClasses++
@@ -271,6 +278,10 @@ func parseCourses(rawCourses []byte) (fetch.Courses, error) {
 
 			span := row.FindMatcher(selCourseInfoSpan)
 			if span.Length() > 0 {
+				if span.Length() > 1 {
+					logger.Warn().Msgf("portal HTML drift: %d matches for course-info span (expected 1); using first", span.Length())
+				}
+
 				courseName := strings.TrimSpace(span.First().Text())
 
 				courses = append(courses, fetch.Course{
@@ -291,7 +302,6 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		return err
 	}
 
-	// Disambiguate subject across classes.
 	if multiClass {
 		subject = subject + " / " + className
 	}
@@ -398,7 +408,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		return ctx.Err()
 	}
 
-	// Dedup hash key; multiClass branch already appended className.
+	// FinalGrade Subject must include className so hashes differ per school year.
 	if !multiClass {
 		subject = subject + " / " + className
 	}
@@ -409,7 +419,6 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				return
 			}
 
-			// First cell: description ("ZAKLJUČENO").
 			descCells := row.FindMatcher(selCellBoldFirstSpan)
 			descriptions := make([]string, 0, descCells.Length())
 
@@ -480,7 +489,6 @@ func trimAllSpace(s string) string {
 		}
 	}
 
-	// Trailing space also needs trimming.
 	if !needsMod && inSpace {
 		needsMod = true
 	}

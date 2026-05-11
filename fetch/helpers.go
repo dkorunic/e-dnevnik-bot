@@ -28,6 +28,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -58,9 +59,17 @@ var (
 	ErrNilBody          = errors.New("client body is nil")
 	ErrInvalidLogin     = errors.New("unable to login")
 	ErrBodyTooLarge     = errors.New("response body exceeds size limit")
+	ErrInvalidClassID   = errors.New("invalid class ID — refusing to construct URL")
+	ErrInvalidHost      = errors.New("portal href resolves to non-portal host — refusing to fetch")
 
 	selCsrfToken  = cascadia.MustCompile(`form > input[name="csrf_token"]`)
 	selLoginAlert = cascadia.MustCompile("#page-wrapper > div.flash-messages > div.alert > p")
+
+	// reClassID restricts class action IDs to a conservative URL-safe alphabet.
+	// Portal values observed in the wild are alphanumeric (subject names or
+	// numeric IDs); anything outside this set is rejected to prevent
+	// path-traversal or query-injection via a tampered portal response.
+	reClassID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
 // getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
@@ -148,7 +157,6 @@ func (c *Client) doSAMLRequest() error {
 	}
 	defer resp.Body.Close()
 
-	// Reject obvious errors before parsing the body.
 	if resp.StatusCode >= http.StatusBadRequest {
 		_, _ = io.Copy(io.Discard, resp.Body)
 
@@ -250,10 +258,13 @@ func (c *Client) getCourses() ([]byte, error) {
 // getCourse fetches the course with the given destination URL and returns its
 // raw body, or an error.
 //
-// The function takes the destination URL as a parameter, prepends the base URL
-// to it, and then calls `getGeneric` to fetch the content.
-// If the request returns a non-2xx status, or if the response body is empty,
-// the function returns an error.
+// The destination originates from a portal-supplied <a href> attribute and is
+// resolved against BaseURL via url.ResolveReference. ResolveReference happily
+// switches host when ref is itself absolute, so the resolved URL is then
+// host/scheme-pinned to BaseURL: a portal HTML that carries an external
+// absolute href (compromised portal, MITM, future stored-XSS) would otherwise
+// send the bot's authenticated cookie jar to an attacker-controlled host or be
+// used as a SSRF probe against internal/cloud-metadata endpoints.
 //
 // The function also handles context cancellation and returns the context's
 // error in such a case.
@@ -269,7 +280,14 @@ func (c *Client) getCourse(dest string) ([]byte, error) {
 		return nil, err
 	}
 
-	return c.getGeneric(base.ResolveReference(ref).String())
+	resolved := base.ResolveReference(ref)
+
+	// Pin host and scheme to the portal: reject cross-host hrefs.
+	if resolved.Scheme != base.Scheme || resolved.Host != base.Host {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidHost, resolved)
+	}
+
+	return c.getGeneric(resolved.String())
 }
 
 // getCalendar fetches all events from exams calendar in ICS format.
@@ -290,8 +308,17 @@ func (c *Client) getCalendar() (Events, error) {
 }
 
 // doClassAction switches the active class to the given class ID, returning an error upon failure.
+//
+// The classID originates from a portal-supplied HTML attribute (`data-action-id`)
+// and is interpolated into a URL path segment. To prevent path-injection through
+// a tampered portal response, the value is validated against reClassID before
+// use and additionally PathEscape'd as defence-in-depth.
 func (c *Client) doClassAction(classID string) error {
-	_, err := c.getGeneric(fmt.Sprintf(ClassActionURL, classID))
+	if classID == "" || strings.Contains(classID, "..") || !reClassID.MatchString(classID) {
+		return fmt.Errorf("%w: %q", ErrInvalidClassID, classID)
+	}
+
+	_, err := c.getGeneric(fmt.Sprintf(ClassActionURL, url.PathEscape(classID)))
 
 	return err
 }

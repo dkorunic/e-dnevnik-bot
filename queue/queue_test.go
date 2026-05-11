@@ -34,7 +34,7 @@ import (
 
 func TestStoreAndFetchFailedMsgs(t *testing.T) {
 	t.Parallel()
-	// Create a temporary database for testing.
+
 	tmpdir, err := os.MkdirTemp("", "test.db")
 	if err != nil {
 		t.Fatal(err)
@@ -51,22 +51,17 @@ func TestStoreAndFetchFailedMsgs(t *testing.T) {
 	msg1 := msgtypes.Message{Subject: "Test Subject 1", Descriptions: []string{"Test Body 1"}}
 	msg2 := msgtypes.Message{Subject: "Test Subject 2", Descriptions: []string{"Test Body 2"}}
 
-	// Store the first message.
 	if err := StoreFailedMsgs(context.Background(), eDB, key, msg1); err != nil {
 		t.Fatalf("StoreFailedMsgs failed: %v", err)
 	}
 
-	// Store the second message.
 	if err := StoreFailedMsgs(context.Background(), eDB, key, msg2); err != nil {
 		t.Fatalf("StoreFailedMsgs failed: %v", err)
 	}
 
-	// Fetch the messages.
 	fetchedMsgs := FetchFailedMsgs(context.Background(), eDB, key)
 
-	// StoreFailedMsgs stamps QueuedAt on enqueue; verify it is set and within
-	// a reasonable window, then clear it before comparing the rest of the
-	// payload for equality with the originals.
+	// QueuedAt is stamped on enqueue; verify and clear before payload compare.
 	now := time.Now()
 	for i := range fetchedMsgs {
 		if fetchedMsgs[i].QueuedAt.IsZero() {
@@ -86,7 +81,7 @@ func TestStoreAndFetchFailedMsgs(t *testing.T) {
 		t.Errorf("fetched messages do not match expected messages.\nGot: %v\nWant: %v", fetchedMsgs, expectedMsgs)
 	}
 
-	// Fetch again to ensure the queue is empty.
+	// Fetch drains the queue.
 	fetchedMsgs = FetchFailedMsgs(context.Background(), eDB, key)
 	if len(fetchedMsgs) != 0 {
 		t.Errorf("queue should be empty after fetching, but it's not. Got: %v", fetchedMsgs)
@@ -109,20 +104,19 @@ func TestStoreFailedMsgsCorruptedQueue(t *testing.T) {
 
 	key := []byte("test_corrupted_queue")
 
-	// Inject corrupted data to simulate a broken queue state.
+	// Inject corrupted bytes to simulate a broken queue.
 	if err := eDB.FetchAndStore(context.Background(), key, func(_ []byte) ([]byte, error) {
 		return []byte("corrupted gob data"), nil
 	}); err != nil {
 		t.Fatalf("FetchAndStore failed: %v", err)
 	}
 
-	// StoreFailedMsgs must recover from corrupted data and start fresh.
+	// StoreFailedMsgs must start fresh on corrupted data.
 	newMsg := msgtypes.Message{Subject: "Recovery Test"}
 	if err := StoreFailedMsgs(context.Background(), eDB, key, newMsg); err != nil {
 		t.Fatalf("StoreFailedMsgs() on corrupted queue should not fail: %v", err)
 	}
 
-	// Only the new message should be present.
 	fetchedMsgs := FetchFailedMsgs(context.Background(), eDB, key)
 	if len(fetchedMsgs) != 1 {
 		t.Errorf("expected 1 message after recovery, got %d", len(fetchedMsgs))

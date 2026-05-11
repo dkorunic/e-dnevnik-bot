@@ -128,9 +128,14 @@ func TestMsgDedupYearInferenceFutureMonth(t *testing.T) {
 	msgDedup(context.Background(), eDB, &wg, gradesScraped, gradesMsg)
 	wg.Wait()
 
-	// A grade from a future month should be treated as last year (>30 days old)
-	// and therefore suppressed by the relevance filter.
-	if len(gradesMsg) > 0 {
+	// Drain channel so assertion does not depend on buffer capacity.
+	var msgs []msgtypes.Message
+	for m := range gradesMsg {
+		msgs = append(msgs, m)
+	}
+
+	// Future month must be inferred as last year and dropped by the relevance filter.
+	if len(msgs) > 0 {
 		t.Errorf("grade from future month %v should be suppressed as last year's grade (Bug 8A: swapped AddDate branches)", futureMonth)
 	}
 }
@@ -144,8 +149,7 @@ func TestMsgDedupYearInferenceSameDayNotSuppressed(t *testing.T) {
 	now := time.Now()
 	todayStr := time.Date(0, now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format("2.1.")
 
-	// Use a 1-day relevance period: last-year assignment would fail this filter,
-	// but current-year assignment (today) must pass.
+	// 1-day window: last-year assignment fails, current-year (today) passes.
 	rp := 24 * time.Hour
 	relevancePeriod = &rp
 

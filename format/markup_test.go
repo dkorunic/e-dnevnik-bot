@@ -73,7 +73,7 @@ func TestMarkupEscapeStringSpecialChars(t *testing.T) {
 		{`<`, `&lt;`},
 		{`>`, `&gt;`},
 		{`<a&b>`, `&lt;a&amp;b&gt;`},
-		// Combined: NewReplacer is single-pass, no double-escape.
+		// NewReplacer is single-pass — no double-escape.
 		{`a & <b> *c*`, `a &amp; &lt;b&gt; \*c\*`},
 	}
 

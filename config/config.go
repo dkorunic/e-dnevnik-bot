@@ -158,13 +158,15 @@ func checkMailConf(config *TomlConfig) {
 			}
 		}
 
-		logger.Info().Msg("Configuration: mail messenger enabled")
-
 		for _, t := range config.Mail.To {
 			if !isValidMail(t) {
 				logger.Fatal().Msgf("Configuration error: mail to %v is not in mail format", t)
 			}
 		}
+
+		// Logged after all validators so the last visible line on a Fatal
+		// is the validation error, not a misleading "enabled" message.
+		logger.Info().Msg("Configuration: mail messenger enabled")
 
 		config.MailEnabled = true
 	}

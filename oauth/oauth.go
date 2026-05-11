@@ -96,7 +96,7 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 
-	// Hold across saveToken so concurrent refreshes can't reorder renames.
+	// Hold across saveToken so concurrent refreshes can't reorder the atomic rename.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

@@ -135,10 +135,12 @@ func mailInit(server string, portInt int, username, password string) error {
 
 		var err error
 
+		// Mandatory STARTTLS: refuse to authenticate over a cleartext channel.
+		// AUTH PLAIN credentials must never traverse an unencrypted link.
 		mailCli, err = mail.NewClient(server,
 			mail.WithPort(portInt),
 			mail.WithSMTPAuth(mail.SMTPAuthPlain),
-			mail.WithTLSPolicy(mail.TLSOpportunistic),
+			mail.WithTLSPolicy(mail.TLSMandatory),
 			mail.WithUsername(username),
 			mail.WithPassword(password),
 		)
@@ -192,8 +194,13 @@ func markMailPermanent(err error) error {
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) {
-	plainContent := format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
-	htmlContent := format.HTMLMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields)
+	// Cap body size client-side; an MTA-rejected oversize would otherwise
+	// loop indefinitely in the failed-message queue.
+	htmlContent := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, MailMaxBodyChars)
+	plainContent := truncateWithEllipsis(
+		format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields),
+		MailMaxBodyChars,
+	)
 
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
 	for _, r := range g.SkipRecipients {

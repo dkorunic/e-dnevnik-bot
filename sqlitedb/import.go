@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
@@ -70,7 +71,10 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 	}
 	defer bdb.Close()
 
-	var count int
+	var count, skipped int
+
+	// Snapshot once so the per-row check is consistent across the import.
+	nowUnix := time.Now().Unix()
 
 	// Single transaction keeps bulk insert fast.
 	tx, err := db.db.BeginTx(ctx, nil)
@@ -102,6 +106,15 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 				var expiry sql.NullInt64
 
 				if expiresAt > 0 && expiresAt <= math.MaxInt64 {
+					// Skip rows already past their TTL: cleanup() would delete
+					// them moments later, so the events they de-duplicate would
+					// re-alert on the next scrape after migration.
+					if int64(expiresAt) < nowUnix {
+						skipped++
+
+						return nil
+					}
+
 					expiry.Int64 = int64(expiresAt)
 					expiry.Valid = true
 				}
@@ -128,6 +141,10 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("%w: %w", ErrSqliteCommit, err)
+	}
+
+	if skipped > 0 {
+		logger.Info().Msgf("Skipped %d already-expired BadgerDB rows during import", skipped)
 	}
 
 	logger.Info().Msgf("Successfully imported %d items from BadgerDB", count)

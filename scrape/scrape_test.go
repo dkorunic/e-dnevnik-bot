@@ -101,8 +101,7 @@ func TestParseEvents(t *testing.T) {
 		Timestamp: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
-	// Compare Timestamp explicitly with .Equal (handles tz/monotonic differences)
-	// before falling back to DeepEqual on the rest.
+	// .Equal handles tz/monotonic differences DeepEqual cannot.
 	if !msg.Timestamp.Equal(expected.Timestamp) {
 		t.Errorf("Timestamp mismatch: got %v, want %v", msg.Timestamp, expected.Timestamp)
 	}
@@ -229,9 +228,7 @@ func TestParseCourse(t *testing.T) {
 		t.Fatalf("Expected %d messages, got %d", len(expected), len(msgs))
 	}
 
-	// Match by Code rather than position so the assertion is independent of
-	// parseCourse's emission order. A future ordering change would otherwise
-	// silently break the comparison.
+	// Match by Code so the assertion survives any future emission-order change.
 	byCode := make(map[msgtypes.EventCode]msgtypes.Message, len(msgs))
 	for _, m := range msgs {
 		byCode[m.Code] = m
@@ -482,7 +479,6 @@ func TestCleanEventDescriptionReturnAfterNotBefore(t *testing.T) {
 		t.Errorf("cleanEventDescription(%q) = %q, want %q (got before instead of after?)", input, got, want)
 	}
 
-	// Explicitly confirm the subject label is NOT returned.
 	if got == "Matematika" {
 		t.Errorf("cleanEventDescription returned the 'before' part (subject label) instead of the 'after' part (description)")
 	}
@@ -504,8 +500,7 @@ func TestTrimAllSpaceConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			// Each goroutine exercises trimAllSpace with inputs that need normalisation
-			// (leading space, trailing space, mid-run spaces) so pass 2 is always taken.
+			// Inputs need normalisation so pass 2 is always taken (race-detector target).
 			inputs := []string{"  hello world  ", "foo  bar", "\nhello\nworld\n", "  a  b  c  "}
 			for _, s := range inputs {
 				_ = trimAllSpace(s)
@@ -541,22 +536,18 @@ func TestParseEventsFieldOrder(t *testing.T) {
 
 	msg := <-ch
 
-	// Fields[0] must be the subject name (after stripping the "Subject: " prefix).
 	if len(msg.Fields) < 3 {
 		t.Fatalf("expected at least 3 fields, got %d", len(msg.Fields))
 	}
 
-	// Fields[0] is the subject (cleanEventDescription output).
 	if msg.Fields[0] != "Pisanje testa" {
 		t.Errorf("Fields[0] = %q, want %q (subject name)", msg.Fields[0], "Pisanje testa")
 	}
 
-	// Fields[1] is the formatted date.
 	if msg.Fields[1] != "12.06.2025." {
 		t.Errorf("Fields[1] = %q, want %q (formatted date)", msg.Fields[1], "12.06.2025.")
 	}
 
-	// Fields[2] is the description/remark.
 	if msg.Fields[2] != "Algebra poglavlje 3" {
 		t.Errorf("Fields[2] = %q, want %q (description)", msg.Fields[2], "Algebra poglavlje 3")
 	}

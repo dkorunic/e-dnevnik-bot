@@ -55,11 +55,12 @@ func queueStoreCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 // are rejected by the respective APIs, so we truncate client-side to convert a
 // hard failure into a slightly-lossy delivery.
 const (
-	TelegramMaxMessageChars = 4096 // Telegram sendMessage text limit
-	SlackMaxMessageChars    = 3000 // Slack Block Kit / chat.postMessage soft cap
-	MailMaxSubjectChars     = 256  // conservative; RFC 5322 is 998 bytes per line but most MUAs show ~78 chars
-	WhatsAppMaxMessageChars = 4096 // whatsmeow Conversation field; protocol hard limit is ~65 KiB but most clients truncate
-	DiscordMaxEmbedChars    = 6000 // Discord sum of title + description + field names + field values + footer + author
+	TelegramMaxMessageChars = 4096  // Telegram sendMessage text limit
+	SlackMaxMessageChars    = 3000  // Slack Block Kit / chat.postMessage soft cap
+	MailMaxSubjectChars     = 256   // conservative; RFC 5322 is 998 bytes per line but most MUAs show ~78 chars
+	MailMaxBodyChars        = 65536 // safety net: well below MTA size limits but bounds runaway growth
+	WhatsAppMaxMessageChars = 4096  // whatsmeow Conversation field; protocol hard limit is ~65 KiB but most clients truncate
+	DiscordMaxEmbedChars    = 6000  // Discord sum of title + description + field names + field values + footer + author
 )
 
 // mergeSkipRecipients returns existing ∪ extras with duplicates removed while
@@ -133,7 +134,7 @@ func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descrip
 	}
 
 	if lo < 0 {
-		// Even the header alone exceeds the budget; return the smallest variant as best-effort.
+		// Even the header exceeds the budget; best-effort return.
 		return format.HTMLMsg(username, subject, code, nil, nil)
 	}
 

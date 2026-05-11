@@ -28,6 +28,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -105,7 +106,25 @@ var (
 	// same sqlite store concurrently. It must be exported so the main package
 	// can participate in the handoff.
 	WhatsAppPairingMu sync.Mutex
+
+	// shutdownOnce guards requestShutdown so repeated fatal events fire SIGTERM
+	// to the process exactly once.
+	shutdownOnce sync.Once
 )
+
+// requestShutdown signals SIGTERM to the current process so that the main
+// loop's signal.NotifyContext catches it and runs the normal graceful
+// shutdown path — including draining the failed-message queue. This replaces
+// the prior logger.Fatal()/os.Exit() pattern in event handlers, which
+// bypassed queue persistence on unrecoverable WhatsApp events (LoggedOut,
+// PairError with nil device).
+func requestShutdown() {
+	shutdownOnce.Do(func() {
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(syscall.SIGTERM)
+		}
+	})
+}
 
 // WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
 //
@@ -348,12 +367,13 @@ func awaitWhatsAppPairingDone() {
 	WhatsAppPairingMu.Unlock()
 }
 
-// whatsAppInit ensures that the WhatsApp client is initialized and connected.
+// whatsAppInit ensures that the WhatsApp client is initialized.
 //
-// If the WhatsApp client is not already initialized, it calls whatsAppLogin()
-// to initialize it. If the client is initialized but not connected, it attempts
-// to disconnect and then reconnect the client. The function returns an error
-// if any step of the initialization or connection process fails.
+// If the client is not already initialized, it calls whatsAppLogin() to do so.
+// Once initialized, transient disconnects are handled by whatsmeow's own
+// reconnect goroutine (EnableAutoReconnect = true). A manual Disconnect/Connect
+// path here would race the library's reconnect and can cause double-connect
+// session conflicts that force a re-link.
 func whatsAppInit(ctx context.Context) error {
 	// Wait for interactive pairing to release the sqlstore.
 	awaitWhatsAppPairingDone()
@@ -365,12 +385,6 @@ func whatsAppInit(ctx context.Context) error {
 		logger.Debug().Msg("Initializing WhatsApp client")
 
 		return whatsAppLogin(ctx)
-	} else if !whatsAppCli.IsConnected() {
-		logger.Debug().Msg("Reconnecting WhatsApp client")
-
-		whatsAppCli.Disconnect()
-
-		return whatsAppCli.Connect()
 	}
 
 	return nil
@@ -469,6 +483,13 @@ func whatsAppLogin(ctx context.Context) error {
 
 	err = whatsAppCli.Connect()
 	if err != nil {
+		// Connect() failed after globals were published. Release the sqlite
+		// handle and nil the globals so the next whatsAppInit retry starts
+		// from a clean slate; otherwise the handle would leak across cycles.
+		_ = storeContainer.Close()
+		whatsAppStore = nil
+		whatsAppCli = nil
+
 		logger.Error().Msgf("%v: %v", ErrWhatsAppFailConnect, err)
 
 		return err
@@ -531,16 +552,29 @@ func whatsAppEventHandler(rawEvt any) {
 		if cli.Store.ID == nil {
 			_ = os.Remove(WhatsAppDBName)
 
-			logger.Fatal().Msgf("%v", ErrWhatsAppFailLinkDevice)
+			// Trigger graceful shutdown via SIGTERM-to-self so the main
+			// loop drains the failed-message queue before exiting.
+			logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
+			requestShutdown()
 		} else {
 			logger.Debug().Msg("WhatsApp device successfully paired")
 		}
 	case *events.LoggedOut:
 		_ = os.Remove(WhatsAppDBName)
 
-		logger.Fatal().Msgf("%v", ErrWhatsAppLoggedout)
-	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
+		logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppLoggedout)
+		requestShutdown()
+	case *events.Disconnected:
 		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
+	case *events.StreamReplaced, *events.KeepAliveTimeout:
+		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
+
+		// Session may be replaced server-side; previously-resolved group
+		// JIDs can be stale. Force a fresh resolve on the next poll.
+		whatsAppGroupsMu.Lock()
+		whatsAppGroupsResolved = false
+		whatsAppResolvedUserIDs = nil
+		whatsAppGroupsMu.Unlock()
 	case *events.ClientOutdated:
 		logger.Error().Msgf("%v", ErrWhatsAppOutdated)
 	case *events.TemporaryBan:

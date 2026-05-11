@@ -22,6 +22,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -76,6 +77,13 @@ func parseFlags() {
 	var err error
 
 	if err = ff.Parse(fs, os.Args[1:]); err != nil {
+		// --help requested via ff: exit 0, not 1.
+		if errors.Is(err, ff.ErrHelp) {
+			fmt.Printf("%s\n", ffhelp.Flags(fs))
+
+			os.Exit(0)
+		}
+
 		fmt.Printf("%s\n", ffhelp.Flags(fs))
 		fmt.Printf("Error: %v\n", err)
 

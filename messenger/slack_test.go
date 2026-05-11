@@ -31,7 +31,6 @@ func TestProcessSlack(t *testing.T) {
 
 	rl := ratelimit.New(1)
 
-	// Create a temporary database for testing.
 	tmpdir, err := os.MkdirTemp("", "test.db")
 	if err != nil {
 		t.Fatal(err)

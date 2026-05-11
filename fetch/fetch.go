@@ -37,7 +37,7 @@ const (
 
 // NewClientWithContext creates new *Client, initializing HTTP Cookie Jar, context and username with password.
 func NewClientWithContext(ctx context.Context, username, password string) (*Client, error) {
-	// Jar required for SSO and security cookies.
+	// Cookie jar required for SSO and security cookies.
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func NewClientWithContext(ctx context.Context, username, password string) (*Clie
 
 // Login attempts get CSRF Token and do SSO/SAML authentication with random User-Agent per session.
 func (c *Client) Login() error {
-	// Randomised per-session UA reduces bot fingerprinting.
+	// Per-session randomised UA reduces bot fingerprinting.
 	ua, err := fakeua.New()
 	if err != nil || ua == nil {
 		c.userAgent = ChromeUA

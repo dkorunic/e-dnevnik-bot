@@ -46,9 +46,7 @@ func TestHtmlAddHeader(t *testing.T) {
 func TestHTMLMsgEscaping(t *testing.T) {
 	t.Parallel()
 
-	// Each character that html.EscapeString rewrites must appear escaped in
-	// every field that originates from the remote portal (user, subject,
-	// descriptions, grades).
+	// Portal-derived fields must arrive HTML-escaped in the output.
 	username := `<script>alert("x")</script>`
 	subject := `Math & "Science"`
 	descriptions := []string{`<b>desc</b>`, `a&b`}
@@ -56,8 +54,7 @@ func TestHTMLMsgEscaping(t *testing.T) {
 
 	result := HTMLMsg(username, subject, msgtypes.Grade, descriptions, grades)
 
-	// Positive assertions: raw special characters must not appear outside
-	// the structural tags we emit ourselves.
+	// Raw specials must not appear outside structural tags we emit ourselves.
 	for _, forbidden := range []string{
 		`<script>`,
 		`alert("x")`,
@@ -71,7 +68,7 @@ func TestHTMLMsgEscaping(t *testing.T) {
 		}
 	}
 
-	// Negative assertions: escaped forms must appear.
+	// Escaped forms must appear.
 	for _, expected := range []string{
 		`&lt;script&gt;`,
 		`&#34;x&#34;`,

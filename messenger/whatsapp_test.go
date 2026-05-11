@@ -19,8 +19,7 @@ import (
 
 // TestProcessWhatsApp must not run in parallel — it writes the package-level whatsAppCli global.
 func TestProcessWhatsApp(t *testing.T) {
-	// This is difficult to unit test without a live connection.
-	// We will just call the function to ensure it doesn't panic.
+	// Smoke test only — full path needs a live WhatsApp connection.
 	whatsAppCli = &whatsmeow.Client{}
 	msg := msgtypes.Message{
 		Username:     "testuser",
@@ -30,7 +29,6 @@ func TestProcessWhatsApp(t *testing.T) {
 	}
 	rl := ratelimit.New(1)
 
-	// Create a temporary database for testing.
 	tmpdir, err := os.MkdirTemp("", "test.db")
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +52,7 @@ func TestProcessWhatsApp(t *testing.T) {
 // CI). When run on a machine with internet access, Connect() succeeds and the test is
 // skipped to avoid a false positive.
 func TestWhatsAppLoginReturnsErrorOnConnectFailure(t *testing.T) {
-	// Skip if the WhatsApp server is reachable — Connect() would succeed and we
-	// cannot distinguish the pre-fix (swallows err) from the post-fix behaviour.
+	// Skip when WhatsApp is reachable: Connect() succeeds and the test is meaningless.
 	conn, dialErr := net.DialTimeout("tcp", "web.whatsapp.com:443", 2*time.Second)
 	if dialErr == nil {
 		conn.Close()
@@ -78,7 +75,7 @@ func TestWhatsAppLoginReturnsErrorOnConnectFailure(t *testing.T) {
 	whatsAppCli = nil // reset so whatsAppLogin creates a fresh client
 
 	err = whatsAppLogin(context.Background())
-	// Connect() fails (no WhatsApp server). Before fix: returns nil. After fix: returns err.
+	// Connect() must fail without a reachable server; pre-fix swallowed the err.
 	if err == nil {
 		t.Error("whatsAppLogin should return a non-nil error when Connect() fails")
 	}
@@ -92,7 +89,7 @@ func TestWhatsAppLoginReturnsErrorOnConnectFailure(t *testing.T) {
 func TestFilterGroupsByNameMatchesConfiguredGroups(t *testing.T) {
 	t.Parallel()
 
-	// Sorted, as config loading guarantees.
+	// Sorted, matching the contract config loading enforces.
 	wantGroups := []string{"Alpha", "Gamma", "Zeta"}
 
 	jid1, _ := types.ParseJID("111111111111111111@g.us")
@@ -130,12 +127,11 @@ func TestFilterGroupsByNameMatchesConfiguredGroups(t *testing.T) {
 
 func TestIsWriteable(t *testing.T) {
 	t.Parallel()
-	// Non-existent path should return false.
+
 	if isWriteable("/non/existent/path/to/file.txt") {
 		t.Error("isWriteable() returned true for non-existent path")
 	}
 
-	// Existing writable file should return true.
 	tmpfile, err := os.CreateTemp("", "test-writeable-*.txt")
 	if err != nil {
 		t.Fatal(err)

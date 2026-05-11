@@ -101,7 +101,10 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 // Layouts that contain the Go timezone directive "07" (e.g. Z0700, -0700) are
 // parsed with time.Parse so the embedded offset is honoured. All other layouts
 // lack timezone information; they are parsed with time.ParseInLocation using
-// time.Local so the result reflects the local timezone rather than UTC.
+// time.UTC so the dedup hash and the displayed exam date stay stable across
+// hosts in different timezones. Parsing in time.Local would shift all-day
+// events by up to ±14 h relative to a server in another zone, changing the
+// hash key and showing the wrong calendar day to the user.
 func parseFirstDateTime(layouts []string, value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 
@@ -114,7 +117,7 @@ func parseFirstDateTime(layouts []string, value string) (time.Time, error) {
 		if strings.Contains(layout, "07") {
 			dt, err = time.Parse(layout, value)
 		} else {
-			dt, err = time.ParseInLocation(layout, value, time.Local)
+			dt, err = time.ParseInLocation(layout, value, time.UTC)
 		}
 
 		if err == nil {

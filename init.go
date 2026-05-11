@@ -175,7 +175,6 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	go func() {
 		for evt := range ch {
 			if evt.Event == "code" {
-				// Pair via code when a phone number is configured.
 				if config.WhatsApp.PhoneNumber != "" {
 					linkCode, err := whatsAppPairingCli.PairPhone(qrCtx, config.WhatsApp.PhoneNumber, true,
 						whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)

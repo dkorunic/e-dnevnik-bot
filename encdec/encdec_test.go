@@ -31,7 +31,7 @@ import (
 
 func TestEncodeDecode(t *testing.T) {
 	t.Parallel()
-	// Prepare a sample message slice
+
 	originalMsgs := []msgtypes.Message{
 		{
 			Timestamp:    time.Now().Round(0),
@@ -51,7 +51,7 @@ func TestEncodeDecode(t *testing.T) {
 		},
 	}
 
-	// Test case 1: Successful encoding and decoding
+	// Round-trip.
 	encoded, err := EncodeMsgs(originalMsgs)
 	if err != nil {
 		t.Fatalf("EncodeMsgs failed: %v", err)
@@ -66,7 +66,7 @@ func TestEncodeDecode(t *testing.T) {
 		t.Errorf("Decoded messages do not match original messages.\nOriginal: %+v\nDecoded:  %+v", originalMsgs, decoded)
 	}
 
-	// Test case 2: Empty slice
+	// Empty slice.
 	emptyMsgs := []msgtypes.Message{}
 	encodedEmpty, err := EncodeMsgs(emptyMsgs)
 	if err != nil {
@@ -82,14 +82,14 @@ func TestEncodeDecode(t *testing.T) {
 		t.Errorf("Expected empty slice, but got %d messages", len(decodedEmpty))
 	}
 
-	// Test case 3: Invalid gob data
+	// Invalid gob data.
 	invalidData := []byte("this is not a gob")
 	_, err = DecodeMsgs(invalidData)
 	if err == nil {
 		t.Error("DecodeMsgs should have failed with invalid data, but it did not")
 	}
 
-	// Test case 4: nil input should return empty slice without error
+	// Nil input → empty slice, no error.
 	nilResult, err := DecodeMsgs(nil)
 	if err != nil {
 		t.Fatalf("DecodeMsgs(nil) returned unexpected error: %v", err)
@@ -113,8 +113,7 @@ func TestEncodeDecodEmptyRoundTrip(t *testing.T) {
 		t.Fatalf("EncodeMsgs(empty) failed: %v", err)
 	}
 
-	// The returned value must be non-nil (not nil) so that a nil-check guard
-	// in DecodeMsgs cannot bypass the len==0 guard.
+	// Must be non-nil so a nil-check in DecodeMsgs can't bypass the len==0 guard.
 	if encoded == nil {
 		t.Error("EncodeMsgs(empty) returned nil; want non-nil []byte{}")
 	}

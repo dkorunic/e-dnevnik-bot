@@ -61,7 +61,9 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		return []msgtypes.Message{}
 	}
 
-	// Zero QueuedAt is legacy; keep one more attempt.
+	// Zero QueuedAt is legacy (or comes from a partial-decode survivor);
+	// stamp it now so MaxQueueAge applies on the next cycle instead of
+	// letting such messages live in the queue indefinitely.
 	now := time.Now()
 	// Fresh backing array — aliasing failedList[:0] is correct only as long as
 	// the loop reads each index before overwriting it, a fragile invariant.
@@ -73,6 +75,10 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			dropped++
 
 			continue
+		}
+
+		if m.QueuedAt.IsZero() {
+			m.QueuedAt = now
 		}
 
 		kept = append(kept, m)

@@ -34,14 +34,13 @@ import (
 
 func TestTokenFileOperations(t *testing.T) {
 	t.Parallel()
-	// Create a temporary file for testing.
+
 	tmpfile, err := os.CreateTemp("", "test-token.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(tmpfile.Name())
 
-	// Create a mock token.
 	expectedToken := &oauth2.Token{
 		AccessToken:  "test-access-token",
 		TokenType:    "Bearer",
@@ -49,18 +48,15 @@ func TestTokenFileOperations(t *testing.T) {
 		Expiry:       time.Now().Add(1 * time.Hour).Round(time.Second),
 	}
 
-	// Save the token to the file.
 	if err := saveToken(tmpfile.Name(), expectedToken); err != nil {
 		t.Fatalf("saveToken failed: %v", err)
 	}
 
-	// Read the token from the file.
 	actualToken, err := tokenFromFile(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("tokenFromFile failed: %v", err)
 	}
 
-	// Compare the tokens.
 	if !reflect.DeepEqual(expectedToken, actualToken) {
 		t.Errorf("token mismatch: expected %v, got %v", expectedToken, actualToken)
 	}
@@ -99,7 +95,7 @@ func TestTokenFromFileInvalidJSON(t *testing.T) {
 
 func TestSaveTokenToUnwritablePath(t *testing.T) {
 	t.Parallel()
-	// Saving to a path inside a non-existent directory should fail.
+
 	err := saveToken("/non/existent/dir/token.json", &oauth2.Token{})
 	if err == nil {
 		t.Error("saveToken() should fail when destination directory does not exist")

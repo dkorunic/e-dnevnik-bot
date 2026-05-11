@@ -3,11 +3,11 @@ package messenger
 import (
 	"context"
 	"net"
-	"os"
 	"strconv"
 	"testing"
 
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/queue"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 	"go.uber.org/ratelimit"
 )
@@ -45,14 +45,7 @@ func TestProcessMail(t *testing.T) {
 
 	rl := ratelimit.New(1)
 
-	// Create a temporary database for testing.
-	tmpdir, err := os.MkdirTemp("", "test.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpdir)
-
-	eDB, err := sqlitedb.New(context.Background(), tmpdir)
+	eDB, err := sqlitedb.New(context.Background(), t.TempDir()+"/test.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,4 +53,10 @@ func TestProcessMail(t *testing.T) {
 
 	_ = mailInit(host, portInt, "user", "pass")
 	processMail(context.Background(), eDB, msg, []string{"test@example.com"}, "from@example.com", "subject", rl, 1)
+
+	// Bogus listener can't complete SMTP; processMail must queue for retry.
+	queued := queue.FetchFailedMsgs(context.Background(), eDB, MailQueueName)
+	if len(queued) == 0 {
+		t.Error("expected failed message in queue after unreachable SMTP send, got none")
+	}
 }

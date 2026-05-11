@@ -103,7 +103,7 @@ func TestPlainFormatSubjectAllCodes(t *testing.T) {
 				t.Errorf("PlainFormatSubject code %v: got %q, want prefix %q (Grade/Exam prefix swapped?)", tc.code, got, tc.prefix)
 			}
 
-			// Explicitly verify no other prefix appears at the start.
+			// No other prefix may appear at the start.
 			for _, other := range cases {
 				if other.code != tc.code && strings.HasPrefix(got, other.prefix) {
 					t.Errorf("PlainFormatSubject code %v: got prefix %q, which belongs to code %v", tc.code, other.prefix, other.code)

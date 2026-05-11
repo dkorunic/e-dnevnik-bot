@@ -7,7 +7,7 @@ import (
 
 func TestReadVersion(t *testing.T) {
 	t.Parallel()
-	// Test with a known dependency
+
 	path := "github.com/dkorunic/e-dnevnik-bot"
 	version := ReadVersion(path)
 
@@ -18,7 +18,7 @@ func TestReadVersion(t *testing.T) {
 
 func TestReadVersionNotFound(t *testing.T) {
 	t.Parallel()
-	// A non-existent dependency should return just the path unchanged.
+	// Non-existent dependency returns path unchanged.
 	path := "github.com/non/existent/dependency/xyz"
 	version := ReadVersion(path)
 

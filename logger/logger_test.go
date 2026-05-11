@@ -72,7 +72,7 @@ func TestLogLevels(t *testing.T) {
 
 func TestLogLevelHelpers(t *testing.T) {
 	t.Parallel()
-	// Verify each helper returns a non-nil *zerolog.Event without panicking.
+
 	var buf bytes.Buffer
 	l := Output(&buf)
 
@@ -99,7 +99,7 @@ func TestLogLevelHelpers(t *testing.T) {
 
 func TestWith(t *testing.T) {
 	t.Parallel()
-	// With() returns a zerolog.Context — verify it is non-zero.
+
 	ctx := With()
 	l := ctx.Logger()
 
@@ -115,7 +115,7 @@ func TestWith(t *testing.T) {
 
 func TestLevel(t *testing.T) {
 	t.Parallel()
-	// Level() returns a filtered logger.
+
 	var buf bytes.Buffer
 	l := Level(zerolog.InfoLevel).Output(&buf)
 	l.Debug().Msg("should-not-appear")
@@ -176,7 +176,7 @@ func TestWithLevel(t *testing.T) {
 
 func TestCtx(t *testing.T) {
 	t.Parallel()
-	// Ctx returns the logger associated with a context; a plain context returns a disabled logger.
+
 	ctx := zerolog.New(nil).WithContext(t.Context())
 	l := Ctx(ctx)
 

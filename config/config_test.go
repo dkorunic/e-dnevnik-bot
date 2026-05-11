@@ -29,19 +29,17 @@ import (
 
 func TestLoadConfig(t *testing.T) {
 	t.Parallel()
-	// Test with a valid config file.
+
 	_, err := LoadConfig("test_config.toml")
 	if err != nil {
 		t.Fatalf("LoadConfig() with valid config failed: %v", err)
 	}
 
-	// Test with a non-existent config file.
 	_, err = LoadConfig("non_existent_config.toml")
 	if err == nil {
 		t.Fatal("LoadConfig() with non-existent config should have failed")
 	}
 
-	// Test with an invalid config file.
 	invalidConfig := []byte("invalid toml")
 	tmpfile, err := os.CreateTemp("", "invalid-config-*.toml")
 	if err != nil {
@@ -90,7 +88,6 @@ func TestSaveConfig(t *testing.T) {
 		t.Error("SaveConfig() wrote empty file")
 	}
 
-	// Verify key fields are present in the output.
 	content := string(data)
 	if !strings.Contains(content, "TestCalendar") {
 		t.Error("SaveConfig() did not write calendar name")

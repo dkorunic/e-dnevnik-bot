@@ -174,6 +174,7 @@ func main() {
 
 	if *emulation {
 		testSingleRun(ctx, cfg)
+		fatalIfErrors()
 
 		return
 	}
@@ -243,9 +244,7 @@ func main() {
 
 			return
 		case <-statusTicker.C:
-			// Countdown heartbeat while idling between scheduled runs.
-			// If the scrape overran nextRunAt, surface "overdue" so operators
-			// see a live signal instead of a frozen prior status string.
+			// Surface "overdue" on overrun so operators see a live signal, not a frozen status.
 			if remaining := time.Until(nextRunAt); remaining > 0 {
 				_ = sysdnotify.Status(fmt.Sprintf(scheduledNext,
 					durafmt.Parse(remaining.Round(time.Second)).String()))
@@ -301,9 +300,7 @@ func main() {
 				return
 			}
 
-			// On overrun (scrape ran past its scheduled window) emit the
-			// "overdue" string instead of "Next scheduled run in 0 second",
-			// which is technically true but useless to operators.
+			// On overrun, emit "overdue" instead of a useless "Next run in 0 second".
 			var scheduledSleep string
 			if remaining := time.Until(nextRunAt); remaining > 0 {
 				scheduledSleep = fmt.Sprintf(scheduledNext, durafmt.Parse(remaining.Round(time.Second)).String())

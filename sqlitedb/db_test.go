@@ -32,28 +32,18 @@ import (
 
 func TestDBOperations(t *testing.T) {
 	t.Parallel()
-	// t.TempDir() yields a unique, auto-cleaned directory per test run, so
-	// concurrent or repeat invocations cannot race on a shared filename.
+
 	tmpFile := filepath.Join(t.TempDir(), "test-db-for-testing.db.sqlite")
 
-	// Test database creation.
 	eDB, err := New(context.Background(), tmpFile)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
 
-	// Test Existing() on a new database.
-	// Note: dbExists logic is: checks if file exists BEFORE opening.
-	// In New():
-	// isExisting := dbExists(filePath)
-	// db, err := sql.Open(...)
-	// ...
-	// So if file didn't exist, isExisting should be false.
 	if eDB.Existing() {
 		t.Error("Existing() should be false for a new database")
 	}
 
-	// Test CheckAndFlagTTL on a new key.
 	found, err := eDB.CheckAndFlagTTL(context.Background(), "test-bucket", "test-sub-bucket", []string{"test-target"})
 	if err != nil {
 		t.Fatalf("CheckAndFlagTTL() failed: %v", err)
@@ -62,7 +52,6 @@ func TestDBOperations(t *testing.T) {
 		t.Error("CheckAndFlagTTL() should return false for a new key")
 	}
 
-	// Test CheckAndFlagTTL on an existing key.
 	found, err = eDB.CheckAndFlagTTL(context.Background(), "test-bucket", "test-sub-bucket", []string{"test-target"})
 	if err != nil {
 		t.Fatalf("CheckAndFlagTTL() failed: %v", err)
@@ -71,7 +60,6 @@ func TestDBOperations(t *testing.T) {
 		t.Error("CheckAndFlagTTL() should return true for an existing key")
 	}
 
-	// Test FetchAndStore on a new key.
 	key := []byte("test-key")
 	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
 		if old != nil {
@@ -83,7 +71,6 @@ func TestDBOperations(t *testing.T) {
 		t.Fatalf("FetchAndStore() failed: %v", err)
 	}
 
-	// Test FetchAndStore on an existing key.
 	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
 		if !bytes.Equal(old, []byte("new-value")) {
 			t.Errorf("unexpected old value: got %v, want %v", old, []byte("new-value"))
@@ -94,7 +81,6 @@ func TestDBOperations(t *testing.T) {
 		t.Fatalf("FetchAndStore() failed: %v", err)
 	}
 
-	// Verify the updated value.
 	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
 		if !bytes.Equal(old, []byte("updated-value")) {
 			t.Errorf("unexpected old value: got %v, want %v", old, []byte("updated-value"))
@@ -105,12 +91,10 @@ func TestDBOperations(t *testing.T) {
 		t.Fatalf("FetchAndStore() failed: %v", err)
 	}
 
-	// Close the database.
 	if err := eDB.Close(); err != nil {
 		t.Fatalf("Close() failed: %v", err)
 	}
 
-	// Test Existing() on an existing database.
 	eDB, err = New(context.Background(), tmpFile)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
@@ -125,7 +109,7 @@ func TestDBOperations(t *testing.T) {
 
 func TestHashContent(t *testing.T) {
 	t.Parallel()
-	// Same inputs should produce the same hash (deterministic).
+
 	h1 := hashContent("bucket", "sub", []string{"a", "b"})
 	h2 := hashContent("bucket", "sub", []string{"a", "b"})
 
@@ -133,14 +117,12 @@ func TestHashContent(t *testing.T) {
 		t.Error("hashContent() is not deterministic")
 	}
 
-	// Different inputs should produce different hashes.
 	h3 := hashContent("bucket", "sub", []string{"a", "c"})
 
 	if bytes.Equal(h1, h3) {
 		t.Error("hashContent() produced the same hash for different inputs")
 	}
 
-	// Hash length should be 32 bytes (SHA-256).
 	if len(h1) != 32 {
 		t.Errorf("hashContent() hash length = %d, want 32", len(h1))
 	}
@@ -148,12 +130,11 @@ func TestHashContent(t *testing.T) {
 
 func TestDbExists(t *testing.T) {
 	t.Parallel()
-	// Non-existent path should return false.
+
 	if dbExists("/non/existent/path/that/does/not/exist.db") {
 		t.Error("dbExists() returned true for non-existent path")
 	}
 
-	// Existing file should return true.
 	tmpfile, err := os.CreateTemp("", "test-db-exists-*.db")
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +158,6 @@ func TestCheckAndFlagTTLExpiredKey(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	// Insert a key whose TTL has already expired.
 	key := hashContent("bucket", "sub", []string{"expired-key"})
 	_, err = eDB.db.Exec(
 		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
@@ -187,7 +167,7 @@ func TestCheckAndFlagTTLExpiredKey(t *testing.T) {
 		t.Fatalf("failed to insert expired key: %v", err)
 	}
 
-	// Expired key should be treated as not found → return false.
+	// Expired keys must be treated as not found.
 	found, err := eDB.CheckAndFlagTTL(context.Background(), "bucket", "sub", []string{"expired-key"})
 	if err != nil {
 		t.Fatalf("CheckAndFlagTTL() failed: %v", err)
@@ -209,7 +189,7 @@ func TestFetchAndStoreExpiredKey(t *testing.T) {
 	defer eDB.Close()
 
 	key := []byte("expired-fetch-key")
-	// Insert a key with an already-expired TTL.
+
 	_, err = eDB.db.Exec(
 		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
 		key, []byte("old-value"), time.Now().Add(-time.Hour).Unix(),
@@ -218,7 +198,7 @@ func TestFetchAndStoreExpiredKey(t *testing.T) {
 		t.Fatalf("failed to insert expired key: %v", err)
 	}
 
-	// FetchAndStore on an expired key should present nil to the transform function.
+	// Expired keys must surface as nil to the transform.
 	calledWithNil := false
 
 	err = eDB.FetchAndStore(context.Background(), key, func(old []byte) ([]byte, error) {
@@ -245,8 +225,7 @@ func TestFetchAndStoreExpiredKey(t *testing.T) {
 func TestHashContentConcatenationOrder(t *testing.T) {
 	t.Parallel()
 
-	// Pre-computed oracle: SHA-256("usersubjectfield1").
-	// Recompute with: echo -n "usersubjectfield1" | sha256sum
+	// Oracle: SHA-256("usersubjectfield1"). Recompute via `echo -n ... | sha256sum`.
 	expected := []byte{
 		0x35, 0xb8, 0x03, 0xf7, 0x3d, 0x4f, 0xe3, 0xbc,
 		0xb9, 0xfc, 0xcd, 0xf1, 0x75, 0x50, 0xe2, 0x34,
@@ -260,17 +239,13 @@ func TestHashContentConcatenationOrder(t *testing.T) {
 		t.Errorf("hashContent order mismatch:\ngot:  %x\nwant: %x\n(bucket/subBucket swapped or subBucket dropped?)", got, expected)
 	}
 
-	// Bug 6A: swapping bucket and subBucket must produce a DIFFERENT hash.
+	// Bug 6A: swapped bucket/subBucket must change the hash.
 	swapped := hashContent("subject", "user", []string{"field1"})
 	if bytes.Equal(got, swapped) {
 		t.Error("hashContent(bucket, subBucket) == hashContent(subBucket, bucket) — swap not detectable")
 	}
 
-	// Bug 6B: dropping subBucket from the computation must produce a DIFFERENT hash.
-	// The "drop subBucket" mutation would hash "user"+"field1" instead of
-	// "user"+"subject"+"field1", changing the digest.
-	// We verify this indirectly: a call that excludes "subject" from the input
-	// bytes must not equal the golden value.
+	// Bug 6B: omitting subBucket from the input must change the hash.
 	droppedSub := hashContent("user", "", []string{"field1"})
 	if bytes.Equal(got, droppedSub) {
 		t.Error("hashContent without subBucket produced same hash — subBucket is not included in hash input")
@@ -292,7 +267,6 @@ func TestCheckAndFlagTTLReturnsTrueImmediately(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	// First call: key is new → must return false.
 	found, err := eDB.CheckAndFlagTTL(context.Background(), "bucket", "sub", []string{"key"})
 	if err != nil {
 		t.Fatalf("first CheckAndFlagTTL failed: %v", err)
@@ -301,7 +275,7 @@ func TestCheckAndFlagTTLReturnsTrueImmediately(t *testing.T) {
 		t.Fatal("first CheckAndFlagTTL should return false for a new key")
 	}
 
-	// Immediate second call: key now has a future TTL → must return true.
+	// Re-check with a future TTL must return true.
 	found, err = eDB.CheckAndFlagTTL(context.Background(), "bucket", "sub", []string{"key"})
 	if err != nil {
 		t.Fatalf("second CheckAndFlagTTL failed: %v", err)
@@ -321,7 +295,6 @@ func TestCleanupRemovesExpiredKeys(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	// Insert a key with an already-expired TTL directly.
 	expiredKey := []byte("cleanup-expired-key")
 	_, err = eDB.db.Exec(
 		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",

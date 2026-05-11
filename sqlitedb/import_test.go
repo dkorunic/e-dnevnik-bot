@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -34,38 +33,33 @@ import (
 )
 
 func TestImportFromBadger(t *testing.T) {
-	// Setup temporary BadgerDB
-	badgerDir := filepath.Join(os.TempDir(), "test-badger-import")
-	os.RemoveAll(badgerDir)
-	defer os.RemoveAll(badgerDir)
+	t.Parallel()
+
+	tmp := t.TempDir()
+	badgerDir := filepath.Join(tmp, "badger")
 
 	bdb, err := badger.Open(badger.DefaultOptions(badgerDir).WithLogger(nil))
 	if err != nil {
 		t.Fatalf("Failed to open badger: %v", err)
 	}
 
-	// Insert data into Badger
 	err = bdb.Update(func(txn *badger.Txn) error {
-		// Key 1: No TTL
 		if err := txn.Set([]byte("key1"), []byte("val1")); err != nil {
 			return err
 		}
-		// Key 2: With TTL
+
 		e := badger.NewEntry([]byte("key2"), []byte("val2")).WithTTL(time.Hour)
 		if err := txn.SetEntry(e); err != nil {
 			return err
 		}
 		return nil
 	})
-	bdb.Close() // Close badger so import can open it
+	bdb.Close() // Close so import can reopen exclusively.
 	if err != nil {
 		t.Fatalf("Failed to write to badger: %v", err)
 	}
 
-	// Setup Edb
-	sqlitePath := filepath.Join(os.TempDir(), "test-sqlite-import.db")
-	os.Remove(sqlitePath)
-	defer os.Remove(sqlitePath)
+	sqlitePath := filepath.Join(tmp, "sqlite.db")
 
 	sdb, err := New(context.Background(), sqlitePath)
 	if err != nil {
@@ -73,15 +67,12 @@ func TestImportFromBadger(t *testing.T) {
 	}
 	defer sdb.Close()
 
-	// Run Import
 	if err := sdb.ImportFromBadger(context.Background(), badgerDir); err != nil {
 		t.Fatalf("ImportFromBadger failed: %v", err)
 	}
 
-	// Verify Data
 	var val []byte
 
-	// Key 1
 	err = sdb.db.QueryRow("SELECT value FROM kv WHERE key = ?", []byte("key1")).Scan(&val)
 	if err != nil {
 		t.Errorf("Failed to get key1: %v", err)
@@ -90,7 +81,6 @@ func TestImportFromBadger(t *testing.T) {
 		t.Errorf("key1: got %s, want val1", val)
 	}
 
-	// Key 2
 	var exp sql.NullInt64
 	err = sdb.db.QueryRow("SELECT value, expires_at FROM kv WHERE key = ?", []byte("key2")).Scan(&val, &exp)
 	if err != nil {

@@ -63,7 +63,7 @@ func markPermanent(err error) error {
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
 // individual messages to a message channel and optionally returning an error.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
-	// Clamp [1, scrapeMaxAttempts]: avoid retry-forever on 0 and duration overflow.
+	// Clamp [1, scrapeMaxAttempts]: avoid retry-forever and duration overflow.
 	attempts := min(max(retries, 1), uint(scrapeMaxAttempts))
 
 	r64 := int64(attempts)

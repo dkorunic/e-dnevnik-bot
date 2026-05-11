@@ -23,6 +23,7 @@ package fetch
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -47,13 +48,13 @@ func TestParseFirstDateTime(t *testing.T) {
 		{
 			name:      "LayoutISO8601CompactNoTZ",
 			value:     "20250101T120000",
-			expected:  time.Date(2025, 1, 1, 12, 0, 0, 0, time.Local),
+			expected:  time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
 			expectErr: false,
 		},
 		{
 			name:      "LayoutISO8601Short",
 			value:     "20250101",
-			expected:  time.Date(2025, 1, 1, 0, 0, 0, 0, time.Local),
+			expected:  time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 			expectErr: false,
 		},
 		{
@@ -156,7 +157,6 @@ func TestCloseConnections(t *testing.T) {
 		t.Fatalf("NewClientWithContext() failed: %v", err)
 	}
 
-	// CloseConnections should not panic.
 	client.CloseConnections()
 }
 
@@ -174,11 +174,12 @@ func TestConsumeICalEmptyCalendar(t *testing.T) {
 	}
 }
 
-// TestParseFirstDateTimeUsesLocalForNoTZLayouts verifies Bug 1A from TESTING-PLAN:
-// layouts without embedded timezone info must be parsed in time.Local, not UTC.
-// A mutation that replaces time.ParseInLocation with time.Parse would cause
-// no-TZ timestamps to be interpreted as UTC, producing wrong times in non-UTC zones.
-func TestParseFirstDateTimeUsesLocalForNoTZLayouts(t *testing.T) {
+// TestParseFirstDateTimeUsesUTCForNoTZLayouts asserts that layouts without
+// embedded timezone info are parsed as time.UTC so the dedup hash and the
+// displayed exam date stay stable across hosts in different timezones. Parsing
+// in time.Local would shift all-day events by up to ±14 h depending on the
+// server's locale, changing the hash key and showing the wrong calendar day.
+func TestParseFirstDateTimeUsesUTCForNoTZLayouts(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -199,12 +200,8 @@ func TestParseFirstDateTimeUsesLocalForNoTZLayouts(t *testing.T) {
 				t.Fatalf("parseFirstDateTime(%q) unexpected error: %v", tc.value, err)
 			}
 
-			// The result must be in time.Local. Converting to UTC must change the
-			// time value in any non-UTC zone — but we can't assert that directly
-			// because CI may run in UTC. Instead, assert Location() == time.Local,
-			// which is set only by time.ParseInLocation, not time.Parse.
-			if got.Location() != time.Local {
-				t.Errorf("parseFirstDateTime(%q) location = %v, want time.Local", tc.value, got.Location())
+			if got.Location() != time.UTC {
+				t.Errorf("parseFirstDateTime(%q) location = %v, want time.UTC", tc.value, got.Location())
 			}
 		})
 	}
@@ -221,8 +218,46 @@ func TestParseFirstDateTimeUTCForTZLayouts(t *testing.T) {
 		t.Fatalf("parseFirstDateTime unexpected error: %v", err)
 	}
 
-	// A "Z" suffix means UTC; the parsed location should be UTC.
 	if got.UTC().Hour() != 12 {
 		t.Errorf("parseFirstDateTime Z-suffix: expected hour 12 UTC, got %d", got.UTC().Hour())
+	}
+}
+
+// TestGetCourseRejectsCrossHost verifies the SSRF defence: getCourse must
+// refuse to fetch any href whose resolved host or scheme differs from
+// BaseURL. Without this guard a compromised/MITMed portal can hand the bot
+// an absolute URL pointing to an attacker-controlled host or an internal /
+// cloud-metadata endpoint — and url.ResolveReference returns ref unchanged
+// when ref is itself absolute, swapping the host silently.
+func TestGetCourseRejectsCrossHost(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	client, err := NewClientWithContext(ctx, "user@example.com", "password")
+	if err != nil {
+		t.Fatalf("NewClientWithContext() failed: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		dest string
+	}{
+		{"absolute external host", "https://evil.example.com/course/1"},
+		{"http downgrade external", "http://evil.example.com/course/1"},
+		{"cloud metadata IP", "http://169.254.169.254/latest/meta-data/"},
+		{"scheme switch", "file:///etc/passwd"},
+		{"scheme-relative external", "//evil.example.com/course/1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := client.getCourse(tc.dest)
+			if !errors.Is(err, ErrInvalidHost) {
+				t.Errorf("getCourse(%q) error = %v, want %v", tc.dest, err, ErrInvalidHost)
+			}
+		})
 	}
 }

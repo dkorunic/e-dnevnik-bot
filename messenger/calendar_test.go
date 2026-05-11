@@ -40,7 +40,6 @@ func TestProcessCalendar(t *testing.T) {
 
 	rl := ratelimit.New(1)
 
-	// Create a temporary database for testing.
 	tmpdir, err := os.MkdirTemp("", "test.db")
 	if err != nil {
 		t.Fatal(err)
@@ -72,13 +71,12 @@ func TestGetCalendarID(t *testing.T) {
 		t.Fatalf("Unable to create calendar service: %v", err)
 	}
 
-	// Test with a named calendar
 	calID := getCalendarID(ctx, srv, "Test Calendar")
 	if calID != "test-id" {
 		t.Errorf("getCalendarID() = %s, want test-id", calID)
 	}
 
-	// Test with the primary calendar
+	// Empty name must resolve to "primary".
 	calID = getCalendarID(ctx, srv, "")
 	if calID != "primary" {
 		t.Errorf("getCalendarID() = %s, want primary", calID)
