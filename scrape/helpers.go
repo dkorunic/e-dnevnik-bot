@@ -278,8 +278,8 @@ func parseCourses(rawCourses []byte) (fetch.Courses, error) {
 
 			span := row.FindMatcher(selCourseInfoSpan)
 			if span.Length() > 0 {
-				if span.Length() > 1 {
-					logger.Warn().Msgf("portal HTML drift: %d matches for course-info span (expected 1); using first", span.Length())
+				if span.Length() > 2 {
+					logger.Warn().Msgf("portal HTML drift: %d matches for course-info span (expected 2); using first", span.Length())
 				}
 
 				courseName := strings.TrimSpace(span.First().Text())
