@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Dinko Korunic
+// SPDX-License-Identifier: MIT
+
 package format
 
 import (
