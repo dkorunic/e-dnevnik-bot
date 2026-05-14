@@ -93,7 +93,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, CalendarQueueName, failedMsgs[i:])
+			queue.RequeueMsgs(ctx, eDB, CalendarQueueName, failedMsgs[i:])
 
 			return ctx.Err()
 		}
@@ -101,7 +101,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		processCalendar(ctx, eDB, g, rl, srv, calID, retries)
 
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, CalendarQueueName, failedMsgs[i+1:])
+			queue.RequeueMsgs(ctx, eDB, CalendarQueueName, failedMsgs[i+1:])
 
 			return ctx.Err()
 		}
@@ -184,7 +184,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		return
 	}
 
-	// Deterministic hex ID (valid base32hex) lets the API dedupe on retry.
+	// Deterministic lowercase-hex ID lets the API dedupe on retry.
 	idHash := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s",
 		g.Username, g.Subject, g.Timestamp.Format(time.DateOnly)))
 

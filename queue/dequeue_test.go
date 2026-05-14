@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dkorunic/e-dnevnik-bot/encdec"
+	"github.com/dkorunic/e-dnevnik-bot/codec"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
@@ -32,7 +32,7 @@ func TestFetchFailedMsgs(t *testing.T) {
 	msgs := []msgtypes.Message{
 		{Username: "testuser", Subject: "Test Subject"},
 	}
-	encodedMsgs, _ := encdec.EncodeMsgs(msgs)
+	encodedMsgs, _ := codec.EncodeMsgs(msgs)
 
 	// Store some messages in the queue
 	eDB.FetchAndStore(context.Background(), queueKey, func(old []byte) ([]byte, error) {

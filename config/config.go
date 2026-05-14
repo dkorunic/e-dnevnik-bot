@@ -89,8 +89,7 @@ func checkWhatsAppConf(config *TomlConfig) {
 			}
 		}
 
-		// Logged after all validators so the last visible line on a Fatal
-		// is the validation error, not a misleading "enabled" message.
+		// Log after validators so a Fatal leaves the error as the last line.
 		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
 
 		// Pre-sort for binary search in messenger.
@@ -146,8 +145,7 @@ func checkMailConf(config *TomlConfig) {
 			}
 		}
 
-		// Logged after all validators so the last visible line on a Fatal
-		// is the validation error, not a misleading "enabled" message.
+		// Log after validators so a Fatal leaves the error as the last line.
 		logger.Info().Msg("Configuration: mail messenger enabled")
 
 		config.MailEnabled = true
@@ -260,7 +258,7 @@ func checkUserConf(config *TomlConfig) {
 		logger.Fatal().Msg("Configuration error: No users defined")
 	}
 
-	// Dupes cause redundant logins — dedup key is username+subject+fields.
+	// Dupes cause redundant logins; key on Username only.
 	seen := make(map[string]struct{}, len(config.User))
 
 	for _, u := range config.User {

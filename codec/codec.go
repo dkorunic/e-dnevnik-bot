@@ -1,7 +1,13 @@
 // SPDX-FileCopyrightText: 2025 Dinko Korunic
 // SPDX-License-Identifier: MIT
 
-package encdec
+// Package codec serialises and deserialises the persistent failed-message
+// queue using encoding/gob. Despite the historical name "encdec", no
+// encryption is performed: the queue is stored in plaintext gob inside the
+// local sqlite database. The on-disk database is operator-owned, so
+// confidentiality is assumed at the filesystem level rather than at the
+// payload level.
+package codec
 
 import (
 	"bytes"

@@ -69,6 +69,21 @@ func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 	}
 }
 
+// PlainSubject returns the prefix + user + " / " + subject header as a
+// string, using the package builder pool so callers do not pay a per-call
+// strings.Builder allocation in hot paths (e.g. per-message embed titles).
+func PlainSubject(user, subject string, code msgtypes.EventCode) string {
+	sb := builderPool.Get().(*strings.Builder)
+	defer putBuilder(sb)
+
+	sb.Reset()
+	sb.Grow(len(user) + len(subject) + 40)
+
+	PlainFormatSubject(sb, user, subject, code)
+
+	return sb.String()
+}
+
 // PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.
 //
 //nolint:interfacer

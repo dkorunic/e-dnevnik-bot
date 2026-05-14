@@ -35,6 +35,24 @@ var trimBuilderPool = sync.Pool{
 	New: func() any { return new(strings.Builder) },
 }
 
+// trimMaxPooledBuilderCap caps the capacity of pooled builders so a single very
+// large input does not permanently inflate every entry in the pool.
+const trimMaxPooledBuilderCap = 64 * 1024
+
+// trimPutBuilder returns b to the pool after Reset. Resetting on Put (not just
+// on Get) keeps every pooled entry in a clean state so callers cannot observe
+// leftover content from a prior borrower. Builders whose backing buffer has
+// grown beyond trimMaxPooledBuilderCap are dropped so one outlier input cannot
+// bloat the pool indefinitely.
+func trimPutBuilder(b *strings.Builder) {
+	if b.Cap() > trimMaxPooledBuilderCap {
+		return
+	}
+
+	b.Reset()
+	trimBuilderPool.Put(b)
+}
+
 var (
 	selNewGradesTable             = cascadia.MustCompile("div.content > div.flex-table.new-grades-table")
 	selRowHeaderCellSpan          = cascadia.MustCompile("div.row.header div.cell > span")
@@ -480,8 +498,9 @@ func trimAllSpace(s string) string {
 	}
 
 	b := trimBuilderPool.Get().(*strings.Builder)
-	defer trimBuilderPool.Put(b)
-	b.Reset()
+	defer trimPutBuilder(b)
+
+	// No Reset needed: trimPutBuilder Resets before Put, so every Get yields a clean builder.
 	b.Grow(len(s))
 
 	inSpace = false

@@ -88,7 +88,8 @@ func (c *Client) getCSRFToken() error {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	// Cap input; matches getGeneric's MaxBodySize ceiling.
+	doc, err := goquery.NewDocumentFromReader(io.LimitReader(resp.Body, MaxBodySize))
 	if err != nil {
 		return err
 	}
@@ -145,7 +146,8 @@ func (c *Client) doSAMLRequest() error {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	// Cap input; matches getGeneric's MaxBodySize ceiling.
+	doc, err := goquery.NewDocumentFromReader(io.LimitReader(resp.Body, MaxBodySize))
 	if err != nil {
 		return err
 	}

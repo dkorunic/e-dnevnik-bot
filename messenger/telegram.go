@@ -77,7 +77,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, TelegramQueueName, failedMsgs[i:])
+			queue.RequeueMsgs(ctx, eDB, TelegramQueueName, failedMsgs[i:])
 
 			return ctx.Err()
 		}
@@ -85,7 +85,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		processTelegram(ctx, eDB, g, chatIDs, rl, retries)
 
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, TelegramQueueName, failedMsgs[i+1:])
+			queue.RequeueMsgs(ctx, eDB, TelegramQueueName, failedMsgs[i+1:])
 
 			return ctx.Err()
 		}
@@ -154,8 +154,7 @@ func markTelegramPermanent(err error) error {
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
 func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// Trim pairs pre-format to keep <b>/<pre> tags balanced; rune-slicing
-	// rendered HTML would risk an unrecoverable BadRequest quarantine.
+	// Trim pairs pre-format to keep <b>/<pre> tags balanced.
 	m := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, TelegramMaxMessageChars)
 
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))

@@ -31,12 +31,6 @@ const (
 	initialWhatsAppDelay = 2 * time.Minute // 2 minutes sleep after successful sync
 	WhatsAppDBOldName    = ".e-dnevnik.sqlite"
 
-	// whatsAppPresenceTimeout bounds SendPresence calls so a stalled WhatsApp
-	// socket cannot block pairing/event-handling callbacks indefinitely. 5 s
-	// is well above round-trip latency for healthy sessions yet short enough
-	// to surface a dead link quickly.
-	whatsAppPresenceTimeout = 5 * time.Second
-
 	// whatsAppPairingTimeout bounds the interactive pairing/sync wait so that
 	// a user who walks away from the QR code or PIN prompt does not leave the
 	// process hanging indefinitely. 10 minutes is well above realistic scan
@@ -236,10 +230,8 @@ func whatsappPairingEventHandler(rawEvt any) {
 		logger.Info().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
 		if len(whatsAppPairingCli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
-			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceAvailable)
-			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceUnavailable)
-			presCancel()
+			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceAvailable)
+			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceUnavailable)
 		}
 
 		logger.Info().Msg("WhatsApp app state sync completed")
@@ -250,10 +242,8 @@ func whatsappPairingEventHandler(rawEvt any) {
 		}
 	case *events.Connected, *events.PushNameSetting:
 		if len(whatsAppPairingCli.Store.PushName) > 0 {
-			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
-			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceAvailable)
-			_ = whatsAppPairingCli.SendPresence(presCtx, types.PresenceUnavailable)
-			presCancel()
+			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceAvailable)
+			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceUnavailable)
 		}
 	case *events.PairSuccess, *events.PairError:
 		if whatsAppPairingCli.Store.ID == nil {

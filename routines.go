@@ -202,7 +202,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 		defer close(gradesMsg)
 
 		if !eDB.Existing() {
-			logger.Info().Msg("Newly initialized database, won't sent alerts in this run")
+			logger.Info().Msg("Newly initialized database, won't send alerts in this run")
 		}
 
 		now := time.Now()

@@ -31,7 +31,26 @@ var (
 		LayoutISO8601CompactNoTZ,
 		LayoutISO8601Short,
 	}
+
+	// layoutParser maps each known layout to the parse function appropriate
+	// for it. Layouts that embed timezone information (Z, ±HHMM) use
+	// time.Parse so the embedded offset is honoured; layouts without
+	// timezone information use parseInUTC so the parsed time is anchored to
+	// UTC regardless of the host timezone — required for dedup hash
+	// stability across servers in different zones. Adding a new layout
+	// means registering its parser here.
+	layoutParser = map[string]func(layout, value string) (time.Time, error){
+		LayoutISO8601CompactZ:    time.Parse,
+		LayoutISO8601CompactNoTZ: parseInUTC,
+		LayoutISO8601Short:       parseInUTC,
+	}
 )
+
+// parseInUTC wraps time.ParseInLocation with time.UTC so a layout without
+// timezone information yields a UTC time, not host-local.
+func parseInUTC(layout, value string) (time.Time, error) {
+	return time.ParseInLocation(layout, value, time.UTC)
+}
 
 // ConsumeICal is a ICS data decoder that extracts DTSTART, DESCRIPTION and SUMMARY values, parsing timestamp with
 // maximum flexibility and in local timezone, returning optional error.
@@ -71,38 +90,21 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 	return nil
 }
 
-// parseFirstDateTime attempts to parse a timestamp string using a list of layouts.
-//
-// It takes a slice of layout strings and a timestamp value string. The function
-// trims any leading or trailing whitespace from the value and iterates over the
-// provided layouts, trying to parse the value using each one. If a layout
-// successfully parses the value, the parsed time.Time object is returned.
-// If none of the layouts can parse the value, the function returns the zero
-// value of time.Time and an error indicating the failure to parse the timestamp.
-//
-// Layouts that contain the Go timezone directive "07" (e.g. Z0700, -0700) are
-// parsed with time.Parse so the embedded offset is honoured. All other layouts
-// lack timezone information; they are parsed with time.ParseInLocation using
-// time.UTC so the dedup hash and the displayed exam date stay stable across
-// hosts in different timezones. Parsing in time.Local would shift all-day
-// events by up to ±14 h relative to a server in another zone, changing the
-// hash key and showing the wrong calendar day to the user.
+// parseFirstDateTime attempts to parse a timestamp string using a list of
+// layouts, returning the first successful parse. Each layout is dispatched
+// through layoutParser to pick the right time.Parse / time.ParseInLocation
+// variant — see the layoutParser comment for why this matters for dedup
+// stability. Unregistered layouts default to UTC parsing for the same reason.
 func parseFirstDateTime(layouts []string, value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 
 	for _, layout := range layouts {
-		var (
-			dt  time.Time
-			err error
-		)
-
-		if strings.Contains(layout, "07") {
-			dt, err = time.Parse(layout, value)
-		} else {
-			dt, err = time.ParseInLocation(layout, value, time.UTC)
+		parse, ok := layoutParser[layout]
+		if !ok {
+			parse = parseInUTC
 		}
 
-		if err == nil {
+		if dt, err := parse(layout, value); err == nil {
 			return dt, nil
 		}
 	}

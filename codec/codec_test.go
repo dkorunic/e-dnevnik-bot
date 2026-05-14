@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Dinko Korunic
 // SPDX-License-Identifier: MIT
 
-package encdec
+package codec
 
 import (
 	"reflect"

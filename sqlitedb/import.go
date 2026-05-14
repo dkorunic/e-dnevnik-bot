@@ -88,9 +88,7 @@ func (db *Edb) ImportFromBadger(ctx context.Context, badgerPath string) error {
 				var expiry sql.NullInt64
 
 				if expiresAt > 0 && expiresAt <= math.MaxInt64 {
-					// Skip rows already past their TTL: cleanup() would delete
-					// them moments later, so the events they de-duplicate would
-					// re-alert on the next scrape after migration.
+					// Skip expired rows; otherwise they re-alert post-migration.
 					if int64(expiresAt) < nowUnix {
 						skipped++
 

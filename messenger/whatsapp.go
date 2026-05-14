@@ -49,9 +49,22 @@ const (
 
 	// whatsAppPresenceTimeout bounds SendPresence calls from the event handler
 	// so a stalled socket cannot block whatsmeow's callback goroutine
-	// indefinitely.
+	// indefinitely. Used per-call (see SendPresenceBounded) so consecutive
+	// presence transitions do not share — and exhaust — a single budget.
 	whatsAppPresenceTimeout = 5 * time.Second
 )
+
+// SendPresenceBounded sends a presence update with its own bounded context.
+// Errors are intentionally discarded; presence is best-effort signalling and
+// the caller cannot recover from a failed send. Each call gets a fresh
+// whatsAppPresenceTimeout budget so a slow first call does not zero out the
+// budget for a subsequent one.
+func SendPresenceBounded(cli *whatsmeow.Client, p types.Presence) {
+	ctx, cancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
+	defer cancel()
+
+	_ = cli.SendPresence(ctx, p)
+}
 
 var (
 	ErrWhatsAppEmptyUserIDs   = errors.New("empty list of WhatsApp UserIDs (JIDs)")
@@ -201,7 +214,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, WhatsAppQueueName, failedMsgs[i:])
+			queue.RequeueMsgs(ctx, eDB, WhatsAppQueueName, failedMsgs[i:])
 
 			return ctx.Err()
 		}
@@ -209,7 +222,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, retries)
 
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, WhatsAppQueueName, failedMsgs[i+1:])
+			queue.RequeueMsgs(ctx, eDB, WhatsAppQueueName, failedMsgs[i+1:])
 
 			return ctx.Err()
 		}
@@ -465,9 +478,7 @@ func whatsAppLogin(ctx context.Context) error {
 
 	err = whatsAppCli.Connect()
 	if err != nil {
-		// Connect() failed after globals were published. Release the sqlite
-		// handle and nil the globals so the next whatsAppInit retry starts
-		// from a clean slate; otherwise the handle would leak across cycles.
+		// Release handle and reset globals so retry starts clean.
 		_ = storeContainer.Close()
 		whatsAppStore = nil
 		whatsAppCli = nil
@@ -516,19 +527,15 @@ func whatsAppEventHandler(rawEvt any) {
 		logger.Debug().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
 		if len(cli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
-			_ = cli.SendPresence(presCtx, types.PresenceAvailable)
-			_ = cli.SendPresence(presCtx, types.PresenceUnavailable)
-			presCancel()
+			SendPresenceBounded(cli, types.PresenceAvailable)
+			SendPresenceBounded(cli, types.PresenceUnavailable)
 		}
 
 		logger.Debug().Msg("WhatsApp app state sync completed")
 	case *events.Connected, *events.PushNameSetting:
 		if len(cli.Store.PushName) > 0 {
-			presCtx, presCancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
-			_ = cli.SendPresence(presCtx, types.PresenceAvailable)
-			_ = cli.SendPresence(presCtx, types.PresenceUnavailable)
-			presCancel()
+			SendPresenceBounded(cli, types.PresenceAvailable)
+			SendPresenceBounded(cli, types.PresenceUnavailable)
 		}
 	case *events.PairSuccess, *events.PairError:
 		if cli.Store.ID == nil {
@@ -551,8 +558,7 @@ func whatsAppEventHandler(rawEvt any) {
 	case *events.StreamReplaced, *events.KeepAliveTimeout:
 		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
 
-		// Session may be replaced server-side; previously-resolved group
-		// JIDs can be stale. Force a fresh resolve on the next poll.
+		// Force fresh group resolve: server-side replacement may stale JIDs.
 		whatsAppGroupsMu.Lock()
 		whatsAppGroupsResolved = false
 		whatsAppResolvedUserIDs = nil

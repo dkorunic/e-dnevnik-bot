@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/encdec"
+	"github.com/dkorunic/e-dnevnik-bot/codec"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
@@ -28,14 +28,14 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 	err := eDB.FetchAndStore(ctx, queueKey, func(old []byte) ([]byte, error) {
 		var decErr error
 
-		failedList, decErr = encdec.DecodeMsgs(old)
+		failedList, decErr = codec.DecodeMsgs(old)
 		if decErr != nil {
 			logger.Warn().Msgf("Failed to decode queue %q, returning empty list: %v", queueKeyStr, decErr)
 
 			failedList = []msgtypes.Message{}
 		}
 
-		return encdec.EncodeMsgs([]msgtypes.Message{})
+		return codec.EncodeMsgs([]msgtypes.Message{})
 	})
 	if err != nil {
 		logger.Error().Msgf("Error managing failed messages list for queue %v: %v", queueKeyStr, err)
@@ -43,12 +43,9 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		return []msgtypes.Message{}
 	}
 
-	// Zero QueuedAt is legacy (or comes from a partial-decode survivor);
-	// stamp it now so MaxQueueAge applies on the next cycle instead of
-	// letting such messages live in the queue indefinitely.
+	// Stamp legacy zero QueuedAt so MaxQueueAge applies on next cycle.
 	now := time.Now()
-	// Fresh backing array — aliasing failedList[:0] is correct only as long as
-	// the loop reads each index before overwriting it, a fragile invariant.
+	// Fresh backing array; aliasing failedList[:0] would be a fragile invariant.
 	kept := make([]msgtypes.Message, 0, len(failedList))
 	dropped := 0
 

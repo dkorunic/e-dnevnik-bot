@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -93,7 +92,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, DiscordQueueName, failedMsgs[i:])
+			queue.RequeueMsgs(ctx, eDB, DiscordQueueName, failedMsgs[i:])
 
 			return ctx.Err()
 		}
@@ -101,7 +100,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 		processDiscord(ctx, eDB, g, userIDs, rl, retries)
 
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, DiscordQueueName, failedMsgs[i+1:])
+			queue.RequeueMsgs(ctx, eDB, DiscordQueueName, failedMsgs[i+1:])
 
 			return ctx.Err()
 		}
@@ -162,11 +161,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			available-count, available, DiscordMaxFields)
 	}
 
-	sb := strings.Builder{}
-	sb.Grow(len(g.Username) + len(g.Subject) + 40)
-	format.PlainFormatSubject(&sb, g.Username, g.Subject, g.Code)
-
-	title := truncateWithEllipsis(sb.String(), DiscordMaxTitleChars)
+	title := truncateWithEllipsis(format.PlainSubject(g.Username, g.Subject, g.Code), DiscordMaxTitleChars)
 
 	// Total-embed-chars cap rejects otherwise-valid messages.
 	budget := DiscordMaxEmbedChars - utf8.RuneCountInString(title)

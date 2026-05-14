@@ -275,8 +275,6 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	select {
 	case authCode = <-tokChan:
 		authTimer.Stop()
-
-		break
 	case <-authTimer.C:
 		return nil, ErrOAuthTimeout
 	}

@@ -81,7 +81,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, MailQueueName)
 	for i, g := range failedMsgs {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, MailQueueName, failedMsgs[i:])
+			queue.RequeueMsgs(ctx, eDB, MailQueueName, failedMsgs[i:])
 
 			return ctx.Err()
 		}
@@ -89,7 +89,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 		processMail(ctx, eDB, g, to, from, subject, rl, retries)
 
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(eDB, MailQueueName, failedMsgs[i+1:])
+			queue.RequeueMsgs(ctx, eDB, MailQueueName, failedMsgs[i+1:])
 
 			return ctx.Err()
 		}
@@ -117,8 +117,7 @@ func mailInit(server string, portInt int, username, password string) error {
 
 		var err error
 
-		// Mandatory STARTTLS: refuse to authenticate over a cleartext channel.
-		// AUTH PLAIN credentials must never traverse an unencrypted link.
+		// Mandatory STARTTLS: AUTH PLAIN must never traverse cleartext.
 		mailCli, err = mail.NewClient(server,
 			mail.WithPort(portInt),
 			mail.WithSMTPAuth(mail.SMTPAuthPlain),
