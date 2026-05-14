@@ -14,14 +14,10 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
-// scrapeRetryMaxJitter bounds the random component added to exponential backoff
-// between retry attempts, smoothing simultaneous reconnect storms.
+// scrapeRetryMaxJitter caps backoff jitter to smooth simultaneous reconnect storms.
 const scrapeRetryMaxJitter = 500 * time.Millisecond
 
-// scrapeMaxAttempts caps the retry budget so `attempts * fetch.Timeout` cannot
-// overflow int64 nanoseconds if the config sets an absurdly large retries
-// value. The product at the cap (100 * 120s = 200 min) is already far beyond
-// any realistic scrape budget.
+// scrapeMaxAttempts caps retries so attempts*fetch.Timeout cannot overflow int64 nanoseconds.
 const scrapeMaxAttempts = 100
 
 // markPermanent wraps fetch-level errors that cannot succeed on retry in

@@ -48,9 +48,7 @@ var (
 	GitDirty      = ""
 	BuildTime     = ""
 
-	// bgWG tracks long-running background goroutines (e.g. the systemd
-	// watchdog) so that the shutdown path can give them a bounded chance to
-	// exit cleanly instead of sleeping unconditionally for exitDelay.
+	// bgWG tracks background goroutines so shutdown bounds their wait via exitDelay.
 	bgWG sync.WaitGroup
 )
 

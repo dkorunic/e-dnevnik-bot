@@ -309,10 +309,7 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	return nil
 }
 
-// cleanupBatchSize caps how many expired rows a single cleanup pass deletes.
-// Bounded batches keep the write transaction short so concurrent messenger
-// queue writes do not stall on the sqlite writer lock. The pass is re-run
-// once per tick; backlogs drain across ticks instead of blocking a tick.
+// cleanupBatchSize caps per-pass deletes so concurrent queue writes don't stall on the writer lock.
 const cleanupBatchSize = 10000
 
 // cleanup removes expired keys. modernc.org/sqlite is built without

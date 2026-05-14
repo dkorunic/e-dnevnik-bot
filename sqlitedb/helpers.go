@@ -11,9 +11,7 @@ import (
 	"github.com/minio/sha256-simd"
 )
 
-// hashBufPoolMaxCap is the largest buffer capacity returned to hashBufPool.
-// Buffers grown beyond this for an unusually large input are dropped on Put
-// so a one-off oversized hash does not inflate steady-state pool memory.
+// hashBufPoolMaxCap caps recycled buffers; oversized ones are dropped to bound pool memory.
 const hashBufPoolMaxCap = 4 * 1024
 
 var hashBufPool = sync.Pool{

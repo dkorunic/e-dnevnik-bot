@@ -28,20 +28,15 @@ const (
 	DiscordMinDelay = DiscordWindow / DiscordAPILimit
 	DiscordQueue    = "discord-queue"
 
-	// Discord embed size limits from
-	// https://discord.com/developers/docs/resources/channel#embed-object-embed-limits.
-	// Exceeding any of these causes the API to reject the entire message, so
-	// we truncate client-side.
+	// Discord embed size limits; exceeding any rejects the whole message, so we truncate client-side.
+	// See https://discord.com/developers/docs/resources/channel#embed-object-embed-limits.
 	DiscordMaxTitleChars     = 256
 	DiscordMaxFieldNameChars = 256
 	DiscordMaxFieldValChars  = 1024
 	DiscordMaxFields         = 25
 
-	// minDiscordFieldValueRunes is the smallest value budget we are willing to
-	// accept when deciding whether to keep appending fields to an embed. It
-	// must be ≥ 3 so truncateWithEllipsis can emit its ellipsis; values larger
-	// than 3 guarantee the last emitted field carries some actual content in
-	// addition to the ellipsis, rather than just "...".
+	// minDiscordFieldValueRunes is the minimum value budget when appending a field.
+	// Must be ≥ 3 (ellipsis) plus content so the last field carries more than just "...".
 	minDiscordFieldValueRunes = 16
 )
 

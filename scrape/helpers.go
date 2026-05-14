@@ -35,8 +35,7 @@ var trimBuilderPool = sync.Pool{
 	New: func() any { return new(strings.Builder) },
 }
 
-// trimMaxPooledBuilderCap caps the capacity of pooled builders so a single very
-// large input does not permanently inflate every entry in the pool.
+// trimMaxPooledBuilderCap caps pooled builder capacity so one outlier input can't bloat the pool.
 const trimMaxPooledBuilderCap = 64 * 1024
 
 // trimPutBuilder returns b to the pool after Reset. Resetting on Put (not just

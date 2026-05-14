@@ -47,10 +47,7 @@ const (
 	WhatsAppQueue                   = "whatsapp-queue"
 	ConfFileKey          ContextKey = "confFile"
 
-	// whatsAppPresenceTimeout bounds SendPresence calls from the event handler
-	// so a stalled socket cannot block whatsmeow's callback goroutine
-	// indefinitely. Used per-call (see SendPresenceBounded) so consecutive
-	// presence transitions do not share — and exhaust — a single budget.
+	// whatsAppPresenceTimeout bounds each SendPresence call so a stalled socket can't block the callback goroutine.
 	whatsAppPresenceTimeout = 5 * time.Second
 )
 
@@ -93,17 +90,11 @@ var (
 	whatsAppResolvedUserIDs []string   // resolved JIDs cached across poll cycles
 	whatsAppGroupsWarnOnce  sync.Once  // ensures the "no group matched" warning logs at most once per process
 
-	// WhatsAppPairingMu provides an explicit handoff between the one-shot
-	// interactive pairing performed during startup (see init.go's checkWhatsApp)
-	// and the runtime messenger client. The pairing code locks this for the full
-	// duration of its work — including the deferred Disconnect() and
-	// sqlstore.Container.Close() — so that whatsAppInit below cannot touch the
-	// same sqlite store concurrently. It must be exported so the main package
-	// can participate in the handoff.
+	// WhatsAppPairingMu hands off the sqlstore from startup pairing to the runtime client.
+	// Pairing code holds it through Disconnect/Close so whatsAppInit cannot race.
 	WhatsAppPairingMu sync.Mutex
 
-	// shutdownOnce guards requestShutdown so repeated fatal events fire SIGTERM
-	// to the process exactly once.
+	// shutdownOnce ensures requestShutdown fires SIGTERM exactly once across repeated fatal events.
 	shutdownOnce sync.Once
 )
 

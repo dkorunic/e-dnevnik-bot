@@ -18,8 +18,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
-// ErrDecodePanic is returned when gob.Decode panics (malformed/corrupt input
-// that trips an unchecked internal invariant rather than a clean error return).
+// ErrDecodePanic signals gob.Decode panicked on malformed input rather than returning cleanly.
 var ErrDecodePanic = errors.New("panic while decoding message queue")
 
 // DecodeMsgs takes a byte slice, decodes it as a GOB-encoded

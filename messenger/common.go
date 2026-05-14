@@ -12,10 +12,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
-// storeTimeout bounds the shutdown-tolerant context used when persisting
-// failed/pending messages to the queue after the caller's context has
-// already been cancelled. Must be long enough to clear the sqlite WAL but
-// short enough not to delay shutdown noticeably.
+// storeTimeout bounds the detached context used to persist queue writes after caller ctx cancel.
 const storeTimeout = 5 * time.Second
 
 // queueStoreCtx returns a context suitable for the post-send StoreFailedMsgs
@@ -33,9 +30,7 @@ func queueStoreCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
 }
 
-// Per-platform outbound body/subject size caps. Messages exceeding these limits
-// are rejected by the respective APIs, so we truncate client-side to convert a
-// hard failure into a slightly-lossy delivery.
+// Per-platform outbound size caps; we truncate client-side to turn API rejection into lossy delivery.
 const (
 	TelegramMaxMessageChars = 4096  // Telegram sendMessage text limit
 	SlackMaxMessageChars    = 3000  // Slack Block Kit / chat.postMessage soft cap

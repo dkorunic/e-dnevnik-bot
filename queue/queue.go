@@ -14,15 +14,10 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
 )
 
-// MaxQueueAge caps how long a failed message is retried before being dropped.
-// Older entries are discarded at fetch time to prevent the queue from growing
-// unbounded when a messenger is persistently broken.
+// MaxQueueAge caps how long a failed message is retried before being dropped at fetch.
 const MaxQueueAge = 30 * 24 * time.Hour
 
-// requeueTimeout bounds the total time RequeueMsgs spends persisting the
-// tail-slice of un-delivered messages on shutdown. The whole batch shares one
-// budget so a slow sqlite write cannot stall shutdown proportionally to the
-// number of messages still in flight. Matches messenger.storeTimeout in spirit.
+// requeueTimeout bounds the whole RequeueMsgs batch so shutdown isn't proportional to queue depth.
 const requeueTimeout = 5 * time.Second
 
 var ErrQueueing = errors.New("problem with persistent queue")

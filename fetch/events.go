@@ -32,13 +32,9 @@ var (
 		LayoutISO8601Short,
 	}
 
-	// layoutParser maps each known layout to the parse function appropriate
-	// for it. Layouts that embed timezone information (Z, ±HHMM) use
-	// time.Parse so the embedded offset is honoured; layouts without
-	// timezone information use parseInUTC so the parsed time is anchored to
-	// UTC regardless of the host timezone — required for dedup hash
-	// stability across servers in different zones. Adding a new layout
-	// means registering its parser here.
+	// layoutParser dispatches each layout to the right parser.
+	// TZ-embedding layouts use time.Parse; TZ-less layouts use parseInUTC
+	// so dedup hashes stay stable across servers in different zones.
 	layoutParser = map[string]func(layout, value string) (time.Time, error){
 		LayoutISO8601CompactZ:    time.Parse,
 		LayoutISO8601CompactNoTZ: parseInUTC,

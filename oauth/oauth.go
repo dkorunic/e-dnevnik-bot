@@ -55,11 +55,7 @@ var (
 //go:embed templates/*html assets/*ico
 var contentFS embed.FS
 
-// persistingTokenSource wraps an oauth2.TokenSource and persists each
-// refreshed token back to disk so a refresh performed mid-run survives the
-// next process start. Without this, oauth2/google refreshes the token in
-// memory but the on-disk file still contains the original (now-revoked)
-// refresh token, which means every restart requires interactive re-auth.
+// persistingTokenSource persists refreshed OAuth tokens to disk so restarts survive token rotation.
 type persistingTokenSource struct {
 	src       oauth2.TokenSource
 	last      *oauth2.Token

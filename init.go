@@ -31,11 +31,7 @@ const (
 	initialWhatsAppDelay = 2 * time.Minute // 2 minutes sleep after successful sync
 	WhatsAppDBOldName    = ".e-dnevnik.sqlite"
 
-	// whatsAppPairingTimeout bounds the interactive pairing/sync wait so that
-	// a user who walks away from the QR code or PIN prompt does not leave the
-	// process hanging indefinitely. 10 minutes is well above realistic scan
-	// latency yet short enough to surface a stalled pairing on the next CI run
-	// or systemd retry.
+	// whatsAppPairingTimeout bounds interactive pairing so an absent user can't hang the process.
 	whatsAppPairingTimeout = 10 * time.Minute
 )
 

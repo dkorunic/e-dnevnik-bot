@@ -9,12 +9,9 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
-// markupReplacer escapes special characters in a single pass.
-// Backslash is listed first so it is replaced before any of the escape
-// sequences that introduce a backslash are written. The HTML-entity triplet
-// (& < >) follows because Slack mrkdwn treats <…> as link/mention delimiters
-// and & as the entity-introducer; without these escapes, portal-sourced
-// content containing those bytes is misparsed by Slack.
+// markupReplacer escapes Markdown specials in one pass.
+// Backslash is first so later escape sequences don't introduce one mid-pass.
+// HTML-entity triplet escapes Slack mrkdwn link/mention metasyntax.
 var markupReplacer = strings.NewReplacer(
 	`\`, `\\`,
 	`&`, `&amp;`,

@@ -21,8 +21,7 @@ const (
 	FinalGradePrefix   = "🎓 ZAKLJUČNA OCJENA: "
 	NationalExamPrefix = "✍️ Nacionalni ispit: "
 
-	// maxPooledBuilderCap caps the capacity of pooled builders so a single very
-	// large message does not permanently inflate every entry in the pool.
+	// maxPooledBuilderCap caps pooled builder capacity so one outlier message can't bloat the pool.
 	maxPooledBuilderCap = 64 * 1024
 )
 

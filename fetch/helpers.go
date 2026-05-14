@@ -29,9 +29,7 @@ const (
 
 	MaxBodySize = 32 * 1024 * 1024 // 32 MiB upper bound for any single response
 
-	// AcceptLanguageHR nudges the portal to return Croatian-localised pages and
-	// error messages, which matters for the alert-text matcher in doSAMLRequest
-	// and for human-readable subject/course names downstream.
+	// AcceptLanguageHR forces Croatian responses; the login alert matcher and subject names depend on it.
 	AcceptLanguageHR = "hr,hr-HR;q=0.9,en;q=0.1"
 )
 
@@ -47,10 +45,7 @@ var (
 	selCsrfToken  = cascadia.MustCompile(`form > input[name="csrf_token"]`)
 	selLoginAlert = cascadia.MustCompile("#page-wrapper > div.flash-messages > div.alert > p")
 
-	// reClassID restricts class action IDs to a conservative URL-safe alphabet.
-	// Portal values observed in the wild are alphanumeric (subject names or
-	// numeric IDs); anything outside this set is rejected to prevent
-	// path-traversal or query-injection via a tampered portal response.
+	// reClassID rejects non-URL-safe class IDs to block path-injection via a tampered portal.
 	reClassID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 

@@ -30,9 +30,7 @@ const (
 	spinnerRotateDelay = 100 * time.Millisecond // spinner delay
 	githubOrg          = "dkorunic"
 	githubRepo         = "e-dnevnik-bot"
-	// versionCheckTimeout bounds the entire GitHub release-check in one poll
-	// cycle so a stalled GitHub API does not leak the version-check goroutine
-	// past its poll interval.
+	// versionCheckTimeout bounds the GitHub release-check so a stalled API can't outlive one poll cycle.
 	versionCheckTimeout = 30 * time.Second
 )
 
@@ -45,11 +43,8 @@ var (
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
 	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:staticcheck
 
-	// formatHRDateOnly matches the "D.M." (day.month.) format used in the
-	// portal's grade date column. The digits are Go's magic reference-time
-	// tokens: 2 = day-of-month, 1 = month; the two literal '.' characters are
-	// required separators. Do NOT "normalise" this to "2006-01-02"-style — it
-	// would break parsing of real portal values like "15.4.".
+	// formatHRDateOnly parses the portal's "D.M." grade date column.
+	// Do not normalise: portal values like "15.4." would stop parsing.
 	formatHRDateOnly = "2.1."
 )
 
