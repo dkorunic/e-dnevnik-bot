@@ -119,7 +119,7 @@ func markSlackPermanent(err error) error {
 		}
 	}
 
-	if ser, ok := errors.AsType[*slack.SlackErrorResponse](err); ok {
+	if _, ok := errors.AsType[*slack.SlackErrorResponse](err); ok {
 		return retry.Unrecoverable(err)
 	}
 
