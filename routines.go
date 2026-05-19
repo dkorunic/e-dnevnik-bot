@@ -19,10 +19,9 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/scrape"
 	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
-	"github.com/google/go-github/v86/github"
+	"github.com/google/go-github/v87/github"
 	"github.com/teivah/broadcast"
 	"github.com/tj/go-spin"
-	"golang.org/x/oauth2"
 )
 
 const (
@@ -307,7 +306,12 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 		vctx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
 		defer cancel()
 
-		client := githubClient(vctx)
+		client, err := githubClient()
+		if err != nil {
+			logger.Error().Msgf("Unable to create GitHub client: %v", err)
+
+			return
+		}
 
 		latestRelease, _, err := client.Repositories.GetLatestRelease(vctx, githubOrg, githubRepo)
 		if err != nil || latestRelease == nil {
@@ -335,25 +339,11 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	})
 }
 
-// githubClient returns a new GitHub client for the given context.
-//
-// If the GITHUB_TOKEN environment variable is not set, the client will be created without authentication.
-//
-// Parameters:
-// - ctx: the context.Context for the HTTP client.
-//
-// Returns:
-// - *github.Client: the GitHub client.
-func githubClient(ctx context.Context) *github.Client {
-	token := os.Getenv("GITHUB_TOKEN")
-	if token == "" {
-		return github.NewClient(nil)
+// githubClient returns a new GitHub client, authenticated via GITHUB_TOKEN when set.
+func githubClient() (*github.Client, error) {
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		return github.NewClient(github.WithAuthToken(token))
 	}
 
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: token},
-	)
-	tc := oauth2.NewClient(ctx, ts)
-
-	return github.NewClient(tc)
+	return github.NewClient()
 }

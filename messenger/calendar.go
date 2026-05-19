@@ -132,8 +132,7 @@ func markCalendarPermanent(err error) error {
 		return nil
 	}
 
-	var gaErr *googleapi.Error
-	if errors.As(err, &gaErr) {
+	if gaErr, ok := errors.AsType[*googleapi.Error](err); ok {
 		code := gaErr.Code
 		if code >= 400 && code < 500 &&
 			code != http.StatusRequestTimeout &&

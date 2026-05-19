@@ -113,15 +113,13 @@ func markSlackPermanent(err error) error {
 		return nil
 	}
 
-	var sce slack.StatusCodeError
-	if errors.As(err, &sce) {
+	if sce, ok := errors.AsType[slack.StatusCodeError](err); ok {
 		if sce.Code >= 400 && sce.Code < 500 && sce.Code != 408 && sce.Code != 429 {
 			return retry.Unrecoverable(err)
 		}
 	}
 
-	var ser *slack.SlackErrorResponse
-	if errors.As(err, &ser) {
+	if ser, ok := errors.AsType[*slack.SlackErrorResponse](err); ok {
 		return retry.Unrecoverable(err)
 	}
 
