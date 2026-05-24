@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/config"
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-	"github.com/dkorunic/e-dnevnik-bot/messenger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/config"
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
 	"github.com/hako/durafmt"
 	"github.com/mattn/go-isatty"
 	"github.com/mdp/qrterminal/v3"

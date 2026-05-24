@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
 // TestMain initialises package-level flag pointers that msgDedup and other

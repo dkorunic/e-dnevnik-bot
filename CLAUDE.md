@@ -6,6 +6,38 @@ For a full tour of components, data flow, and design trade-offs, read **`ARCHITE
 
 ---
 
+## Package layout
+
+All sub-packages live under `internal/` (enforced by the Go toolchain — nothing outside this module can import them):
+
+| Package | Role |
+|---|---|
+| `internal/msgtypes` | Canonical domain event: `Message` struct + `EventCode` enum. No deps. |
+| `internal/fetch` | Raw HTTP client for e-Dnevnik (SAML/SSO auth, cookie jar). |
+| `internal/scrape` | Parses `fetch/` HTML into `msgtypes.Message` events. |
+| `internal/sqlitedb` | SQLite KV dedup store + BadgerDB migration. |
+| `internal/codec` | `encoding/gob` encode/decode for `[]Message` queue persistence. |
+| `internal/queue` | Dead-letter queue built on `sqlitedb` + `codec`. |
+| `internal/messenger` | Six messenger backends (Discord/Telegram/Slack/Mail/Calendar/WhatsApp). |
+| `internal/format` | Plain/HTML/Markdown formatters consumed by messengers. |
+| `internal/oauth` | Google Calendar OAuth2 interactive flow (local HTTP server). |
+| `internal/config` | TOML config load + validation. |
+| `internal/logger` | Global `zerolog` wrapper. |
+| `internal/version` | Reads dependency version from binary build info. |
+
+Root-level files in the `main` package:
+
+| File | Responsibility |
+|---|---|
+| `main.go` | Entry point, polling ticker loop, goroutine lifecycle, PGO/profiling. |
+| `routines.go` | `scrapers`, `msgDedup`, `msgSend`, `versionCheck` — the three pipeline stages. |
+| `init.go` | Interactive first-run setup for WhatsApp (pairing) and Calendar (OAuth2). |
+| `flags.go` | All CLI flags via `peterbourgon/ff/v4`. Flag vars are **package-level pointers** (see below). |
+| `db.go` | `openDB` / `closeDB` helpers. |
+| `log.go` | `initLog` — wires log level and colorized/JSON output from flag vars. |
+
+---
+
 ## Toolchain
 
 - **Go 1.26+ is mandatory** — the code calls `sync.WaitGroup.Go` (Go 1.25) and `context.WithoutCancel` (Go 1.21). `go.mod` pins `go 1.26`; older local toolchains will trigger an auto-download via `GOTOOLCHAIN` or fail to build.
@@ -50,7 +82,7 @@ The main binary accepts `-t`/`--test` for an **emulation mode** that pushes a sy
 
 These behaviours are not enforced by the type system or tests. Breaking them manifests as data loss, duplicate alerts, or shutdown hangs that only appear in production.
 
-### Shutdown-tolerant queue writes — `messenger/common.go`
+### Shutdown-tolerant queue writes — `internal/messenger/common.go`
 
 Every messenger that stores un-delivered messages to the retry queue uses `queueStoreCtx(ctx)` — built on `context.WithoutCancel` + `storeTimeout = 5s`. The purpose: when the main context is already cancelled (SIGTERM arrived mid-send), the final sqlite write to the failed-message queue **must still complete**, otherwise the message is lost forever.
 
@@ -64,15 +96,15 @@ When adding a new messenger or touching send paths, the post-send `StoreFailedMs
 
 `wgFilter` spawns exactly one goroutine. This is not a scaling limitation to "fix" — it guarantees consistent first-run detection and avoids sqlite write contention against the messenger queue writes. `gradesMsg` is closed in a `defer` so the broadcast loop unblocks on ctx cancel.
 
-### First-run seeding is silent on purpose — `sqlitedb/db.go` + `msgDedup`
+### First-run seeding is silent on purpose — `internal/sqlitedb/db.go` + `msgDedup`
 
 A fresh DB (`!eDB.Existing()`) causes `msgDedup` to store hashes but forward nothing. This prevents flooding on first install. **If a user deletes `.e-dnevnik.db.sqlite`, the next run silently re-seeds without alerts** — users typically interpret this as "the bot missed events". Preserve the first-run seed behaviour; any change here is a UX regression.
 
-### TTL-based dedup re-fires after ~1 year — `sqlitedb/db.go:CheckAndFlagTTL`
+### TTL-based dedup re-fires after ~1 year — `internal/sqlitedb/db.go:CheckAndFlagTTL`
 
 `DefaultEntryTTL = 9000h`. Expired rows are treated as absent and re-inserted. Long-lived installs will re-alert on stale events. Do not shorten this TTL without coordinating with the relevance-period filter in `msgDedup`.
 
-### BadgerDB migration is one-shot and destructive — `sqlitedb/import.go`
+### BadgerDB migration is one-shot and destructive — `internal/sqlitedb/import.go`
 
 Wrapped in a `sync.Once`, runs at most once per process, and **deletes the legacy BadgerDB directory on success**. There is no rollback. Do not factor this into a reusable helper that might be called twice.
 
@@ -88,6 +120,15 @@ Long-running background goroutines (the systemd watchdog) are tracked in a dedic
 
 Factor drawn from a continuous `[0.9, 1.1)` distribution via `rand.Float64()`. Do not replace with a discrete-step variant — concurrent daemons would alias on a small number of wake times.
 
+### Messenger implementation contract — `internal/messenger/*.go`
+
+Every messenger follows an identical lifecycle and set of rules. When adding a new messenger:
+
+1. **Exported entry point** signature: `func Name(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, ...credentials..., retries uint) error`.
+2. **Permanent vs transient errors**: each messenger has a `markNamePermanent(err) error` function. Permanent errors (e.g. invalid token, 4xx that will never succeed) are wrapped with `retry.Unrecoverable(err)` to short-circuit `retry-go`; transient errors (timeout, 429) are returned unwrapped so retry fires.
+3. **Partial delivery — `SkipRecipients`**: when a message is sent to a subset of recipients successfully, the successful IDs are added to `g.SkipRecipients`. On retry, iterate over recipients and skip those already in the set. Before requeing, call `mergeSkipRecipients` (deduplicated) so the list doesn't grow unboundedly across cycles.
+4. **Queue writes must use `queueStoreCtx`** (see Shutdown-tolerant queue writes above) — never the raw `ctx`.
+
 ---
 
 ## Runtime considerations
@@ -100,7 +141,11 @@ Factor drawn from a continuous `[0.9, 1.1)` distribution via `rand.Float64()`. D
 
 ## Config
 
-TOML (`.e-dnevnik.toml`). Multiple `[[user]]` blocks supported. Each messenger section is independently optional — absence disables that messenger. Validation is fail-fast in `config/validators.go`. The app does **not** enforce 0600 permissions on the config file; mentioning this is an operator responsibility is a known trade-off (see ARCHITECTURE.md §10).
+TOML (`.e-dnevnik.toml`). Multiple `[[user]]` blocks supported. Each messenger section is independently optional — absence disables that messenger. Validation is fail-fast in `internal/config/validators.go`. The app does **not** enforce 0600 permissions on the config file; mentioning this is an operator responsibility is a known trade-off (see ARCHITECTURE.md §10).
+
+## Flag variables
+
+`parseFlags()` in `flags.go` stores all CLI flag results as **package-level pointer variables** (`*bool`, `*string`, `*time.Duration`, `*uint`). Code throughout the `main` package dereferences them directly — e.g. `*readingList`, `*relevancePeriod`, `*retries`, `*emulation`, `*daemon`. When adding a feature that must respect a CLI flag, add the var to `flags.go` and dereference it where needed; do not thread it through function arguments.
 
 ## Linting
 

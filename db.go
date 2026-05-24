@@ -6,8 +6,8 @@ package main
 import (
 	"context"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-	"github.com/dkorunic/e-dnevnik-bot/sqlitedb"
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
 // openDB opens application database and returns handle to it.

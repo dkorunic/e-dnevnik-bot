@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/rs/zerolog"
 )
 

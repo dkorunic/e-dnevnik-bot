@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/hako/durafmt"
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
@@ -52,7 +52,7 @@ func parseFlags() {
 	memProfile = fs.String('m', "memprofile", "", "memory profile output file")
 
 	tickInterval = fs.Duration('i', "interval", DefaultTickInterval, "interval between polls when in daemon mode")
-	relevancePeriod = fs.Duration('p', "relevance", 0, "maximum relevance period for events (0 = unlimited)")
+	relevancePeriod = fs.Duration('p', "relevance", 0, "maximum relevance period for grade and exam events (0 = unlimited)")
 
 	retries = fs.Uint('r', "retries", DefaultRetries, "number of retry attempts on error")
 

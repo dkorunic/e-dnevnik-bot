@@ -60,49 +60,49 @@
 **Key deps:** `peterbourgon/ff/v4`, `iguanesolutions/go-systemd/v6`, `KimMachineGun/automemlimit`
 **Patterns:** Signal-context cancellation, atomic error flag (`sync/atomic.Bool`), jitter-based polling ticker, GOMEMLIMIT tuning to 90% of container/host memory. Long-running background goroutines (systemd watchdog) are tracked via a dedicated `bgWG sync.WaitGroup` so shutdown waits for them with a bounded `exitDelay` ceiling instead of sleeping unconditionally.
 
-### `config/`
+### `internal/config/`
 
 **Responsibility:** TOML config loading and validation. Each messenger section is independently optional; absence of a section disables that messenger.
 **Key deps:** `BurntSushi/toml`, `google/renameio` (atomic file writes)
 **Patterns:** Fail-fast validation on startup; all checks in dedicated `checkXConf()` functions; config saved atomically to prevent corruption.
 
-### `fetch/`
+### `internal/fetch/`
 
 **Responsibility:** HTTP client for e-Dnevnik: CSRF token extraction, SAML/SSO auth, class/grades/ICS calendar retrieval.
 **Key deps:** `lib4u/fake-useragent` (random Chrome UA per session), standard `net/http` with cookie jar
 **Patterns:** Cookie-jar-managed SSO sessions, 120-second timeout (portal is slow), per-session random User-Agent to prevent bot blocking.
 
-### `scrape/`
+### `internal/scrape/`
 
-**Responsibility:** Parses raw HTML from `fetch/` into structured `msgtypes.Message` events.
+**Responsibility:** Parses raw HTML from `internal/fetch/` into structured `msgtypes.Message` events.
 **Key deps:** `PuerkitoBio/goquery` (jQuery-like HTML parser), `avast/retry-go/v5`
 **Patterns:** Retry-wrapped fetch+parse; sends events to `gradesScraped` channel; errors fail the user but don't affect other goroutines.
 
-### `msgtypes/`
+### `internal/msgtypes/`
 
 **Responsibility:** Shared domain types — `Message` struct and `EventCode` enum (Grade/Exam/Reading/FinalGrade/NationalExam).
 **Key deps:** none
 **Patterns:** Unified event model across all pipeline stages; `SkipRecipients` field enables partial retry on failure; `QueuedAt` tracks when a message first entered the failed-message queue (zero value for non-queued/legacy entries).
 
-### `sqlitedb/`
+### `internal/sqlitedb/`
 
 **Responsibility:** Pure-Go SQLite KV store for deduplication. Keys are SHA-256 hashes of `(username, subject, fields)`. Entries carry a `DefaultEntryTTL` of ~9 000 h (slightly over one year).
 **Key deps:** `modernc.org/sqlite` (no CGO), `dgraph-io/badger/v4` (migration source only), `minio/sha256-simd` (hardware-accelerated hashing)
 **Patterns:** WAL mode with a small shared connection pool (`MaxOpenConns=4`), prepared statements, TTL-indexed expiry (expired rows are re-inserted via `CheckAndFlagTTL` so stale dedup keys re-fire), background `cleanup` sweep, automatic BadgerDB migration on first run via `sync.Once` (runs at most once per process lifetime).
 
-### `queue/`
+### `internal/queue/`
 
 **Responsibility:** Persistent dead-letter queue for failed message deliveries. Built on top of `sqlitedb`.
-**Key deps:** `encdec/` for gob serialization
+**Key deps:** `internal/codec/` for gob serialization
 **Patterns:** Atomic fetch-and-clear semantics; each messenger has its own queue key; resend attempted on next poll cycle.
 
-### `encdec/`
+### `internal/codec/`
 
 **Responsibility:** `encoding/gob` serialization of `[]msgtypes.Message` for queue persistence.
 **Key deps:** standard library only
 **Patterns:** Empty input short-circuits without allocating.
 
-### `messenger/`
+### `internal/messenger/`
 
 **Responsibility:** Six independent messenger goroutines, each consuming from a `broadcast.Relay` listener.
 **Key deps:** `teivah/broadcast`, `go.uber.org/ratelimit`, per-backend SDK
@@ -117,24 +117,24 @@
 | Calendar  | `google/google-api-go-client` | 20/min     | Event    | —                  |
 | WhatsApp  | `go.mau.fi/whatsmeow`         | 10/min     | Plain    | 4096 chars         |
 
-### `format/`
+### `internal/format/`
 
 **Responsibility:** Three message formatters — `plain`, `html`, `markup` (Markdown) — used by different messenger backends.
 **Key deps:** none
 **Patterns:** Emoji-prefixed headers keyed by `EventCode`; rune-aware string truncation.
 
-### `oauth/`
+### `internal/oauth/`
 
 **Responsibility:** Google Calendar OAuth2 interactive flow: local HTTP server on `:9080`, browser launch, token storage.
 **Key deps:** `golang.org/x/oauth2`, `go-chi/chi/v5`, `google/uuid`, `google/renameio`
 **Patterns:** UUID state parameter (CSRF protection), atomic token file write (0600), auto-refresh on expiry.
 
-### `logger/`
+### `internal/logger/`
 
 **Responsibility:** `zerolog` wrapper; global logger with configurable level, JSON or colorized console output.
 **Key deps:** `rs/zerolog`, `mattn/go-isatty`
 
-### `version/`
+### `internal/version/`
 
 **Responsibility:** Build-time version metadata injected via ldflags.
 
@@ -149,10 +149,10 @@
         │
         ▼
 [Per-user goroutine launched]    ← wgScrape (one per user, parallel)
-  fetch/ → SAML login
+  internal/fetch/ → SAML login
          → get class list
          → get grades HTML + ICS calendar
-  scrape/ → parse HTML → Message{...}
+  internal/scrape/ → parse HTML → Message{...}
          → send to gradesScraped (buffered chan)
         │
         ▼
@@ -189,8 +189,8 @@
 
 ### Persistence and caching strategy
 
-- **Deduplication DB** (`sqlitedb/`): SHA-256 KV store. All events indexed permanently (~1 year TTL). No read cache; SQLite WAL provides sufficient throughput for single-node polling.
-- **Failed message queue** (`queue/`): Per-messenger SQLite keys storing gob-encoded `[]Message`. Cleared atomically on successful re-send.
+- **Deduplication DB** (`internal/sqlitedb/`): SHA-256 KV store. All events indexed permanently (~1 year TTL). No read cache; SQLite WAL provides sufficient throughput for single-node polling.
+- **Failed message queue** (`internal/queue/`): Per-messenger SQLite keys storing gob-encoded `[]Message`. Cleared atomically on successful re-send.
 - **WhatsApp session** (`.e-dnevnik.wa.sqlite`): `whatsmeow`-managed multi-device session database.
 - **Calendar OAuth token** (`calendar_token.json`): JSON-encoded `oauth2.Token`, refreshed automatically.
 - No in-memory caches (by design — each poll is a fresh HTTP session with cookie jar).
@@ -242,7 +242,7 @@
 
 ### Domain modeling
 
-- `msgtypes.Message` is the canonical domain event. It is created in `scrape/`, filtered in `routines.go`, formatted by `format/`, and serialized by `encdec/`. No package crosses this boundary except through the `Message` type.
+- `msgtypes.Message` is the canonical domain event. It is created in `internal/scrape/`, filtered in `routines.go`, formatted by `internal/format/`, and serialized by `internal/codec/`. No package crosses this boundary except through the `Message` type.
 
 ---
 
@@ -293,7 +293,7 @@
 ### Secrets management
 
 - No secrets management system (Vault, etc.) — this is a personal tool, not enterprise software.
-- Google Calendar credentials are embedded at build time via the `oauth/` package assets.
+- Google Calendar credentials are embedded at build time via the `internal/oauth/` package assets.
 
 ### Network
 

@@ -31,7 +31,13 @@
 
 ## About
 
-e-Dnevnik bot is a self-hosted alerting system that reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) portal and regularly polls for new information (e.g. new grades for all subjects, newly scheduled exams, etc.).
+e-Dnevnik bot is a self-hosted alerting system that reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) portal and regularly polls for new information. Supported event types:
+
+- **Grades** — new subject grades
+- **Exams** — newly scheduled exams
+- **Final grades** — end-of-year closing grades per subject
+- **National exam results** — national exam outcomes
+- **Reading lists** — required reading entries (opt-in via `--readinglist`)
 
 The bot can log in as multiple AAI/AOSI users from the skole.hr domain and check for new information for all of them, either as a one-shot run or as a long-running service that polls at regular intervals (e.g. hourly). All new, previously unseen events will trigger an alert. The bot can deliver alerts through the following messaging systems and services:
 
@@ -90,7 +96,7 @@ FLAGS
   -c, --cpuprofile STRING      CPU profile output file
   -m, --memprofile STRING      memory profile output file
   -i, --interval DURATION      interval between polls when in daemon mode (default: 1h0m0s)
-  -p, --relevance DURATION     maximum relevance period for events (0 = unlimited) (default: 0s)
+  -p, --relevance DURATION     maximum relevance period for grade and exam events (0 = unlimited) (default: 0s)
   -r, --retries UINT           number of retry attempts on error (default: 3)
 ```
 
@@ -107,7 +113,7 @@ Other flags:
 - `-v`: enables verbose/debug logging for detailed insight into bot operation; disabled by default,
 - `-l`: enables colorized console logging with JSON output disabled,
 - `-g`: path to the Google Calendar API token file for reading and storing the OAuth2 token,
-- `-p`: maximum relevance period for non-exam events, to avoid sending alerts for retroactively changed entries,
+- `-p`: maximum relevance period for grade and exam events; events older than this period are silently skipped (0 = unlimited),
 - `--version`: displays the program version,
 - `-j`: enables a ±10% random jitter on the poll interval,
 - `--readinglist`: enables processing and alerting on reading list events.
