@@ -25,10 +25,18 @@ func NewClientWithContext(ctx context.Context, username, password string) (*Clie
 		return nil, err
 	}
 
+	// Own transport so CloseConnections isolates per client, not the shared default pool.
+	// Comma-ok: instrumentation may swap DefaultTransport for a non-*Transport wrapper.
+	var transport http.RoundTripper
+	if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = dt.Clone()
+	}
+
 	c := &Client{
 		httpClient: &http.Client{
-			Timeout: Timeout,
-			Jar:     jar,
+			Timeout:   Timeout,
+			Jar:       jar,
+			Transport: transport,
 		},
 		ctx:      ctx,
 		username: username,

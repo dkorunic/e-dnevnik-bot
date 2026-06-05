@@ -42,29 +42,34 @@ var (
 	TelegramVersion   = version.ReadVersion("github.com/go-telegram/bot")
 )
 
+// TelegramConfig holds the per-messenger settings for the Telegram backend.
+type TelegramConfig struct {
+	Token   string
+	ChatIDs []string
+	Retries uint
+}
+
 // Telegram sends messages through the Telegram API to the specified Telegram chat IDs.
 //
 // It takes the following parameters:
 // - ctx: the context.Context object for managing the execution of the function.
 // - eDB: the database instance for checking and storing failed messages.
 // - ch: the channel from which to receive messages.
-// - apiKey: the Telegram API key.
-// - chatIDs: a slice of strings containing the Telegram chat IDs to send the message to.
-// - retries: the number of retry attempts for sending the message.
+// - cfg: the Telegram messenger configuration (token, chat IDs, retries).
 //
 // The function formats the message as HTML and attempts to send it to each chat ID.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, apiKey string, chatIDs []string, retries uint) error {
-	if apiKey == "" {
+func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg TelegramConfig) error {
+	if cfg.Token == "" {
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
 
-	if len(chatIDs) == 0 {
+	if len(cfg.ChatIDs) == 0 {
 		return fmt.Errorf("%w", ErrTelegramEmptyUserIDs)
 	}
 
-	err := telegramInit(ctx, apiKey)
+	err := telegramInit(ctx, cfg.Token)
 	if err != nil {
 		return err
 	}
@@ -82,7 +87,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 			return ctx.Err()
 		}
 
-		processTelegram(ctx, eDB, g, chatIDs, rl, retries)
+		processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(ctx, eDB, TelegramQueueName, failedMsgs[i+1:])
@@ -96,7 +101,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processTelegram(ctx, eDB, g, chatIDs, rl, retries)
+			processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
 		}
 	}
 

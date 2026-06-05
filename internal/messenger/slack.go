@@ -39,25 +39,30 @@ var (
 	SlackVersion   = version.ReadVersion("github.com/slack-go/slack")
 )
 
+// SlackConfig holds the per-messenger settings for the Slack backend.
+type SlackConfig struct {
+	Token   string
+	ChatIDs []string
+	Retries uint
+}
+
 // Slack sends messages through the Slack API.
 //
 // ctx: the context in which the function is executed.
 // eDB: the database instance for checking failed messages.
 // ch: the channel from which messages are received.
-// token: the Slack API key.
-// chatIDs: the IDs of the recipients.
-// retries: the number of retries in case of failure.
+// cfg: the Slack messenger configuration (token, chat IDs, retries).
 // error: an error if there was a problem sending the message.
-func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, token string, chatIDs []string, retries uint) error {
-	if token == "" {
+func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg SlackConfig) error {
+	if cfg.Token == "" {
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
 
-	if len(chatIDs) == 0 {
+	if len(cfg.ChatIDs) == 0 {
 		return fmt.Errorf("%w", ErrSlackEmptyUserIDs)
 	}
 
-	if err := slackInit(token); err != nil {
+	if err := slackInit(cfg.Token); err != nil {
 		return err
 	}
 
@@ -74,7 +79,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 			return ctx.Err()
 		}
 
-		processSlack(ctx, eDB, g, chatIDs, rl, retries)
+		processSlack(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(ctx, eDB, SlackQueueName, failedMsgs[i+1:])
@@ -88,7 +93,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, t
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processSlack(ctx, eDB, g, chatIDs, rl, retries)
+			processSlack(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
 		}
 	}
 
@@ -114,7 +119,7 @@ func markSlackPermanent(err error) error {
 	}
 
 	if sce, ok := errors.AsType[slack.StatusCodeError](err); ok {
-		if sce.Code >= 400 && sce.Code < 500 && sce.Code != 408 && sce.Code != 429 {
+		if isPermanentHTTPStatus(sce.Code) {
 			return retry.Unrecoverable(err)
 		}
 	}

@@ -112,21 +112,30 @@ func requestShutdown() {
 	})
 }
 
+// WhatsAppConfig holds the per-messenger settings for the WhatsApp backend.
+type WhatsAppConfig struct {
+	UserIDs []string
+	Groups  []string
+	Retries uint
+}
+
 // WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
 //
 // It takes the following parameters:
 // - ctx: the context.Context object for managing the execution of the function.
 // - eDB: the database instance for checking and storing failed messages.
 // - ch: the channel from which to receive messages.
-// - userIDs: a slice of strings containing the WhatsApp user IDs (JIDs) to send the message to.
-// - groups: a slice of strings containing the names of the WhatsApp groups to send the message to.
-// - retries: the number of retry attempts for sending the message.
+// - cfg: the WhatsApp messenger configuration (user IDs, group names, retries).
 //
 // The function processes all failed messages, finds named groups and appends them to the userIDs,
 // processes all new messages and sends them to the specified user IDs or groups.
 // It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
 // It uses rate limiting and supports retries with delay.
-func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, userIDs, groups []string, retries uint) error {
+func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg WhatsAppConfig) error {
+	// Local aliases: group resolution below mutates userIDs in place.
+	userIDs := cfg.UserIDs
+	groups := cfg.Groups
+
 	if len(userIDs) == 0 && len(groups) == 0 {
 		return ErrWhatsAppEmptyUserIDs
 	}
@@ -210,7 +219,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 			return ctx.Err()
 		}
 
-		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, retries)
+		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(ctx, eDB, WhatsAppQueueName, failedMsgs[i+1:])
@@ -224,7 +233,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processWhatsApp(ctx, cli, eDB, g, userIDs, rl, retries)
+			processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
 		}
 	}
 

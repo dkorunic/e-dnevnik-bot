@@ -42,36 +42,41 @@ var (
 	mailMu  sync.Mutex // guards mailCli initialisation
 )
 
+// MailConfig holds the per-messenger settings for the e-mail backend.
+type MailConfig struct {
+	Server   string
+	Port     string
+	Username string
+	Password string
+	From     string
+	Subject  string
+	To       []string
+	Retries  uint
+}
+
 // Mail sends messages through the mail service to the specified recipients.
 //
 // It takes the following parameters:
 // - ctx: the context.Context object for cancellation and timeouts.
 // - eDB: the database instance for checking and storing failed messages.
 // - ch: the channel from which to receive messages.
-// - server: the address of the mail server.
-// - port: the port number for the mail server as a string.
-// - username: the username for authentication.
-// - password: the password for authentication.
-// - from: the email address of the sender.
-// - subject: the subject of the email.
-// - to: a slice of email addresses of the recipients.
-// - retries: the number of retry attempts for sending the message.
+// - cfg: the e-mail messenger configuration (server, auth, sender, recipients, retries).
 //
 // The function processes all failed messages and new messages, sending them
 // through the mail service. It uses a rate limiter to control the message
 // sending rate and supports retry attempts for sending failures. It logs
 // invalid ports and sets a default port if necessary.
-func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, server, port, username, password, from, subject string, to []string, retries uint) error {
+func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg MailConfig) error {
 	logger.Debug().Msgf("Started e-mail messenger (%v)", MailVersion)
 
-	portInt, err := strconv.Atoi(port)
+	portInt, err := strconv.Atoi(cfg.Port)
 	if err != nil {
-		logger.Warn().Msgf("%v: %v", ErrMailInvalidPort, port)
+		logger.Warn().Msgf("%v: %v", ErrMailInvalidPort, cfg.Port)
 
 		portInt = 587
 	}
 
-	if err = mailInit(server, portInt, username, password); err != nil {
+	if err = mailInit(cfg.Server, portInt, cfg.Username, cfg.Password); err != nil {
 		return err
 	}
 
@@ -86,7 +91,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 			return ctx.Err()
 		}
 
-		processMail(ctx, eDB, g, to, from, subject, rl, retries)
+		processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(ctx, eDB, MailQueueName, failedMsgs[i+1:])
@@ -100,7 +105,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, se
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processMail(ctx, eDB, g, to, from, subject, rl, retries)
+			processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
 		}
 	}
 

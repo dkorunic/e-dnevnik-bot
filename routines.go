@@ -93,7 +93,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgMsg.Go(func() {
 				defer wgInner.Done()
 
-				if err := messenger.Discord(ctx, eDB, l.Ch(), cfg.Discord.Token, cfg.Discord.UserIDs, *retries); err != nil {
+				if err := messenger.Discord(ctx, eDB, l.Ch(), messenger.DiscordConfig{
+					Token:   cfg.Discord.Token,
+					UserIDs: cfg.Discord.UserIDs,
+					Retries: *retries,
+				}); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
 					exitWithError.Store(true)
 				}
@@ -108,7 +112,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgMsg.Go(func() {
 				defer wgInner.Done()
 
-				if err := messenger.Telegram(ctx, eDB, l.Ch(), cfg.Telegram.Token, cfg.Telegram.ChatIDs, *retries); err != nil {
+				if err := messenger.Telegram(ctx, eDB, l.Ch(), messenger.TelegramConfig{
+					Token:   cfg.Telegram.Token,
+					ChatIDs: cfg.Telegram.ChatIDs,
+					Retries: *retries,
+				}); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
 					exitWithError.Store(true)
 				}
@@ -123,7 +131,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgMsg.Go(func() {
 				defer wgInner.Done()
 
-				if err := messenger.Slack(ctx, eDB, l.Ch(), cfg.Slack.Token, cfg.Slack.ChatIDs, *retries); err != nil {
+				if err := messenger.Slack(ctx, eDB, l.Ch(), messenger.SlackConfig{
+					Token:   cfg.Slack.Token,
+					ChatIDs: cfg.Slack.ChatIDs,
+					Retries: *retries,
+				}); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrSlack, err)
 					exitWithError.Store(true)
 				}
@@ -138,8 +150,16 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgMsg.Go(func() {
 				defer wgInner.Done()
 
-				if err := messenger.Mail(ctx, eDB, l.Ch(), cfg.Mail.Server, cfg.Mail.Port, cfg.Mail.Username,
-					cfg.Mail.Password, cfg.Mail.From, cfg.Mail.Subject, cfg.Mail.To, *retries); err != nil {
+				if err := messenger.Mail(ctx, eDB, l.Ch(), messenger.MailConfig{
+					Server:   cfg.Mail.Server,
+					Port:     cfg.Mail.Port,
+					Username: cfg.Mail.Username,
+					Password: cfg.Mail.Password,
+					From:     cfg.Mail.From,
+					Subject:  cfg.Mail.Subject,
+					To:       cfg.Mail.To,
+					Retries:  *retries,
+				}); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrMail, err)
 					exitWithError.Store(true)
 				}
@@ -154,7 +174,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgMsg.Go(func() {
 				defer wgInner.Done()
 
-				if err := messenger.Calendar(ctx, eDB, l.Ch(), cfg.Calendar.Name, *calTokFile, *retries); err != nil {
+				if err := messenger.Calendar(ctx, eDB, l.Ch(), messenger.CalendarConfig{
+					Name:    cfg.Calendar.Name,
+					TokFile: *calTokFile,
+					Retries: *retries,
+				}); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
 					exitWithError.Store(true)
 				}
@@ -169,8 +193,11 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgMsg.Go(func() {
 				defer wgInner.Done()
 
-				if err := messenger.WhatsApp(ctx, eDB, l.Ch(), cfg.WhatsApp.UserIDs, cfg.WhatsApp.Groups,
-					*retries); err != nil {
+				if err := messenger.WhatsApp(ctx, eDB, l.Ch(), messenger.WhatsAppConfig{
+					UserIDs: cfg.WhatsApp.UserIDs,
+					Groups:  cfg.WhatsApp.Groups,
+					Retries: *retries,
+				}); err != nil {
 					logger.Warn().Msgf("%v: %v", ErrWhatsApp, err)
 					exitWithError.Store(true)
 				}
@@ -220,49 +247,68 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				}
 
 				// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
-				//nolint:nestif
-				if !found && eDB.Existing() {
-					if *relevancePeriod > 0 && g.Code == msgtypes.Exam && !g.Timestamp.IsZero() {
-						if time.Since(g.Timestamp) > *relevancePeriod {
-							logger.Warn().Msgf("Ignoring old exam event: %v/%v: %+v", g.Username, g.Subject, g)
+				if found || !eDB.Existing() {
+					continue
+				}
 
-							continue
-						}
-					}
+				if isStaleEvent(g, now) {
+					continue
+				}
 
-					if *relevancePeriod > 0 && g.Code == msgtypes.Grade && len(g.Fields) > 0 {
-						// XXX Fields[0] assumed to be the grade date.
-						t, err := time.Parse(formatHRDateOnly, g.Fields[0])
-						if err != nil {
-							// Fail-open: prefer stale alert to silent drop.
-							logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
-						} else {
-							// Future day.month. implies previous year.
-							if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
-								t = t.AddDate(now.Year()-1, 0, 0)
-							} else {
-								t = t.AddDate(now.Year(), 0, 0)
-							}
+				logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
 
-							if time.Since(t) > *relevancePeriod {
-								logger.Warn().Msgf("Ignoring changes in an old event: %v/%v: %+v", g.Username, g.Subject, g)
-
-								continue
-							}
-						}
-					}
-
-					logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
-
-					select {
-					case gradesMsg <- g:
-					case <-ctx.Done():
-						return
-					}
+				select {
+				case gradesMsg <- g:
+				case <-ctx.Done():
+					return
 				}
 			}
 		}
 	})
+}
+
+// isStaleEvent reports whether g falls outside the configured relevance window
+// and should be suppressed. Only Exam and Grade events are time-filtered; all
+// other codes (and a zero relevancePeriod) are always treated as fresh. A grade
+// date that fails to parse fails open — a stale alert is preferred to a silent
+// drop. The matching log line is emitted here so the caller stays a flat guard.
+func isStaleEvent(g msgtypes.Message, now time.Time) bool {
+	if *relevancePeriod <= 0 {
+		return false
+	}
+
+	switch {
+	case g.Code == msgtypes.Exam && !g.Timestamp.IsZero():
+		if time.Since(g.Timestamp) > *relevancePeriod {
+			logger.Warn().Msgf("Ignoring old exam event: %v/%v: %+v", g.Username, g.Subject, g)
+
+			return true
+		}
+	case g.Code == msgtypes.Grade && len(g.Fields) > 0:
+		// XXX Fields[0] assumed to be the grade date.
+		t, err := time.Parse(formatHRDateOnly, g.Fields[0])
+		if err != nil {
+			// Fail-open: prefer stale alert to silent drop.
+			logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
+
+			return false
+		}
+
+		// Future day.month. implies previous year.
+		if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
+			t = t.AddDate(now.Year()-1, 0, 0)
+		} else {
+			t = t.AddDate(now.Year(), 0, 0)
+		}
+
+		if time.Since(t) > *relevancePeriod {
+			logger.Warn().Msgf("Ignoring changes in an old event: %v/%v: %+v", g.Username, g.Subject, g)
+
+			return true
+		}
+	}
+
+	return false
 }
 
 // spinner shows a spiffy terminal spinner until done is closed.

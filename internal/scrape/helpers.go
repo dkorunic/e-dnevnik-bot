@@ -96,7 +96,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 			}
 
 			if multiClass {
-				subject = subject + " / " + className
+				subject += " / " + className
 			}
 
 			headerCells := table.FindMatcher(selRowHeaderCellSpan)
@@ -173,7 +173,7 @@ func parseEvents(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		timestamp := ev.Start.Format(TimeFormat)
 
 		if multiClass {
-			subject = subject + " / " + className
+			subject += " / " + className
 		}
 
 		select {
@@ -302,7 +302,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 	}
 
 	if multiClass {
-		subject = subject + " / " + className
+		subject += " / " + className
 	}
 
 	var cancelled bool
@@ -409,7 +409,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 	// FinalGrade Subject must include className so hashes differ per school year.
 	if !multiClass {
-		subject = subject + " / " + className
+		subject += " / " + className
 	}
 
 	doc.FindMatcher(selFinalGradeRow).

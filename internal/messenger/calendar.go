@@ -55,24 +55,29 @@ var (
 //go:embed assets/calendar_credentials.json
 var credentialFS embed.FS
 
+// CalendarConfig holds the per-messenger settings for the Google Calendar backend.
+type CalendarConfig struct {
+	Name    string
+	TokFile string
+	Retries uint
+}
+
 // Calendar sends messages through the Google Calendar API to the specified calendar.
 //
 // It takes the following parameters:
 // - ctx: the context.Context object for handling deadlines and cancellations.
 // - eDB: the database instance for checking failed messages.
 // - ch: a channel for receiving messages to be sent.
-// - name: the name of the calendar to be used.
-// - tokFile: the path to the file containing the OAuth2 token.
-// - retries: the number of times to retry sending a message in case of failure.
+// - cfg: the Google Calendar messenger configuration (name, token file, retries).
 //
 // It returns an error indicating any failures that occurred during the process.
-func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, name, tokFile string, retries uint) error {
+func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalendarConfig) error {
 	calendarMu.Lock()
 
 	if calendarSrv == nil || calendarID == "" {
 		var err error
 
-		calendarSrv, calendarID, err = InitCalendar(ctx, tokFile, name)
+		calendarSrv, calendarID, err = InitCalendar(ctx, cfg.TokFile, cfg.Name)
 		if err != nil {
 			calendarMu.Unlock()
 
@@ -98,7 +103,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 			return ctx.Err()
 		}
 
-		processCalendar(ctx, eDB, g, rl, srv, calID, retries)
+		processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(ctx, eDB, CalendarQueueName, failedMsgs[i+1:])
@@ -112,7 +117,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processCalendar(ctx, eDB, g, rl, srv, calID, retries)
+			processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
 		}
 	}
 
@@ -133,10 +138,7 @@ func markCalendarPermanent(err error) error {
 	}
 
 	if gaErr, ok := errors.AsType[*googleapi.Error](err); ok {
-		code := gaErr.Code
-		if code >= 400 && code < 500 &&
-			code != http.StatusRequestTimeout &&
-			code != http.StatusTooManyRequests {
+		if isPermanentHTTPStatus(gaErr.Code) {
 			return retry.Unrecoverable(err)
 		}
 	}

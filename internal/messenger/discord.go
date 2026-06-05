@@ -54,27 +54,32 @@ var (
 	DiscordVersion   = version.ReadVersion("github.com/bwmarrin/discordgo")
 )
 
+// DiscordConfig holds the per-messenger settings for the Discord backend.
+type DiscordConfig struct {
+	Token   string
+	UserIDs []string
+	Retries uint
+}
+
 // Discord sends messages through the Discord API.
 //
 // It takes the following parameters:
 // - ctx: the context.Context object for handling deadlines and cancellations.
 // - eDB: the database instance for checking failed messages.
 // - ch: a channel for receiving messages to be sent.
-// - token: the Discord API key.
-// - userIDs: a slice of strings containing the IDs of the recipients.
-// - retries: the number of times to retry sending a message in case of failure.
+// - cfg: the Discord messenger configuration (token, recipient IDs, retries).
 //
 // It returns an error indicating any failures that occurred during the process.
-func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, token string, userIDs []string, retries uint) error {
-	if token == "" {
+func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg DiscordConfig) error {
+	if cfg.Token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
 
-	if len(userIDs) == 0 {
+	if len(cfg.UserIDs) == 0 {
 		return fmt.Errorf("%w", ErrDiscordEmptyUserIDs)
 	}
 
-	err := discordInit(token)
+	err := discordInit(cfg.Token)
 	if err != nil {
 		return err
 	}
@@ -92,7 +97,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 			return ctx.Err()
 		}
 
-		processDiscord(ctx, eDB, g, userIDs, rl, retries)
+		processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
 
 		if ctx.Err() != nil {
 			queue.RequeueMsgs(ctx, eDB, DiscordQueueName, failedMsgs[i+1:])
@@ -106,7 +111,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			processDiscord(ctx, eDB, g, userIDs, rl, retries)
+			processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
 		}
 	}
 
@@ -126,8 +131,7 @@ func markDiscordPermanent(err error) error {
 
 	var rerr *discordgo.RESTError
 	if errors.As(err, &rerr) && rerr.Response != nil {
-		code := rerr.Response.StatusCode
-		if code >= 400 && code < 500 && code != 408 && code != 429 {
+		if isPermanentHTTPStatus(rerr.Response.StatusCode) {
 			return retry.Unrecoverable(err)
 		}
 	}

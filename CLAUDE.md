@@ -124,7 +124,7 @@ Factor drawn from a continuous `[0.9, 1.1)` distribution via `rand.Float64()`. D
 
 Every messenger follows an identical lifecycle and set of rules. When adding a new messenger:
 
-1. **Exported entry point** signature: `func Name(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, ...credentials..., retries uint) error`.
+1. **Exported entry point** signature: `func Name(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg NameConfig) error`. Per-messenger credentials, recipient lists and `Retries` are carried in a dedicated `NameConfig` struct (e.g. `DiscordConfig`, `MailConfig`) defined alongside the entry point — keep the signature at four parameters rather than threading individual credential args.
 2. **Permanent vs transient errors**: each messenger has a `markNamePermanent(err) error` function. Permanent errors (e.g. invalid token, 4xx that will never succeed) are wrapped with `retry.Unrecoverable(err)` to short-circuit `retry-go`; transient errors (timeout, 429) are returned unwrapped so retry fires.
 3. **Partial delivery — `SkipRecipients`**: when a message is sent to a subset of recipients successfully, the successful IDs are added to `g.SkipRecipients`. On retry, iterate over recipients and skip those already in the set. Before requeing, call `mergeSkipRecipients` (deduplicated) so the list doesn't grow unboundedly across cycles.
 4. **Queue writes must use `queueStoreCtx`** (see Shutdown-tolerant queue writes above) — never the raw `ctx`.

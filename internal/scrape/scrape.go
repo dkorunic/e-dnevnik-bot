@@ -57,35 +57,31 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	defer client.CloseConnections()
 
-	err = retry.New(
-		retry.Attempts(attempts),
-		retry.Context(budgetCtx),
-		retry.DelayType(retry.BackOffDelay),
-		retry.MaxJitter(scrapeRetryMaxJitter),
-	).Do(
-		func() error {
-			return markPermanent(client.Login())
-		},
-	)
+	// Every scrape step shares one retry policy; close over attempts/budgetCtx.
+	withRetry := func(fn func() error) error {
+		return retry.New(
+			retry.Attempts(attempts),
+			retry.Context(budgetCtx),
+			retry.DelayType(retry.BackOffDelay),
+			retry.MaxJitter(scrapeRetryMaxJitter),
+		).Do(fn)
+	}
+
+	err = withRetry(func() error {
+		return markPermanent(client.Login())
+	})
 	if err != nil {
 		return err
 	}
 
 	var rawClasses []byte
 
-	err = retry.New(
-		retry.Attempts(attempts),
-		retry.Context(budgetCtx),
-		retry.DelayType(retry.BackOffDelay),
-		retry.MaxJitter(scrapeRetryMaxJitter),
-	).Do(
-		func() error {
-			var err error
-			rawClasses, err = client.GetClasses()
+	err = withRetry(func() error {
+		var err error
+		rawClasses, err = client.GetClasses()
 
-			return markPermanent(err)
-		},
-	)
+		return markPermanent(err)
+	})
 	if err != nil {
 		return err
 	}
@@ -114,19 +110,12 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		var events fetch.Events
 
-		err = retry.New(
-			retry.Attempts(attempts),
-			retry.Context(budgetCtx),
-			retry.DelayType(retry.BackOffDelay),
-			retry.MaxJitter(scrapeRetryMaxJitter),
-		).Do(
-			func() error {
-				var err error
-				rawGrades, events, err = client.GetClassEvents(cID)
+		err = withRetry(func() error {
+			var err error
+			rawGrades, events, err = client.GetClassEvents(cID)
 
-				return markPermanent(err)
-			},
-		)
+			return markPermanent(err)
+		})
 		if err != nil {
 			return err
 		}
@@ -143,19 +132,12 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		var rawCourses []byte
 
-		err = retry.New(
-			retry.Attempts(attempts),
-			retry.Context(budgetCtx),
-			retry.DelayType(retry.BackOffDelay),
-			retry.MaxJitter(scrapeRetryMaxJitter),
-		).Do(
-			func() error {
-				var err error
-				rawCourses, err = client.GetCourses()
+		err = withRetry(func() error {
+			var err error
+			rawCourses, err = client.GetCourses()
 
-				return markPermanent(err)
-			},
-		)
+			return markPermanent(err)
+		})
 		if err != nil {
 			return err
 		}
@@ -170,19 +152,12 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		var rawCourse []byte
 
 		for _, s := range subjects {
-			err = retry.New(
-				retry.Attempts(attempts),
-				retry.Context(budgetCtx),
-				retry.DelayType(retry.BackOffDelay),
-				retry.MaxJitter(scrapeRetryMaxJitter),
-			).Do(
-				func() error {
-					var err error
-					rawCourse, err = client.GetCourse(s.URL)
+			err = withRetry(func() error {
+				var err error
+				rawCourse, err = client.GetCourse(s.URL)
 
-					return markPermanent(err)
-				},
-			)
+				return markPermanent(err)
+			})
 			if err != nil {
 				return err
 			}

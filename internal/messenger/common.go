@@ -5,12 +5,22 @@ package messenger
 
 import (
 	"context"
+	"net/http"
 	"time"
 	"unicode/utf8"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
+
+// isPermanentHTTPStatus reports whether a 4xx status will never succeed on
+// retry. 408 (timeout) and 429 (rate-limit) are excluded — those are transient.
+func isPermanentHTTPStatus(code int) bool {
+	isClientError := code >= 400 && code < 500
+	isRetriable := code == http.StatusRequestTimeout || code == http.StatusTooManyRequests
+
+	return isClientError && !isRetriable
+}
 
 // storeTimeout bounds the detached context used to persist queue writes after caller ctx cancel.
 const storeTimeout = 5 * time.Second

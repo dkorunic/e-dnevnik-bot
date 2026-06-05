@@ -106,7 +106,11 @@ func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, 
 	fid, errDir := os.Stat(origFilePath)
 	fim, errManifest := os.Stat(filepath.Join(origFilePath, "MANIFEST"))
 
-	if errDir == nil && fid.IsDir() && errManifest == nil && fim.Mode().IsRegular() {
+	dirExists := errDir == nil && fid.IsDir()
+	manifestExists := errManifest == nil && fim.Mode().IsRegular()
+
+	isBadgerDir := dirExists && manifestExists
+	if isBadgerDir {
 		if err := edb.ImportFromBadger(ctx, origFilePath); err != nil {
 			_ = edb.Close()
 
