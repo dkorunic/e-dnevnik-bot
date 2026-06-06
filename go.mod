@@ -27,11 +27,11 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.1
-	github.com/slack-go/slack v0.24.0
+	github.com/slack-go/slack v0.25.0
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.3
-	go.mau.fi/whatsmeow v0.0.0-20260603132417-6a7ac9915382
+	go.mau.fi/whatsmeow v0.0.0-20260604205742-c6a4b703e48f
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.283.0
