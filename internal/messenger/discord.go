@@ -106,13 +106,9 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 		}
 	}
 
+	// Drain fully; processDiscord durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
-		}
+		processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
 	}
 
 	return nil

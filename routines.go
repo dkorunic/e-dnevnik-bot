@@ -92,6 +92,8 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 			wgMsg.Go(func() {
 				defer wgInner.Done()
+				// Close on early exit so the broadcast loop can't wedge on an undrained listener.
+				defer l.Close()
 
 				if err := messenger.Discord(ctx, eDB, l.Ch(), messenger.DiscordConfig{
 					Token:   cfg.Discord.Token,
@@ -111,6 +113,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 			wgMsg.Go(func() {
 				defer wgInner.Done()
+				defer l.Close()
 
 				if err := messenger.Telegram(ctx, eDB, l.Ch(), messenger.TelegramConfig{
 					Token:   cfg.Telegram.Token,
@@ -130,6 +133,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 			wgMsg.Go(func() {
 				defer wgInner.Done()
+				defer l.Close()
 
 				if err := messenger.Slack(ctx, eDB, l.Ch(), messenger.SlackConfig{
 					Token:   cfg.Slack.Token,
@@ -149,6 +153,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 			wgMsg.Go(func() {
 				defer wgInner.Done()
+				defer l.Close()
 
 				if err := messenger.Mail(ctx, eDB, l.Ch(), messenger.MailConfig{
 					Server:   cfg.Mail.Server,
@@ -173,6 +178,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 			wgMsg.Go(func() {
 				defer wgInner.Done()
+				defer l.Close()
 
 				if err := messenger.Calendar(ctx, eDB, l.Ch(), messenger.CalendarConfig{
 					Name:    cfg.Calendar.Name,
@@ -192,6 +198,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 			wgMsg.Go(func() {
 				defer wgInner.Done()
+				defer l.Close()
 
 				if err := messenger.WhatsApp(ctx, eDB, l.Ch(), messenger.WhatsAppConfig{
 					UserIDs: cfg.WhatsApp.UserIDs,
@@ -204,13 +211,9 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
+		// Lossless blocking fan-out; gradesMsg close terminates this on shutdown.
 		for g := range gradesMsg {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				relay.NotifyCtx(ctx, g)
-			}
+			relay.Notify(g)
 		}
 	})
 }
@@ -229,40 +232,37 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 		now := time.Now()
 
 		for g := range gradesScraped {
-			select {
-			case <-ctx.Done():
+			// Bail before flagging: unflagged events re-scrape next run; flagged ones can't drop.
+			if ctx.Err() != nil {
 				return
-			default:
-				if *debugEvents {
-					logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
-				}
-
-				if !*readingList && g.Code == msgtypes.Reading {
-					continue
-				}
-
-				found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
-				if err != nil {
-					logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
-				}
-
-				// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
-				if found || !eDB.Existing() {
-					continue
-				}
-
-				if isStaleEvent(g, now) {
-					continue
-				}
-
-				logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
-
-				select {
-				case gradesMsg <- g:
-				case <-ctx.Done():
-					return
-				}
 			}
+
+			if *debugEvents {
+				logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
+			}
+
+			if !*readingList && g.Code == msgtypes.Reading {
+				continue
+			}
+
+			found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
+			if err != nil {
+				logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
+			}
+
+			// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
+			if found || !eDB.Existing() {
+				continue
+			}
+
+			if isStaleEvent(g, now) {
+				continue
+			}
+
+			logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
+
+			// Blocking handoff: flagged events must reach msgSend; receiver lives until close.
+			gradesMsg <- g
 		}
 	})
 }

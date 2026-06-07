@@ -96,13 +96,9 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}
 
+	// Drain fully; processTelegram durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
-		}
+		processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
 	}
 
 	return nil

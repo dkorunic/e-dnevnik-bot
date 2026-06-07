@@ -112,13 +112,9 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}
 
+	// Drain fully; processCalendar durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
-		}
+		processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
 	}
 
 	return nil

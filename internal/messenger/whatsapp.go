@@ -228,13 +228,9 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}
 
+	// Drain fully; processWhatsApp durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
-		}
+		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
 	}
 
 	return nil

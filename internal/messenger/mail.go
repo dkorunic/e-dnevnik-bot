@@ -100,13 +100,9 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 		}
 	}
 
+	// Drain fully; processMail durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
-		}
+		processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
 	}
 
 	return nil
