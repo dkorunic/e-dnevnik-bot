@@ -1,7 +1,8 @@
 version: "3"
 
-vars:
-  TARGET: e-dnevnik-bot
+# Reusable build-time vars (anchored so build/build-debug share one definition
+# without re-running these git/date shell-outs for every unrelated task).
+x-build-vars: &build-vars
   GIT_LAST_TAG:
     sh: git describe --abbrev=0 --tags 2>/dev/null || echo latest
   GIT_HEAD_COMMIT:
@@ -17,38 +18,39 @@ vars:
   BUILD_DATE:
     sh: date -u '+%Y-%m-%dT%H:%M:%SZ'
 
+vars:
+  TARGET: e-dnevnik-bot
+
 env:
   CGO_ENABLED: 0
 
 tasks:
   default:
+    desc: Update dependencies and build the static PGO binary
     cmds:
       - task: update
       - task: build
 
   update:
+    desc: Update all Go dependencies to latest and tidy go.mod
     cmds:
-      - go get -u
-      - go mod tidy
-
-  update-dir:
-    dir: '{{.DIR}}'
-    cmds:
-      - echo "Updating {{.DIR}}"
       - go get -u
       - go mod tidy
 
   update-major:
+    desc: List available major-version dependency upgrades
     cmds:
       - gomajor list
 
   update-tools:
+    desc: Install the formatting tools (gci, gofumpt, betteralign)
     cmds:
       - go install github.com/daixiang0/gci@latest
       - go install mvdan.cc/gofumpt@latest
       - go install github.com/dkorunic/betteralign/cmd/betteralign@latest
 
   fmt:
+    desc: Tidy modules and run gci, gofumpt and betteralign formatters
     cmds:
       - go mod tidy
       - gci write .
@@ -56,43 +58,52 @@ tasks:
       - betteralign -apply ./...
 
   modernize:
+    desc: Apply gopls modernize fixes across the codebase
     cmds:
       - go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -fix -test ./...
 
   build:
+    desc: Format then produce the static PGO release binary (CGO off)
+    vars: *build-vars
     cmds:
       - task: fmt
       - go build -trimpath -pgo=auto -ldflags="-s -w -extldflags '-static' -X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -o {{.TARGET}}
 
   build-debug:
+    desc: Build the race-enabled debug binary (CGO on, slower)
+    vars: *build-vars
     env:
       CGO_ENABLED: 1
     cmds:
-      - task: update
       - task: fmt
       - go build -ldflags="-X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -race -o {{.TARGET}}
 
   lint:
+    desc: Format then run golangci-lint (5m timeout)
     cmds:
       - task: fmt
       - golangci-lint run --timeout 5m
 
   lint-nil:
+    desc: Format then run the nilaway nil-safety pass
     cmds:
       - task: fmt
       - nilaway ./...
 
   test:
+    desc: Run the full test suite
     cmds:
       - go test ./...
 
   tools:
+    desc: Install the formatting tools (gci, gofumpt, betteralign) if missing
     cmds:
       - task: gofumpt
       - task: gci
       - task: betteralign
 
   release:
+    desc: Release is handled by GitHub Actions
     cmds:
       - echo "Uses Github Actions"
 

@@ -14,5 +14,3 @@ include:
   - ISSUE_TEMPLATE.md
   - PULL_REQUEST_TEMPLATE.md
   - TERMS.md
-  - calendar_credentials.json
-  - messenger/assets/calendar_credentials.json
