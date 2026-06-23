@@ -31,11 +31,11 @@ require (
 	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.7.3
-	go.mau.fi/whatsmeow v0.0.0-20260616120636-eaa388b4e537
+	go.mau.fi/whatsmeow v0.0.0-20260622185415-5f04eac6dbbb
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
-	google.golang.org/api v0.285.0
-	modernc.org/sqlite v1.52.0
+	google.golang.org/api v0.286.0
+	modernc.org/sqlite v1.53.0
 )
 
 require (
@@ -55,7 +55,7 @@ require (
 	github.com/google/flatbuffers/go v0.0.0-20230110200425-62e4d2e5b215 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.16 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.17 // indirect
 	github.com/googleapis/gax-go/v2 v2.22.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
@@ -64,9 +64,9 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20260330135022-df67b199bc81 // indirect
+	github.com/petermattis/goid v0.0.0-20260619124436-7ab4bde3d003 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/vektah/gqlparser/v2 v2.5.34 // indirect
+	github.com/vektah/gqlparser/v2 v2.5.35 // indirect
 	go.mau.fi/libsignal v0.2.2 // indirect
 	go.mau.fi/util v0.9.10 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -81,7 +81,7 @@ require (
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260615183401-62b3387ff324 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260622175928-b703f567277d // indirect
 	google.golang.org/grpc v1.81.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	modernc.org/libc v1.73.4 // indirect
