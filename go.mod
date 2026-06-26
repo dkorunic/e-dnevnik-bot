@@ -12,6 +12,7 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/dgraph-io/badger/v4 v4.9.2
 	github.com/dustin/go-humanize v1.0.1
+	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-telegram/bot v1.21.0
 	github.com/google/go-github/v88 v88.0.0
@@ -64,9 +65,10 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20260619124436-7ab4bde3d003 // indirect
+	github.com/petermattis/goid v0.0.0-20260625140558-4207c655779d // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/vektah/gqlparser/v2 v2.5.35 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	go.mau.fi/libsignal v0.2.2 // indirect
 	go.mau.fi/util v0.9.10 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -84,7 +86,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260622175928-b703f567277d // indirect
 	google.golang.org/grpc v1.81.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	modernc.org/libc v1.73.4 // indirect
+	modernc.org/libc v1.73.5 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	rsc.io/qr v0.2.0 // indirect

@@ -11,6 +11,32 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
+// messagesEqual compares two message slices treating time.Time fields by
+// instant (.Equal) rather than internal representation. CBOR reconstructs
+// time.Time with a different monotonic/zone representation than the original,
+// so reflect.DeepEqual on the whole struct is unreliable for timestamps.
+func messagesEqual(a, b []msgtypes.Message) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if !a[i].Timestamp.Equal(b[i].Timestamp) || !a[i].QueuedAt.Equal(b[i].QueuedAt) {
+			return false
+		}
+
+		am, bm := a[i], b[i]
+		am.Timestamp, am.QueuedAt = time.Time{}, time.Time{}
+		bm.Timestamp, bm.QueuedAt = time.Time{}, time.Time{}
+
+		if !reflect.DeepEqual(am, bm) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func TestEncodeDecode(t *testing.T) {
 	t.Parallel()
 
@@ -44,7 +70,7 @@ func TestEncodeDecode(t *testing.T) {
 		t.Fatalf("DecodeMsgs failed: %v", err)
 	}
 
-	if !reflect.DeepEqual(originalMsgs, decoded) {
+	if !messagesEqual(originalMsgs, decoded) {
 		t.Errorf("Decoded messages do not match original messages.\nOriginal: %+v\nDecoded:  %+v", originalMsgs, decoded)
 	}
 
@@ -64,8 +90,8 @@ func TestEncodeDecode(t *testing.T) {
 		t.Errorf("Expected empty slice, but got %d messages", len(decodedEmpty))
 	}
 
-	// Invalid gob data.
-	invalidData := []byte("this is not a gob")
+	// Invalid CBOR data.
+	invalidData := []byte("this is not cbor")
 	_, err = DecodeMsgs(invalidData)
 	if err == nil {
 		t.Error("DecodeMsgs should have failed with invalid data, but it did not")
@@ -86,7 +112,7 @@ func TestEncodeDecode(t *testing.T) {
 // EncodeMsgs([]Message{}) returns a non-nil []byte{} (not nil).
 // DecodeMsgs must treat that non-nil empty slice as "no messages" and return
 // an empty list without error. A mutation changing `len(val)==0` to `val==nil`
-// in DecodeMsgs would cause gob.NewDecoder to receive zero bytes and return EOF.
+// in DecodeMsgs would cause cbor.NewDecoder to receive zero bytes and return EOF.
 func TestEncodeDecodEmptyRoundTrip(t *testing.T) {
 	t.Parallel()
 
