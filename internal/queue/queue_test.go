@@ -88,7 +88,7 @@ func TestStoreFailedMsgsCorruptedQueue(t *testing.T) {
 
 	// Inject corrupted bytes to simulate a broken queue.
 	if err := eDB.FetchAndStore(context.Background(), key, func(_ []byte) ([]byte, error) {
-		return []byte("corrupted gob data"), nil
+		return []byte("corrupted cbor data"), nil
 	}); err != nil {
 		t.Fatalf("FetchAndStore failed: %v", err)
 	}

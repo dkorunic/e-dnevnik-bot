@@ -91,7 +91,7 @@ func TestFetchFailedMsgsCorruptedData(t *testing.T) {
 
 	// Inject corrupted data directly into the queue.
 	eDB.FetchAndStore(context.Background(), queueKey, func(_ []byte) ([]byte, error) {
-		return []byte("this is not valid gob data"), nil
+		return []byte("this is not valid cbor data"), nil
 	})
 
 	// Should return empty list on corrupted data without panicking.

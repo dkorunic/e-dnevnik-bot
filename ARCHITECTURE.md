@@ -93,13 +93,13 @@
 ### `internal/queue/`
 
 **Responsibility:** Persistent dead-letter queue for failed message deliveries. Built on top of `sqlitedb`.
-**Key deps:** `internal/codec/` for gob serialization
+**Key deps:** `internal/codec/` for CBOR serialization
 **Patterns:** Atomic fetch-and-clear semantics; each messenger has its own queue key; resend attempted on next poll cycle.
 
 ### `internal/codec/`
 
-**Responsibility:** `encoding/gob` serialization of `[]msgtypes.Message` for queue persistence.
-**Key deps:** standard library only
+**Responsibility:** CBOR (RFC 8949) serialization of `[]msgtypes.Message` for queue persistence.
+**Key deps:** `github.com/fxamacker/cbor/v2`
 **Patterns:** Empty input short-circuits without allocating.
 
 ### `internal/messenger/`
@@ -190,7 +190,7 @@
 ### Persistence and caching strategy
 
 - **Deduplication DB** (`internal/sqlitedb/`): SHA-256 KV store. All events indexed permanently (~1 year TTL). No read cache; SQLite WAL provides sufficient throughput for single-node polling.
-- **Failed message queue** (`internal/queue/`): Per-messenger SQLite keys storing gob-encoded `[]Message`. Cleared atomically on successful re-send.
+- **Failed message queue** (`internal/queue/`): Per-messenger SQLite keys storing CBOR-encoded `[]Message`. Cleared atomically on successful re-send.
 - **WhatsApp session** (`.e-dnevnik.wa.sqlite`): `whatsmeow`-managed multi-device session database.
 - **Calendar OAuth token** (`calendar_token.json`): JSON-encoded `oauth2.Token`, refreshed automatically.
 - No in-memory caches (by design — each poll is a fresh HTTP session with cookie jar).

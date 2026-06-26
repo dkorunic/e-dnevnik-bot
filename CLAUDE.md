@@ -16,7 +16,7 @@ All sub-packages live under `internal/` (enforced by the Go toolchain — nothin
 | `internal/fetch` | Raw HTTP client for e-Dnevnik (SAML/SSO auth, cookie jar). |
 | `internal/scrape` | Parses `fetch/` HTML into `msgtypes.Message` events. |
 | `internal/sqlitedb` | SQLite KV dedup store + BadgerDB migration. |
-| `internal/codec` | `encoding/gob` encode/decode for `[]Message` queue persistence. |
+| `internal/codec` | CBOR (`fxamacker/cbor/v2`) encode/decode for `[]Message` queue persistence. |
 | `internal/queue` | Dead-letter queue built on `sqlitedb` + `codec`. |
 | `internal/messenger` | Six messenger backends (Discord/Telegram/Slack/Mail/Calendar/WhatsApp). |
 | `internal/format` | Plain/HTML/Markdown formatters consumed by messengers. |
