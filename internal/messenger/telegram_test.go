@@ -75,7 +75,7 @@ func TestTelegramInit(t *testing.T) {
 		t.Fatalf("Unable to create Telegram bot: %v", err)
 	}
 	telegramCli = b
-	err = telegramInit(context.Background(), "test-token")
+	err = telegramInit("test-token")
 	if err != nil {
 		t.Fatalf("telegramInit() error = %v", err)
 	}

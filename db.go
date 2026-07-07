@@ -10,13 +10,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
-// openDB opens application database and returns handle to it.
-//
-// If there is a problem while opening the database, it will log the error and
-// exit the program.
-//
-// The application database is stored in a file in the current working directory
-// with the name given by the `dbFile` flag.
+// openDB opens the dedup/queue database at file, fatal on failure.
 func openDB(ctx context.Context, file string) *sqlitedb.Edb {
 	eDB, err := sqlitedb.New(ctx, file)
 	if err != nil {

@@ -207,18 +207,25 @@ func TestFetchAndStoreExpiredKey(t *testing.T) {
 func TestHashContentConcatenationOrder(t *testing.T) {
 	t.Parallel()
 
-	// Oracle: SHA-256("usersubjectfield1"). Recompute via `echo -n ... | sha256sum`.
-	expected := []byte{
+	// Oracle: SHA-256("usersubjectfield1") — the LEGACY separator-less format.
+	// Recompute via `echo -n ... | sha256sum`. This must stay stable forever:
+	// CheckAndFlagTTL relies on it to recognise rows flagged by old releases.
+	legacyExpected := []byte{
 		0x35, 0xb8, 0x03, 0xf7, 0x3d, 0x4f, 0xe3, 0xbc,
 		0xb9, 0xfc, 0xcd, 0xf1, 0x75, 0x50, 0xe2, 0x34,
 		0x3d, 0x5e, 0x74, 0xc0, 0x55, 0xab, 0x79, 0x9c,
 		0x11, 0x7f, 0xab, 0x3c, 0x92, 0x61, 0x08, 0x22,
 	}
 
-	got := hashContent("user", "subject", []string{"field1"})
+	legacy := hashContentLegacy("user", "subject", []string{"field1"})
+	if !bytes.Equal(legacy, legacyExpected) {
+		t.Errorf("hashContentLegacy drifted from historical format:\ngot:  %x\nwant: %x", legacy, legacyExpected)
+	}
 
-	if !bytes.Equal(got, expected) {
-		t.Errorf("hashContent order mismatch:\ngot:  %x\nwant: %x\n(bucket/subBucket swapped or subBucket dropped?)", got, expected)
+	// The current format is separator-delimited and must differ from legacy.
+	got := hashContent("user", "subject", []string{"field1"})
+	if bytes.Equal(got, legacy) {
+		t.Error("hashContent equals hashContentLegacy — separators are not being applied")
 	}
 
 	// Bug 6A: swapped bucket/subBucket must change the hash.
@@ -231,6 +238,75 @@ func TestHashContentConcatenationOrder(t *testing.T) {
 	droppedSub := hashContent("user", "", []string{"field1"})
 	if bytes.Equal(got, droppedSub) {
 		t.Error("hashContent without subBucket produced same hash — subBucket is not included in hash input")
+	}
+}
+
+// TestHashContentBoundaryShift verifies the separator prevents adjacent-part
+// boundary collisions: without it, target=["ab","c"] and target=["a","bc"]
+// would hash identically and a changed grade could be misread as a duplicate.
+func TestHashContentBoundaryShift(t *testing.T) {
+	t.Parallel()
+
+	h1 := hashContent("user", "subject", []string{"ab", "c"})
+	h2 := hashContent("user", "subject", []string{"a", "bc"})
+
+	if bytes.Equal(h1, h2) {
+		t.Error("hashContent boundary-shift collision: [ab c] == [a bc]")
+	}
+
+	// Bucket/subBucket boundary must also be protected.
+	h3 := hashContent("userx", "subject", nil)
+	h4 := hashContent("user", "xsubject", nil)
+
+	if bytes.Equal(h3, h4) {
+		t.Error("hashContent bucket/subBucket boundary-shift collision")
+	}
+}
+
+// TestCheckAndFlagTTLLegacyMigration verifies that an event flagged by an old
+// release (separator-less hash key) is still recognised as already-seen after
+// the hash format change — the dual lookup prevents a re-alert flood on
+// upgrade — and that it gets re-flagged under the current-format key.
+func TestCheckAndFlagTTLLegacyMigration(t *testing.T) {
+	t.Parallel()
+
+	tmpFile := filepath.Join(t.TempDir(), "test-db-legacy-hash.db.sqlite")
+
+	eDB, err := New(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer eDB.Close()
+
+	// Simulate a row written by a pre-separator release.
+	legacyKey := hashContentLegacy("user", "subject", []string{"field1"})
+	_, err = eDB.db.Exec(
+		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
+		legacyKey, []byte(""), time.Now().Add(time.Hour).Unix(),
+	)
+	if err != nil {
+		t.Fatalf("failed to insert legacy row: %v", err)
+	}
+
+	// Must be treated as already-flagged, not as a brand-new event.
+	found, err := eDB.CheckAndFlagTTL(context.Background(), "user", "subject", []string{"field1"})
+	if err != nil {
+		t.Fatalf("CheckAndFlagTTL failed: %v", err)
+	}
+
+	if !found {
+		t.Error("legacy-flagged event reported as new — upgrade would re-alert on all historical events")
+	}
+
+	// The event must now also exist under the current-format key.
+	var count int
+	if err = eDB.db.QueryRow("SELECT COUNT(*) FROM kv WHERE key = ?",
+		hashContent("user", "subject", []string{"field1"})).Scan(&count); err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+
+	if count != 1 {
+		t.Error("legacy hit was not re-flagged under the current-format key")
 	}
 }
 

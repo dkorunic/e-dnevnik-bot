@@ -137,21 +137,16 @@ func (db *Edb) Close() error {
 	return db.db.Close()
 }
 
-// CheckAndFlagTTL checks if a key already exists in the database and marks it with a flag
-// if it doesn't exist. The flag is set with a TTL of 1+ year.
+// CheckAndFlagTTL reports whether (bucket, subBucket, target) was already seen,
+// flagging it with a 1+ year TTL if not. Returns true for an existing live key.
 //
-// The key is created by hashing a concatenation of the bucket, subBucket and target
-// strings using SHA-256.
+// Runs under BEGIN IMMEDIATE on a dedicated conn (BeginTx's BEGIN DEFERRED
+// would race the SELECT) so two callers can't both flag the same key.
 //
-// If the key already exists, the function returns (true, nil). If the key doesn't
-// exist, the function marks the key and returns (false, nil) on success or
-// (false, error) on error.
-//
-// The check-then-insert pair is wrapped in a SQLite BEGIN IMMEDIATE transaction
-// so that two concurrent callers cannot both observe "not found" and each
-// insert the same key. A dedicated *sql.Conn is used because database/sql's
-// BeginTx() issues BEGIN DEFERRED, which acquires the write lock lazily on
-// first write and leaves the SELECT above racing with other writers.
+// A missing current-format key falls back to the legacy separator-less hash:
+// a live legacy hit counts as seen and is re-flagged under the current key,
+// letting the old row age out. This dual lookup stops an upgrade from
+// re-alerting every historical event.
 func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, target []string) (bool, error) {
 	key := hashContent(bucket, subBucket, target)
 
@@ -176,27 +171,34 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 		}
 	}()
 
-	var expiresAt sql.NullInt64
-
-	err = conn.QueryRowContext(ctx, "SELECT expires_at FROM kv WHERE key = ?", key).Scan(&expiresAt)
-	switch {
-	case err == nil:
-		// Still within TTL: already-flagged.
-		if !expiresAt.Valid || expiresAt.Int64 >= now.Unix() {
-			if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
-				return false, err
-			}
-
-			committed = true
-
-			return true, nil
-		}
-		// Expired: re-insert so stale events re-fire after ~1 year.
-	case errors.Is(err, sql.ErrNoRows):
-	default:
+	found, err := keyLive(ctx, conn, key, now)
+	if err != nil {
 		return false, err
 	}
 
+	migrated := false
+
+	if !found {
+		// Fallback: row flagged by a pre-separator release.
+		migrated, err = keyLive(ctx, conn, hashContentLegacy(bucket, subBucket, target), now)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	if found {
+		if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
+			return false, err
+		}
+
+		committed = true
+
+		return true, nil
+	}
+
+	// Not found (or expired): flag under the current-format key. For a legacy
+	// hit this migrates the row forward with a fresh TTL; the legacy row is
+	// left to expire on its own.
 	expiry := now.Add(DefaultEntryTTL).Unix()
 	if _, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
 		key, []byte(""), expiry); err != nil {
@@ -209,7 +211,23 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 
 	committed = true
 
-	return false, nil
+	return migrated, nil
+}
+
+// keyLive reports whether key exists and is still within its TTL. Expired
+// rows are treated as absent so stale events re-fire after ~1 year.
+func keyLive(ctx context.Context, conn *sql.Conn, key []byte, now time.Time) (bool, error) {
+	var expiresAt sql.NullInt64
+
+	err := conn.QueryRowContext(ctx, "SELECT expires_at FROM kv WHERE key = ?", key).Scan(&expiresAt)
+	switch {
+	case err == nil:
+		return !expiresAt.Valid || expiresAt.Int64 >= now.Unix(), nil
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	default:
+		return false, err
+	}
 }
 
 // Existing returns if the database was freshly initialized.
@@ -217,25 +235,11 @@ func (db *Edb) Existing() bool {
 	return db.isExisting
 }
 
-// FetchAndStore fetches a value by key, applies a given function to the value
-// and stores the result.
-//
-// It does the following steps:
-//
-// 1. Finds the key in the database.
-// 2. Copies the associated value.
-// 3. Calls the given function with the copied value as argument and stores the result.
-// 4. Stores the result in the database with the same key and a TTL of 1+ year.
-//
-// The fetch/modify/store sequence is wrapped in a SQLite BEGIN IMMEDIATE
-// transaction so two concurrent callers (for the same queue key) cannot each
-// read the same snapshot, apply their own transformation, and then race to
-// overwrite the other's result — which would silently drop queue entries. A
-// dedicated *sql.Conn is used because database/sql's BeginTx() issues BEGIN
-// DEFERRED, which acquires the write lock lazily on first write and leaves the
-// initial SELECT racing with other writers.
-//
-// If any of the steps fail, it will return an error.
+// FetchAndStore atomically reads key, passes the value to f, and writes f's
+// result back (empty result deletes the row). The read-modify-write runs under
+// BEGIN IMMEDIATE on a dedicated conn — BeginTx's BEGIN DEFERRED would leave
+// the SELECT racing other writers — so concurrent callers on the same key
+// cannot lose each other's updates. Queue rows carry no TTL.
 func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte) ([]byte, error)) error {
 	conn, err := db.db.Conn(ctx)
 	if err != nil {
@@ -309,6 +313,89 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	}
 
 	committed = true
+
+	return nil
+}
+
+// Put stores a key/value pair with no TTL (expires_at NULL), replacing any
+// existing row. Queue rows use this: they must never expire via the TTL
+// cleanup pass — queue aging is handled at fetch time by MaxQueueAge.
+func (db *Edb) Put(ctx context.Context, key, value []byte) error {
+	_, err := db.db.ExecContext(ctx,
+		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, value)
+
+	return err
+}
+
+// Delete removes a key. Deleting a non-existent key is a no-op, not an error.
+func (db *Edb) Delete(ctx context.Context, key []byte) error {
+	_, err := db.db.ExecContext(ctx, "DELETE FROM kv WHERE key = ?", key)
+
+	return err
+}
+
+// KV is a single key/value row returned by ScanPrefix.
+type KV struct {
+	Key   []byte
+	Value []byte
+}
+
+// ScanPrefix returns all rows whose key starts with prefix, ordered by key
+// ascending. The upper bound is computed by incrementing the last prefix
+// byte; a prefix ending in a run of 0xFF bytes falls back to a full ordered
+// scan filtered client-side (never the case for our queue prefixes, which
+// end in a 0x00 separator).
+func (db *Edb) ScanPrefix(ctx context.Context, prefix []byte) ([]KV, error) {
+	upper := prefixUpperBound(prefix)
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if upper != nil {
+		rows, err = db.db.QueryContext(ctx,
+			"SELECT key, value FROM kv WHERE key >= ? AND key < ? ORDER BY key ASC", prefix, upper)
+	} else {
+		rows, err = db.db.QueryContext(ctx,
+			"SELECT key, value FROM kv WHERE key >= ? ORDER BY key ASC", prefix)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close() // read-only cursor cleanup
+
+	var out []KV
+
+	for rows.Next() {
+		var kv KV
+		if err := rows.Scan(&kv.Key, &kv.Value); err != nil {
+			return nil, err
+		}
+
+		if !bytes.HasPrefix(kv.Key, prefix) {
+			continue
+		}
+
+		out = append(out, kv)
+	}
+
+	return out, rows.Err()
+}
+
+// prefixUpperBound returns the smallest key strictly greater than every key
+// with the given prefix, or nil if no such bound exists (all-0xFF prefix).
+func prefixUpperBound(prefix []byte) []byte {
+	upper := bytes.Clone(prefix)
+	for i := len(upper) - 1; i >= 0; i-- {
+		if upper[i] < 0xFF {
+			upper[i]++
+
+			return upper[:i+1]
+		}
+	}
 
 	return nil
 }

@@ -40,10 +40,7 @@ var (
 	whatsAppSynced     = make(chan struct{}, 1)
 )
 
-// init initializes the GitTag, GitCommit, GitDirty, and BuildTime variables.
-//
-// It trims leading and trailing white spaces from the values of GitTag, GitCommit,
-// GitDirty, and BuildTime.
+// init trims whitespace from the ldflags-injected build vars.
 //
 //nolint:gochecknoinits
 func init() {
@@ -53,11 +50,8 @@ func init() {
 	BuildTime = strings.TrimSpace(BuildTime)
 }
 
-// checkCalendarConf checks the Calendar configuration and enables or disables the Calendar integration based on the existence of the Google Calendar API credentials file and token file.
-//
-// Parameters:
-// - config: a pointer to the TomlConfig struct containing the configuration settings.
-// - ctx: the context object for cancellation and timeout.
+// checkCalendar runs first-run Calendar OAuth when no token file exists,
+// disabling the integration if setup fails or no interactive terminal is present.
 func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
@@ -79,13 +73,9 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	}
 }
 
-// checkWhatsApp checks the WhatsApp configuration and enables or disables the WhatsApp integration based on the existence of the WhatsApp device ID.
-//
-// It will request syncing for the last 3-months and print the QR code if the WhatsApp device ID is not found in the database. It will also handle the pairing process if the WhatsApp device ID is not found.
-//
-// Parameters:
-// - ctx: the context object for cancellation and timeout.
-// - config: a pointer to the TomlConfig struct containing the configuration settings.
+// checkWhatsApp runs first-run WhatsApp pairing (QR code or phone PIN) when the
+// device is not yet linked, requesting a 3-month history sync. It holds
+// WhatsAppPairingMu so the runtime client can't race the store handoff.
 func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
@@ -199,22 +189,9 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	}
 }
 
-// whatsappPairingEventHandler is a callback function that handles events from the
-// WhatsApp client. It switches on the type of the event and performs the
-// appropriate action.
-//
-// Events handled:
-//   - *events.AppStateSyncComplete: checks if the client has a push name and
-//     sends an available presence if so. Logs a message if the online sync
-//     completed and signals that the WhatsApp client is fully synced.
-//   - *events.Connected, *events.PushNameSetting: checks if the client has a
-//     push name and sends an available presence if so.
-//   - *events.PairSuccess, *events.PairError: checks if the client has a device
-//     ID and removes the database file if not. Logs a message if the linking
-//     process failed.
-//   - *events.LoggedOut: removes the database file and logs a message.
-//   - *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
-//     logs a message, disconnects the client, and reconnects if possible.
+// whatsappPairingEventHandler is the pairing-time whatsmeow callback. It
+// signals whatsAppSynced once app-state sync completes; a failed link or logout
+// deletes the session DB and is fatal (still in interactive setup, no queue yet).
 func whatsappPairingEventHandler(rawEvt any) {
 	switch evt := rawEvt.(type) {
 	case *events.OfflineSyncPreview:
@@ -263,11 +240,8 @@ func whatsappPairingEventHandler(rawEvt any) {
 	}
 }
 
-// isTerminal checks if the current output is a terminal.
-//
-// It returns true if the environment does not disable color output, the terminal
-// is not set to "dumb", and the output file descriptor is a terminal. It also
-// considers Cygwin terminals as valid terminals.
+// isTerminal reports whether stdout is an interactive terminal (honouring
+// NO_COLOR and TERM=dumb), used to gate interactive first-run flows.
 func isTerminal() bool {
 	fd := os.Stdout.Fd()
 

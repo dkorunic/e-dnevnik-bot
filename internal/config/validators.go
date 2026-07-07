@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Dinko Korunic
 // SPDX-License-Identifier: MIT
 
-//nolint:godot
 package config
 
 import (
@@ -22,119 +21,57 @@ var (
 	telegramChatIDRegex = regexp.MustCompile(`^-?\d{5,19}$`)
 )
 
-// isValidPhone checks if the given phone number is in international format
-// (starting with "+", followed by 3-14 digits).
-//
-// Parameters:
-// - phone: the phone number to validate
-//
-// Returns:
-// - true if phone number is valid, false otherwise
+// isValidPhone reports whether phone is in international format (+, 3-14 digits).
 func isValidPhone(phone string) bool {
 	return phoneRegex.MatchString(phone)
 }
 
-// isValidUserAtDomain checks if the given string is a valid username at domain
-// (User@domain.tld).
-//
-// Parameters:
-// - User: the username at domain to validate
-//
-// Returns:
-// - true if the username at domain is valid, false otherwise
+// isValidUserAtDomain reports whether user matches User@domain.tld.
 func isValidUserAtDomain(user string) bool {
 	return userAtDomainRegex.MatchString(user)
 }
 
-// isValidMail checks if the given string is a valid mail address in the
-// format User@domain.tld.
-//
-// Parameters:
-// - Mail: the mail address to validate
-//
-// Returns:
-// - true if the mail address is valid, false otherwise
+// isValidMail reports whether mail is a parseable RFC 5322 address.
 func isValidMail(mail string) bool {
 	_, err := stdmail.ParseAddress(mail)
 
 	return err == nil
 }
 
-// isValidID checks if the given string is a valid positive integer.
-//
-// Parameters:
-// - id: the string to validate
-//
-// Returns:
-// - true if the string is a valid positive integer, false otherwise
+// isValidID reports whether id is an unsigned integer.
 func isValidID(id string) bool {
 	_, err := strconv.ParseUint(id, 10, 64)
 
 	return err == nil
 }
 
-// isValidSlackToken checks if the given string is a valid Slack token.
-//
-// Parameters:
-// - token: the Slack token to validate
-//
-// Returns:
-// - true if the Slack token is valid, false otherwise
+// isValidSlackToken reports whether token matches the Slack token format.
 func isValidSlackToken(token string) bool {
 	return slackTokenRegex.MatchString(token)
 }
 
-// isValidSlackChatID checks if the given string is a valid Slack Chat ID.
-//
-// Parameters:
-// - id: the string to validate
-//
-// Returns:
-// - true if the string is a valid Slack Chat ID, false otherwise
+// isValidSlackChatID reports whether id matches the Slack chat ID format.
 func isValidSlackChatID(id string) bool {
 	return slackChatIDRegex.MatchString(id)
 }
 
-// isValidDiscordToken checks if the given string is a valid Discord token.
-//
-// Parameters:
-// - token: the Discord token to validate
-//
-// Returns:
-// - true if the Discord token is valid, false otherwise
+// isValidDiscordToken reports whether token matches the Discord token format.
 func isValidDiscordToken(token string) bool {
 	return discordTokenRegex.MatchString(token)
 }
 
-// isValidTelegramToken checks if the given string is a valid Telegram token.
-//
-// Parameters:
-// - token: the Telegram token to validate
-//
-// Returns:
-// - true if the Telegram token is valid, false otherwise
+// isValidTelegramToken reports whether token matches the Telegram token format.
 func isValidTelegramToken(token string) bool {
 	return telegramTokenRegex.MatchString(token)
 }
 
-// isValidTelegramChatID checks if the given string is a valid Telegram Chat ID.
-//
-// Parameters:
-// - id: the string to validate
-//
-// Returns:
-// - true if the string is a valid Telegram Chat ID, false otherwise
+// isValidTelegramChatID reports whether id matches the Telegram chat ID format.
 func isValidTelegramChatID(id string) bool {
 	return telegramChatIDRegex.MatchString(id)
 }
 
-// isValidWhatsAppJID checks if the given string is a valid WhatsApp group or User JID.
-//
-// Parameters:
-// - jid: the string to validate
-//
-// Returns:
-// - true if the string is a valid WhatsApp JID, false otherwise
+// isValidWhatsAppJID reports whether jid parses and targets a user, group, or
+// broadcast server.
 func isValidWhatsAppJID(jid string) bool {
 	parsedJID, err := types.ParseJID(jid)
 	if err != nil {

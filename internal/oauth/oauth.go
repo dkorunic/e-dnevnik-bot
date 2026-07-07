@@ -92,16 +92,9 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	return tok, nil
 }
 
-// GetClient retrieves an HTTP client with the given context, OAuth2 configuration, and token path.
-//
-// The function takes in the following parameters:
-// - ctx: the context.Context for the HTTP client.
-// - config: the *oauth2.Config for OAuth2 configuration.
-// - tokenPath: the string representing the path to the token file.
-//
-// The function returns the following:
-// - *http.Client: the HTTP client.
-// - error: an error if any occurred during the execution of the function.
+// GetClient returns an OAuth2 HTTP client, loading the token from tokenPath —
+// or running the interactive web flow if none exists — and persisting any
+// rotated token so restarts survive refresh-token rotation.
 func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*http.Client, error) {
 	tok, err := tokenFromFile(tokenPath)
 	saveToFile := false
@@ -147,11 +140,9 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 	return oauth2.NewClient(ctx, ts), nil
 }
 
-// getTokenFromWeb retrieves an OAuth2 token from a web-based authentication flow.
-//
-// ctx is the context.Context to use for the request.
-// config is the *oauth2.Config object that contains the OAuth2 configuration.
-// It returns the retrieved *oauth2.Token and an error if any occurred.
+// getTokenFromWeb runs the interactive consent flow: it serves a loopback
+// callback, opens the browser, and exchanges the returned code for a token.
+// State is CSRF-checked and the wait is bounded by AuthTimeout.
 func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token, error) {
 	// Random state for CSRF protection on the OAuth callback.
 	authReqState, err := uuid.NewV7()
@@ -288,11 +279,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	return tok, nil
 }
 
-// tokenFromFile reads a token from a file and returns it.
-//
-// It takes a string parameter `tokenPath` which specifies the path of the file to read the token from.
-// It returns a `*oauth2.Token` and an `error`. The `*oauth2.Token` represents the token read from the file,
-// and the `error` represents any error that occurred while reading the file or decoding the token.
+// tokenFromFile reads and JSON-decodes an OAuth2 token from tokenPath.
 func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	b, err := os.ReadFile(tokenPath)
 	if err != nil {
@@ -306,14 +293,7 @@ func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	return tok, err
 }
 
-// saveToken saves the provided OAuth token to the specified token path.
-//
-// Parameters:
-// - tokenPath: a string representing the path to save the token.
-// - token: a pointer to the OAuth token to be saved.
-//
-// Returns:
-// - error: an error indicating any issues encountered during the saving process.
+// saveToken atomically writes token to tokenPath as JSON with DefaultPerms.
 func saveToken(tokenPath string, token *oauth2.Token) error {
 	buf := new(bytes.Buffer)
 
@@ -329,10 +309,7 @@ func saveToken(tokenPath string, token *oauth2.Token) error {
 	return nil
 }
 
-// LoggingMiddleware is a middleware function that logs HTTP server requests.
-//
-// It takes a http.Handler as a parameter and logs the method, URI, status, client IP, and duration of the request.
-// It returns a http.Handler.
+// LoggingMiddleware logs method, URI, status, client IP, and duration per request.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()

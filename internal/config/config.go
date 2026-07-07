@@ -15,8 +15,9 @@ import (
 	"github.com/google/renameio/v2/maybe"
 )
 
-// LoadConfig attempts to load and decode configuration file in TOML format, doing a minimal sanity checking and
-// optionally returning an error.
+// LoadConfig decodes the TOML config at file and runs per-messenger
+// validation, enabling each messenger whose block validates. Fatal on an
+// invalid block or when no messenger is enabled.
 func LoadConfig(file string) (TomlConfig, error) {
 	var config TomlConfig
 	if _, err := toml.DecodeFile(file, &config); err != nil {
@@ -44,14 +45,7 @@ func LoadConfig(file string) (TomlConfig, error) {
 	return config, nil
 }
 
-// SaveConfig saves the provided configuration to the specified file in TOML format.
-//
-// Parameters:
-// - file: a string representing the path to save the configuration.
-// - config: a TomlConfig struct containing the configuration settings.
-//
-// Returns:
-// - error: an error indicating any issues encountered during the saving process.
+// SaveConfig atomically writes config to file as TOML with 0600 permissions.
 func SaveConfig(file string, config TomlConfig) error {
 	buf := new(bytes.Buffer)
 	if err := toml.NewEncoder(buf).Encode(config); err != nil {
@@ -65,16 +59,9 @@ func SaveConfig(file string, config TomlConfig) error {
 	return nil
 }
 
-// checkWhatsAppConf does a minimal sanity check on the WhatsApp configuration block, ensuring that:
-//
-// 1. the phone number is in international format (if specified)
-//
-// 2. all User IDs are valid
-//
-// If any of these conditions are not met, the program will log a fatal error and exit.
-//
-// If all conditions are met, the program will log an info message about WhatsApp messenger being enabled and will set
-// the whatsAppEnabled field of the TomlConfig object to true.
+// checkWhatsAppConf validates the WhatsApp block (phone format, JIDs, group
+// names), sorts groups for binary search, and enables the messenger. Fatal on
+// any invalid entry.
 func checkWhatsAppConf(config *TomlConfig) {
 	if len(config.WhatsApp.UserIDs) > 0 || len(config.WhatsApp.Groups) > 0 {
 		if config.WhatsApp.PhoneNumber != "" && !isValidPhone(config.WhatsApp.PhoneNumber) {
@@ -104,12 +91,7 @@ func checkWhatsAppConf(config *TomlConfig) {
 	}
 }
 
-// checkCalendarConf does a minimal sanity check on the Google Calendar configuration block, ensuring that:
-//
-// 1. the Calendar name is not empty
-//
-// If all conditions are met, the program will log an info message about Google Calendar integration being enabled and
-// will set the calendarEnabled field of the TomlConfig object to true.
+// checkCalendarConf enables the Calendar messenger when a calendar name is set.
 func checkCalendarConf(config *TomlConfig) {
 	if config.Calendar.Name != "" {
 		logger.Info().Msg("Configuration: Google Calendar messenger enabled")
@@ -118,14 +100,8 @@ func checkCalendarConf(config *TomlConfig) {
 	}
 }
 
-// checkMailConf does a minimal sanity check on the mail configuration block, ensuring that:
-//
-// 1. the mail server is not empty
-//
-// 2. all destination mail addresses (TO) are valid
-//
-// If all conditions are met, the program will log an info message about mail integration being enabled and will set the
-// mailEnabled field of the TomlConfig object to true.
+// checkMailConf validates the mail block (recipients, optional From, optional
+// port) and enables the messenger. Fatal on any invalid entry.
 func checkMailConf(config *TomlConfig) {
 	if config.Mail.Server != "" {
 		if len(config.Mail.To) == 0 {
@@ -157,14 +133,8 @@ func checkMailConf(config *TomlConfig) {
 	}
 }
 
-// checkSlackConf does a minimal sanity check on the Slack configuration block, ensuring that:
-//
-// 1. the Slack token is defined and valid
-//
-// 2. the chat IDs are defined and all valid
-//
-// If all conditions are met, the program will log an info message about Slack integration being enabled and will set the
-// slackEnabled field of the TomlConfig object to true.
+// checkSlackConf validates the Slack block (token and chat IDs) and enables the
+// messenger. Fatal on any invalid entry.
 func checkSlackConf(config *TomlConfig) {
 	if config.Slack.Token != "" {
 		if !isValidSlackToken(config.Slack.Token) {
@@ -187,14 +157,8 @@ func checkSlackConf(config *TomlConfig) {
 	}
 }
 
-// checkTelegramConf performs a minimal sanity check on the Telegram configuration block, ensuring that:
-//
-// 1. the Telegram token is defined and valid
-//
-// 2. the chat IDs are defined and all valid
-//
-// If all conditions are met, the program will log an info message about Telegram integration being enabled and will set the
-// telegramEnabled field of the TomlConfig object to true.
+// checkTelegramConf validates the Telegram block (token and chat IDs) and
+// enables the messenger. Fatal on any invalid entry.
 func checkTelegramConf(config *TomlConfig) {
 	if config.Telegram.Token != "" {
 		if !isValidTelegramToken(config.Telegram.Token) {
@@ -217,14 +181,8 @@ func checkTelegramConf(config *TomlConfig) {
 	}
 }
 
-// checkDiscordConf performs a minimal sanity check on the Discord configuration block, ensuring that:
-//
-// 1. the Discord token is defined and valid
-//
-// 2. the User IDs are defined and all valid
-//
-// If all conditions are met, the program will log an info message about Discord integration being enabled and will set the
-// discordEnabled field of the TomlConfig object to true.
+// checkDiscordConf validates the Discord block (token and user IDs) and enables
+// the messenger. Fatal on any invalid entry.
 func checkDiscordConf(config *TomlConfig) {
 	if config.Discord.Token != "" {
 		if !isValidDiscordToken(config.Discord.Token) {
@@ -247,17 +205,9 @@ func checkDiscordConf(config *TomlConfig) {
 	}
 }
 
-// checkUserConf does a minimal sanity check on the User configuration block, ensuring that:
-//
-// 1. at least one User is defined
-//
-// 2. all users have both username and password
-//
-// 3. all usernames are in proper User@domain format
-//
-// 4. all usernames end with @skole.hr (a warning is logged if not)
-//
-// If all conditions are met, the program will log an info message about User configuration being enabled.
+// checkUserConf validates the [[user]] blocks: at least one entry, each with
+// username+password in User@domain form, no duplicates. Fatal on violation; a
+// non-@skole.hr domain only warns.
 func checkUserConf(config *TomlConfig) {
 	if len(config.User) == 0 {
 		logger.Fatal().Msg("Configuration error: No users defined")

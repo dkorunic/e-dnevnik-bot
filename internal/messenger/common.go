@@ -10,7 +10,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
+	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
 // isPermanentHTTPStatus reports whether a 4xx status will never succeed on
@@ -25,19 +28,42 @@ func isPermanentHTTPStatus(code int) bool {
 // storeTimeout bounds the detached context used to persist queue writes after caller ctx cancel.
 const storeTimeout = 5 * time.Second
 
-// queueStoreCtx returns a context suitable for the post-send StoreFailedMsgs
-// call. If the caller's context is still live, it is used as-is so shutdown
-// requests continue to propagate. If the caller's context has already been
-// cancelled (the common case when the recipient loop broke out of the send
-// early), a short-lived detached context is returned so the sqlite write
-// still runs — otherwise the unsent message would be silently dropped on
-// shutdown. The returned cancel MUST be invoked by the caller (idempotent).
+// queueStoreCtx yields a context for the post-send StoreFailedMsgs write: the
+// live ctx as-is, or — if it is already cancelled — a short-lived detached one
+// so the sqlite write still runs and the message is not lost on shutdown. The
+// returned cancel MUST be invoked (idempotent).
 func queueStoreCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx.Err() == nil {
 		return ctx, func() {}
 	}
 
 	return context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
+}
+
+// queueUndelivered is the init-failure fallback: it drains ch into the
+// failed-message queue so already-dedup-flagged events survive to the next
+// cycle instead of being dropped forever (dedup guarantees they never re-fire).
+// Blocking until ch closes also keeps the broadcast relay from wedging on an
+// undrained listener.
+func queueUndelivered(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, ch <-chan msgtypes.Message) {
+	queued := 0
+
+	for g := range ch {
+		// Shutdown-tolerant: queue write must survive ctx cancel.
+		sctx, scancel := queueStoreCtx(ctx)
+		if err := queue.StoreFailedMsgs(sctx, eDB, queueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+		}
+
+		scancel()
+
+		queued++
+	}
+
+	if queued > 0 {
+		logger.Warn().Msgf("Messenger %v failed to initialize; stored %v undelivered messages for retry on next run",
+			string(queueName), queued)
+	}
 }
 
 // Per-platform outbound size caps; we truncate client-side to turn API rejection into lossy delivery.
@@ -50,11 +76,9 @@ const (
 	DiscordMaxEmbedChars    = 6000  // Discord sum of title + description + field names + field values + footer + author
 )
 
-// mergeSkipRecipients returns existing ∪ extras with duplicates removed while
-// preserving the order of first occurrence. Used when appending newly-successful
-// recipients to SkipRecipients across retries — without deduplication, a message
-// that repeatedly fails for different subsets of recipients accumulates
-// unbounded duplicate entries in the queue.
+// mergeSkipRecipients returns existing ∪ extras, dedup'd, in first-seen order.
+// Dedup keeps SkipRecipients from growing unboundedly as a message re-fails for
+// different recipient subsets across retries.
 func mergeSkipRecipients(existing, extras []string) []string {
 	if len(extras) == 0 {
 		return existing
@@ -87,17 +111,11 @@ func mergeSkipRecipients(existing, extras []string) []string {
 	return out
 }
 
-// truncateHTMLBody formats username/subject/code/descriptions/grade as an HTML
-// message and, if the result exceeds maxRunes, drops trailing description/grade
-// pairs until it fits. Trimming the input rather than the output preserves the
-// surrounding <b>/<pre> tag balance, so Telegram's HTML parser does not reject
-// the message as malformed. If even the header exceeds the budget, returns the
-// header-only formatted string (Telegram will reject it but the caller will at
-// least see a clear error rather than a silent truncation defect).
-//
-// A binary search over the pair count converges in O(log N) renders instead of
-// the O(N) renders of a linear shrink — meaningful for messages with many
-// description/grade pairs.
+// truncateHTMLBody renders an HTML message that fits within maxRunes by
+// dropping trailing description/grade pairs. Trimming the input (not the
+// output) keeps the <b>/<pre> tags balanced so Telegram's parser accepts it;
+// an over-budget header falls back to header-only. Uses binary search over the
+// pair count (O(log N) renders).
 func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descriptions, grade []string, maxRunes int) string {
 	nMax := min(len(descriptions), len(grade))
 
@@ -128,18 +146,8 @@ func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descrip
 	return formatted
 }
 
-// truncateWithEllipsis truncates a string with ellipsis at the end
-// if it's longer than max runes. It returns the original string if it's
-// not longer than max runes.
-//
-// Parameters:
-//
-//	s - the string to truncate
-//	m - the maximum number of runes the string should have
-//
-// Returns:
-//
-//	the truncated string or the original string if it's not longer than max runes.
+// truncateWithEllipsis shortens s to at most m runes, appending "..." when it
+// trims. Strings already within budget are returned unchanged.
 func truncateWithEllipsis(s string, m int) string {
 	if utf8.RuneCountInString(s) <= m {
 		return s

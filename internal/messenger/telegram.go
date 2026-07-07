@@ -49,28 +49,29 @@ type TelegramConfig struct {
 	Retries uint
 }
 
-// Telegram sends messages through the Telegram API to the specified Telegram chat IDs.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function.
-// - eDB: the database instance for checking and storing failed messages.
-// - ch: the channel from which to receive messages.
-// - cfg: the Telegram messenger configuration (token, chat IDs, retries).
-//
-// The function formats the message as HTML and attempts to send it to each chat ID.
-// It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
-// It uses rate limiting and supports retries with delay.
+// Telegram resends any queued failures, then delivers live messages from ch to
+// the configured chat IDs. On init failure it drains ch into the queue so
+// already-dedup-flagged events are not lost.
 func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg TelegramConfig) error {
 	if cfg.Token == "" {
+		queueUndelivered(ctx, eDB, TelegramQueueName, ch)
+
 		return fmt.Errorf("%w", ErrTelegramEmptyAPIKey)
 	}
 
 	if len(cfg.ChatIDs) == 0 {
+		queueUndelivered(ctx, eDB, TelegramQueueName, ch)
+
 		return fmt.Errorf("%w", ErrTelegramEmptyUserIDs)
 	}
 
-	err := telegramInit(ctx, cfg.Token)
+	err := telegramInit(cfg.Token)
 	if err != nil {
+		// bot.New performs a network getMe call, so this path is reachable on
+		// transient failures. Events are already dedup-flagged; queue them or
+		// they are lost forever.
+		queueUndelivered(ctx, eDB, TelegramQueueName, ch)
+
 		return err
 	}
 
@@ -78,22 +79,18 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
-	// Drain queued failures first; re-queue tail on shutdown.
-	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName)
-	for i, g := range failedMsgs {
+	// Resend queued failures first. Rows are only removed after processing, so
+	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
+	// rows simply stay queued for the next run.
+	for _, q := range queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName) {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, TelegramQueueName, failedMsgs[i:])
-
-			return ctx.Err()
+			break
 		}
 
-		processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		processTelegram(ctx, eDB, q.Msg, cfg.ChatIDs, rl, cfg.Retries)
 
-		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, TelegramQueueName, failedMsgs[i+1:])
-
-			return ctx.Err()
-		}
+		// Failures were re-queued by processTelegram; drop the original row.
+		queue.Dequeue(ctx, eDB, q.Key)
 	}
 
 	// Drain fully; processTelegram durably queues on cancelled ctx, losing nothing.
@@ -104,19 +101,10 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
-// markTelegramPermanent wraps Telegram API errors that will never succeed on
-// retry in retry.Unrecoverable so retry-go short-circuits the remaining
-// attempts.
-//
-// Permanent categories:
-//   - Forbidden (bot blocked), BadRequest (malformed), Unauthorized
-//     (invalid token), NotFound (chat gone), Conflict.
-//   - MigrateError: the chat was upgraded to a supergroup, the old ChatID will
-//     never accept sends again.
-//
-// TooManyRequests (both the sentinel and *TooManyRequestsError) is transient
-// and keeps its normal retry budget. Network/transport errors fall through
-// unchanged.
+// markTelegramPermanent marks permanent errors as unrecoverable so retry-go
+// stops retrying: Forbidden, BadRequest, Unauthorized, NotFound, Conflict, and
+// MigrateError (chat upgraded to supergroup — the old ChatID is dead).
+// TooManyRequests and network errors stay transient.
 func markTelegramPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -141,19 +129,8 @@ func markTelegramPermanent(err error) error {
 	return err
 }
 
-// processTelegram processes a message and sends it to the specified Telegram chat IDs.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function.
-// - eDB: the database instance for checking and storing failed messages.
-// - g: the message to be processed and sent.
-// - chatIDs: a slice of strings containing the Telegram chat IDs to send the message to.
-// - rl: the rate limiter to control the message sending rate.
-// - retries: the number of retry attempts for sending the message.
-//
-// The function formats the message as HTML and attempts to send it to each chat ID.
-// It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
-// It uses rate limiting and supports retries with delay.
+// processTelegram renders g as HTML and sends it to each chat ID, re-queueing
+// on partial or total failure. Recipients already in SkipRecipients are omitted.
 func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	// Trim pairs pre-format to keep <b>/<pre> tags balanced.
 	m := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, TelegramMaxMessageChars)
@@ -232,15 +209,12 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 }
 
-// telegramInit initializes a Telegram client and starts a session if it has not been initialized yet.
+// telegramInit lazily creates the shared Telegram client (idempotent).
+// bot.New validates the token via a network getMe call.
 //
-// The function takes a context.Context and the Telegram API key as parameters.
-// If the Telegram client has not been initialized yet (i.e., telegramCli is nil), it creates a new client using the provided API key,
-// starts the session, and assigns the client to the global telegramCli variable.
-// If the client has already been initialized, the function does nothing and returns nil.
-//
-// The function returns an error if there was a problem creating the client or starting the session.
-func telegramInit(ctx context.Context, apiKey string) error {
+// No Start(): its getUpdates long-poll is only for receiving, which a
+// send-only bot never consumes. SendMessage works without it.
+func telegramInit(apiKey string) error {
 	telegramMu.Lock()
 	defer telegramMu.Unlock()
 
@@ -255,9 +229,6 @@ func telegramInit(ctx context.Context, apiKey string) error {
 
 			return err
 		}
-
-		// Start blocks until ctx cancel; run off the main goroutine.
-		go telegramCli.Start(ctx)
 	}
 
 	return nil

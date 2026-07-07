@@ -29,14 +29,34 @@ func dbExists(filePath string) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-// hashContent creates a SHA-256 hash from (bucket, subBucket, []target) concatenated without separators and returns
-// the raw 32-byte digest. SHA-256 is collision-resistant in the cryptographic sense (no known practical collisions),
-// but callers should be aware that the inputs are joined without delimiters: distinct logical tuples whose string
-// representations share the same byte sequence (e.g. bucket="ab",subBucket="c" vs bucket="a",subBucket="bc") will
-// produce identical hashes. This is acceptable here because bucket and subBucket are fixed, application-controlled
-// values, not arbitrary user input.
+// hashSep separates hash inputs so boundary shifts between adjacent parts
+// cannot collide. target holds scraped portal content (grade fields), so
+// without a delimiter e.g. target=["10.","5"] and target=["10",".5"] would
+// produce identical digests and a changed grade could be misread as a
+// duplicate. 0x00 never occurs in the portal's text content.
+const hashSep = byte(0x00)
+
+// hashContent creates a SHA-256 hash from (bucket, subBucket, []target) joined
+// with hashSep separators and returns the raw 32-byte digest.
+//
+// NOTE: rows written by older releases used a separator-less concatenation
+// (see hashContentLegacy). CheckAndFlagTTL performs a dual lookup so existing
+// installs migrate lazily instead of re-alerting on every historical event.
 func hashContent(bucket, subBucket string, target []string) []byte {
-	totalLen := len(bucket) + len(subBucket)
+	return hashParts(bucket, subBucket, target, true)
+}
+
+// hashContentLegacy is the pre-separator digest format, kept only so
+// CheckAndFlagTTL can recognise rows flagged by older releases. Do not use
+// for new writes.
+func hashContentLegacy(bucket, subBucket string, target []string) []byte {
+	return hashParts(bucket, subBucket, target, false)
+}
+
+// hashParts implements both digest formats over a pooled scratch buffer.
+func hashParts(bucket, subBucket string, target []string, withSep bool) []byte {
+	// +len(target)+1 covers the worst-case separator count.
+	totalLen := len(bucket) + len(subBucket) + len(target) + 1
 	for i := range target {
 		totalLen += len(target[i])
 	}
@@ -51,9 +71,17 @@ func hashContent(bucket, subBucket string, target []string) []byte {
 	buf := (*bufp)[:0]
 
 	buf = append(buf, bucket...)
+	if withSep {
+		buf = append(buf, hashSep)
+	}
+
 	buf = append(buf, subBucket...)
 
 	for i := range target {
+		if withSep {
+			buf = append(buf, hashSep)
+		}
+
 		buf = append(buf, target[i]...)
 	}
 

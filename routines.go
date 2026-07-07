@@ -19,7 +19,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/scrape"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
-	"github.com/google/go-github/v88/github"
+	"github.com/google/go-github/v89/github"
 	"github.com/teivah/broadcast"
 	"github.com/tj/go-spin"
 )
@@ -63,16 +63,9 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 	}
 }
 
-// msgSend handles the distribution of scraped grades and events messages to various messaging services configured in the application.
-// It sets up a broadcaster to relay messages to multiple services such as Discord, Telegram, Slack, Mail, Google Calendar, and WhatsApp.
-// Each service runs in its own goroutine and listens to both live and previously failed messages from a database queue.
-//
-// Parameters:
-// - ctx: the context for cancellation and timeout.
-// - eDB: the database instance for checking failed messages.
-// - wgMsg: a WaitGroup to synchronize the completion of message sending.
-// - gradesMsg: a channel receiving messages to be sent to configured messengers.
-// - cfg: the configuration settings containing enabled services and their respective credentials.
+// msgSend broadcasts messages from gradesMsg to every enabled messenger, each
+// running in its own goroutine off a shared relay. See the two-level WaitGroup
+// note below: the relay must Close before wgInner.Wait or listener loops deadlock.
 func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Go(func() {
 		relay := broadcast.NewRelay[msgtypes.Message]()
@@ -247,7 +240,15 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 			found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
 			if err != nil {
-				logger.Fatal().Msgf("Problem with database, cannot continue: %v", err)
+				// Not Fatal: os.Exit here would bypass in-flight messenger
+				// queue writes and deferred cleanup. SIGTERM-to-self runs the
+				// normal graceful shutdown instead; unforwarded events are
+				// unflagged and re-scrape next run.
+				logger.Error().Msgf("Problem with database, cannot continue: %v", err)
+				exitWithError.Store(true)
+				messenger.RequestShutdown()
+
+				return
 			}
 
 			// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
@@ -329,11 +330,8 @@ func spinner(done <-chan struct{}) {
 	}
 }
 
-// versionCheck checks for newer versions of e-dnevnik-bot on GitHub.
-// It uses the git tag information to compare the current version with the latest version.
-// If a newer version is available, it prints a message indicating how many releases are behind.
-// NOTE: This function is only run if the program is not running from a local source-build (i.e. if GitTag is not empty and GitDirty is empty).
-// It does not check for updates if the program is running from a local source-build, as the user is expected to be aware of the latest version.
+// versionCheck logs a notice if a newer release exists on GitHub. Skipped for
+// local/dirty source builds; the GitHub call is bounded by versionCheckTimeout.
 func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	wgVersion.Go(func() {
 		// Skip local source-builds — user owns their own version.
@@ -366,13 +364,13 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		if latestRelease.TagName == nil {
-			logger.Error().Msg("Unable to parse latest release of e-dnevnik-bot: nil TagName")
+		if latestRelease.TagName == "" {
+			logger.Error().Msg("Unable to parse latest release of e-dnevnik-bot: empty TagName")
 
 			return
 		}
 
-		latestTag, err := semver.NewVersion(strings.TrimPrefix(*latestRelease.TagName, "v"))
+		latestTag, err := semver.NewVersion(strings.TrimPrefix(latestRelease.TagName, "v"))
 		if err != nil || latestTag == nil {
 			logger.Error().Msgf("Unable to parse latest release of e-dnevnik-bot: %v", err)
 

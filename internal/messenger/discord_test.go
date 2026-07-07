@@ -241,7 +241,7 @@ func TestProcessDiscordSkipsAlreadyDeliveredRecipientsOnRetry(t *testing.T) {
 	discordChannels = make(map[string]string)
 
 	// Second attempt using the queued message: ok-user must be skipped.
-	processDiscord(context.Background(), eDB, failed[0], userIDs, rl, 1)
+	processDiscord(context.Background(), eDB, failed[0].Msg, userIDs, rl, 1)
 
 	mu.Lock()
 	defer mu.Unlock()

@@ -52,11 +52,8 @@ var (
 	bgWG sync.WaitGroup
 )
 
-// fatalIfErrors is a Go function that checks if any errors were encountered during runtime.
-//
-// It checks the value of the exitWithError variable and if it is true, it logs a warning message
-// and exits the program with an exit code of 1. If the exitWithError variable is false, it logs
-// an info message and exits the program with an exit code of 0 (success).
+// fatalIfErrors exits non-zero (via Fatal) if any cycle set exitWithError,
+// otherwise logs success. Terminal call — does not return on the error path.
 func fatalIfErrors() {
 	if exitWithError.Load() {
 		logger.Fatal().Msg("Exiting, during run some errors were encountered.")
@@ -65,12 +62,9 @@ func fatalIfErrors() {
 	logger.Info().Msg("Exiting with a success.")
 }
 
-// main is the entry point of the application.
-//
-// It parses flags, sets the global log level, enables slow colored console logging,
-// configures GOMAXPROCS, sets up a context with signal integration, loads the TOML config,
-// checks Google Calendar setup, enables CPU profiling dump on exit, enables memory profile dump on exit,
-// enters test mode if enabled, starts the service if in daemon mode, and runs scheduled tasks.
+// main wires up config, logging, memory limits, signal handling, and profiling,
+// runs first-run Calendar/WhatsApp setup, then either does a single run or
+// drives the daemon poll loop until signalled.
 func main() {
 	parseFlags()
 
@@ -303,16 +297,8 @@ func main() {
 	}
 }
 
-// startSystemdWatchdog sets up the systemd watchdog for the application.
-//
-// It initializes a systemd watchdog and starts a goroutine that sends
-// periodic heartbeat signals to systemd. The function listens for context
-// cancellation, upon which it stops sending heartbeats and exits the
-// goroutine. This function is useful for ensuring the application is
-// alive and responsive, as monitored by systemd.
-//
-// Parameters:
-// - ctx: the context object for cancellation and timeout.
+// startSystemdWatchdog, when a watchdog is configured, spawns a bgWG-tracked
+// goroutine that sends heartbeats until ctx is cancelled.
 func startSystemdWatchdog(ctx context.Context) {
 	watchdog, _ := sysdwatchdog.New()
 	if watchdog != nil {
@@ -335,15 +321,8 @@ func startSystemdWatchdog(ctx context.Context) {
 	}
 }
 
-// testSingleRun performs a single run in emulation mode. It sends a single test
-// message to each messenger and exits after that. It is meant to be used for
-// testing and debugging purposes only.
-//
-// The function takes a context.Context and a TomlConfig as parameters. The
-// context is used to cancel the function early if the User cancels it.
-//
-// The function will log a message when it is called and another one when it is
-// exiting.
+// testSingleRun pushes one synthetic message through the full send pipeline so
+// operators can verify messenger credentials and formatting without scraping.
 func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
 	signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -376,16 +355,9 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Exiting with a success from the emulation.")
 }
 
-// durationRandJitter adds a random jitter to x in the range [0.9 * x, 1.1 * x].
-//
-// This is useful for spreading out events in time, e.g. when multiple instances
-// of this program are running at the same time and you don't want them to hit
-// the same external service at the same time.
-//
-// The jitter factor is drawn from a continuous uniform distribution over
-// [0.9, 1.1) via rand.Float64(), not a 21-step integer distribution, so
-// multiple concurrent daemons do not cluster on a small number of discrete
-// wake times. The randomness is generated using the math/rand/v2 package.
+// durationRandJitter scales x by a continuous factor in [0.9, 1.1) so
+// concurrent daemons spread their polls instead of hitting the portal in
+// lockstep. Continuous (not stepped) to avoid aliasing on a few wake times.
 func durationRandJitter(x time.Duration) time.Duration {
 	//nolint:gosec,mnd
 	return time.Duration(float64(x) * (0.9 + 0.2*rand.Float64()))

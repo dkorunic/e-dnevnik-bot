@@ -12,14 +12,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// initLog sets the global log level to the level specified by the -v
-// command-line flag or the LOG_LEVEL environment variable. If the
-// -v flag is specified, the log level is set to DebugLevel. If LOG_LEVEL
-// environment variable is set, the log level is set to the value of the
-// variable. If neither are specified, the log level is set to InfoLevel.
-//
-// If the -l command-line flag is specified, initLog enables slow colored
-// console logging. This is useful for debugging.
+// initLog sets the global log level from -v or LOG_LEVEL (default Info) and
+// switches to colorized console output when -l is set.
 //
 //nolint:nestif
 func initLog() {

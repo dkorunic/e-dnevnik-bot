@@ -156,20 +156,9 @@ func (c *Client) doSAMLRequest() error {
 	return nil
 }
 
-// getGeneric performs a GET request on the given URL, handling the response
-// with care.
-//
-// The function sets the User-Agent header to the value of `c.userAgent`, and
-// Cache-Control and Pragma headers to "no-cache". It also sets the Referer
-// header to `LoginURL`.
-//
-// If the request returns a non-2xx status, or if the response body is empty,
-// the function returns an error.
-//
-// The function also handles context cancellation and returns the context's
-// error in such a case.
-//
-// The function returns the response body as a byte slice, or an error.
+// getGeneric GETs dest with the session's headers and returns the body,
+// capped at MaxBodySize (ErrBodyTooLarge past that). Non-2xx/302 responses and
+// context cancellation return an error.
 func (c *Client) getGeneric(dest string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, dest, nil)
 	if err != nil {
@@ -234,19 +223,10 @@ func (c *Client) getCourses() ([]byte, error) {
 	return c.getGeneric(CourseURL)
 }
 
-// getCourse fetches the course with the given destination URL and returns its
-// raw body, or an error.
-//
-// The destination originates from a portal-supplied <a href> attribute and is
-// resolved against BaseURL via url.ResolveReference. ResolveReference happily
-// switches host when ref is itself absolute, so the resolved URL is then
-// host/scheme-pinned to BaseURL: a portal HTML that carries an external
-// absolute href (compromised portal, MITM, future stored-XSS) would otherwise
-// send the bot's authenticated cookie jar to an attacker-controlled host or be
-// used as a SSRF probe against internal/cloud-metadata endpoints.
-//
-// The function also handles context cancellation and returns the context's
-// error in such a case.
+// getCourse fetches a portal-supplied course href, pinned to BaseURL's
+// scheme+host. dest comes from untrusted portal HTML and ResolveReference
+// silently swaps host for an absolute ref, so the pin blocks SSRF / cookie-jar
+// exfiltration via a compromised or MITM'd portal.
 func (c *Client) getCourse(dest string) ([]byte, error) {
 	// Resolve relative URLs; naive concat would malform them.
 	base, err := url.Parse(BaseURL)
@@ -286,12 +266,9 @@ func (c *Client) getCalendar() (Events, error) {
 	return evs, nil
 }
 
-// doClassAction switches the active class to the given class ID, returning an error upon failure.
-//
-// The classID originates from a portal-supplied HTML attribute (`data-action-id`)
-// and is interpolated into a URL path segment. To prevent path-injection through
-// a tampered portal response, the value is validated against reClassID before
-// use and additionally PathEscape'd as defence-in-depth.
+// doClassAction switches the active class. classID comes from untrusted portal
+// HTML and is interpolated into a URL path, so it is validated against reClassID
+// and PathEscape'd to block path-injection.
 func (c *Client) doClassAction(classID string) error {
 	if classID == "" || strings.Contains(classID, "..") || !reClassID.MatchString(classID) {
 		return fmt.Errorf("%w: %q", ErrInvalidClassID, classID)

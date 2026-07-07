@@ -51,11 +51,9 @@ const (
 	whatsAppPresenceTimeout = 5 * time.Second
 )
 
-// SendPresenceBounded sends a presence update with its own bounded context.
-// Errors are intentionally discarded; presence is best-effort signalling and
-// the caller cannot recover from a failed send. Each call gets a fresh
-// whatsAppPresenceTimeout budget so a slow first call does not zero out the
-// budget for a subsequent one.
+// SendPresenceBounded sends a best-effort presence update under its own
+// whatsAppPresenceTimeout so a stalled socket can't block the caller. Errors
+// are unrecoverable and discarded.
 func SendPresenceBounded(cli *whatsmeow.Client, p types.Presence) {
 	ctx, cancel := context.WithTimeout(context.Background(), whatsAppPresenceTimeout)
 	defer cancel()
@@ -94,17 +92,18 @@ var (
 	// Pairing code holds it through Disconnect/Close so whatsAppInit cannot race.
 	WhatsAppPairingMu sync.Mutex
 
-	// shutdownOnce ensures requestShutdown fires SIGTERM exactly once across repeated fatal events.
+	// shutdownOnce ensures RequestShutdown fires SIGTERM exactly once across repeated fatal events.
 	shutdownOnce sync.Once
 )
 
-// requestShutdown signals SIGTERM to the current process so that the main
+// RequestShutdown signals SIGTERM to the current process so that the main
 // loop's signal.NotifyContext catches it and runs the normal graceful
 // shutdown path — including draining the failed-message queue. This replaces
-// the prior logger.Fatal()/os.Exit() pattern in event handlers, which
-// bypassed queue persistence on unrecoverable WhatsApp events (LoggedOut,
-// PairError with nil device).
-func requestShutdown() {
+// the logger.Fatal()/os.Exit() pattern, which bypasses queue persistence and
+// deferred cleanup. Used for unrecoverable WhatsApp events (LoggedOut,
+// PairError with nil device) and exported for other unrecoverable-but-not-
+// worth-crashing conditions such as a broken dedup database in main.
+func RequestShutdown() {
 	shutdownOnce.Do(func() {
 		if p, err := os.FindProcess(os.Getpid()); err == nil {
 			_ = p.Signal(syscall.SIGTERM)
@@ -119,30 +118,29 @@ type WhatsAppConfig struct {
 	Retries uint
 }
 
-// WhatsApp sends messages through the WhatsApp API to the specified user IDs or groups.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function.
-// - eDB: the database instance for checking and storing failed messages.
-// - ch: the channel from which to receive messages.
-// - cfg: the WhatsApp messenger configuration (user IDs, group names, retries).
-//
-// The function processes all failed messages, finds named groups and appends them to the userIDs,
-// processes all new messages and sends them to the specified user IDs or groups.
-// It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
-// It uses rate limiting and supports retries with delay.
+// WhatsApp resolves any configured group names to JIDs, resends queued
+// failures, then delivers live messages from ch to the configured user IDs and
+// groups. On init failure it drains ch into the queue so already-dedup-flagged
+// events are not lost.
 func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg WhatsAppConfig) error {
 	// Local aliases: group resolution below mutates userIDs in place.
 	userIDs := cfg.UserIDs
 	groups := cfg.Groups
 
 	if len(userIDs) == 0 && len(groups) == 0 {
+		queueUndelivered(ctx, eDB, WhatsAppQueueName, ch)
+
 		return ErrWhatsAppEmptyUserIDs
 	}
 
 	// Keep connection open; reconnect is expensive (full state resync).
 	err := whatsAppInit(ctx)
 	if err != nil {
+		// Connect() is a network operation, so this path is reachable on
+		// transient failures. Events are already dedup-flagged; queue them or
+		// they are lost forever.
+		queueUndelivered(ctx, eDB, WhatsAppQueueName, ch)
+
 		return err
 	}
 
@@ -210,22 +208,18 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}
 
-	// Drain failed-message queue; requeue leftovers if ctx cancels mid-drain.
-	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName)
-	for i, g := range failedMsgs {
+	// Resend queued failures first. Rows are only removed after processing, so
+	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
+	// rows simply stay queued for the next run.
+	for _, q := range queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName) {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, WhatsAppQueueName, failedMsgs[i:])
-
-			return ctx.Err()
+			break
 		}
 
-		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
+		processWhatsApp(ctx, cli, eDB, q.Msg, userIDs, rl, cfg.Retries)
 
-		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, WhatsAppQueueName, failedMsgs[i+1:])
-
-			return ctx.Err()
-		}
+		// Failures were re-queued by processWhatsApp; drop the original row.
+		queue.Dequeue(ctx, eDB, q.Key)
 	}
 
 	// Drain fully; processWhatsApp durably queues on cancelled ctx, losing nothing.
@@ -236,16 +230,10 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
-// markWhatsAppPermanent wraps whatsmeow errors that will never succeed on
-// retry in retry.Unrecoverable so retry-go short-circuits the remaining
-// attempts.
-//
-// Permanent categories are sentinels whose meaning is "the request as
-// formulated is impossible": nil client, not logged in, malformed recipient
-// JID, broadcast-list target, unknown server. Transient errors — session not
-// yet established, websocket not connected, IQ/message timeouts — fall
-// through unchanged because whatsmeow auto-reconnects and rebuilds session
-// state between attempts.
+// markWhatsAppPermanent marks "request is impossible" sentinels (nil client,
+// not logged in, malformed JID, broadcast-list target, unknown server) as
+// unrecoverable so retry-go stops retrying. Session/websocket/timeout errors
+// stay transient — whatsmeow auto-reconnects between attempts.
 func markWhatsAppPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -262,19 +250,9 @@ func markWhatsAppPermanent(err error) error {
 	return err
 }
 
-// processWhatsApp processes a message and sends it to the specified user IDs on WhatsApp.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function.
-// - eDB: the database instance for checking failed messages.
-// - g: the message to be processed.
-// - userIDs: a slice of strings containing the IDs of the recipients (JIDs).
-// - rl: the rate limiter to control the message sending rate.
-// - retries: the number of retry attempts to send the message.
-//
-// It formats the message as Markup and attempts to send it to each user ID.
-// It logs errors for invalid chat IDs, sending failures, and stores failed messages for retry.
-// It uses rate limiting and supports retries with delay.
+// processWhatsApp renders g as plain text and sends it to each recipient JID,
+// re-queueing on partial or total failure. Invalid JIDs are skipped without
+// spending rate budget; recipients already in SkipRecipients are omitted.
 func processWhatsApp(ctx context.Context, cli *whatsmeow.Client, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// PlainMsg avoids leaking Markdown metacharacters via Conversation rendering.
 	mRaw := truncateWithEllipsis(format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), WhatsAppMaxMessageChars)
@@ -358,13 +336,9 @@ func awaitWhatsAppPairingDone() {
 	WhatsAppPairingMu.Unlock()
 }
 
-// whatsAppInit ensures that the WhatsApp client is initialized.
-//
-// If the client is not already initialized, it calls whatsAppLogin() to do so.
-// Once initialized, transient disconnects are handled by whatsmeow's own
-// reconnect goroutine (EnableAutoReconnect = true). A manual Disconnect/Connect
-// path here would race the library's reconnect and can cause double-connect
-// session conflicts that force a re-link.
+// whatsAppInit lazily logs in the shared WhatsApp client (idempotent). It does
+// no manual reconnect: whatsmeow's own reconnect goroutine handles disconnects,
+// and racing it risks double-connect conflicts that force a re-link.
 func whatsAppInit(ctx context.Context) error {
 	// Wait for interactive pairing to release the sqlstore.
 	awaitWhatsAppPairingDone()
@@ -396,10 +370,8 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
 	return jids
 }
 
-// whatsAppProcessGroups takes a list of group names and user IDs, retrieves the joined WhatsApp groups,
-// and appends the JIDs of any matching groups to the user IDs slice. If an error occurs while fetching
-// the groups, it logs the error. The function returns the updated list of user IDs which now includes
-// the JIDs of the specified groups.
+// whatsAppProcessGroups appends the JIDs of joined groups matching the given
+// names to userIDs. On lookup error it logs and returns userIDs unchanged.
 func whatsAppProcessGroups(ctx context.Context, cli *whatsmeow.Client, userIDs, groups []string) []string {
 	if len(groups) > 0 {
 		g, err := cli.GetJoinedGroups(ctx)
@@ -420,18 +392,9 @@ func whatsAppProcessGroups(ctx context.Context, cli *whatsmeow.Client, userIDs, 
 	return userIDs
 }
 
-// whatsAppLogin initializes WhatsApp messenger.
-//
-// It connects to the SQLite database specified by WhatsAppDBName, upgrades
-// the database schema if necessary, loads the first device, and then connects
-// to WhatsApp using the loaded device. If the device is not logged in, it will
-// request a QR code or code to pair with the WhatsApp account.
-//
-// The WhatsApp client is configured to enable automatic reconnection and
-// automatic trust of the identity key. The client is also configured to use
-// the whatsAppEventHandler to handle events.
-//
-// If any error occurs during the process, it is logged and returned.
+// whatsAppLogin opens the WhatsApp store DB, loads the first device, and
+// connects with auto-reconnect and auto-trust enabled. Globals are only
+// published on full success so a failed attempt leaves a clean slate to retry.
 func whatsAppLogin(ctx context.Context) error {
 	// Partial 3-month sync to shrink first-link cost.
 	store.DeviceProps.RequireFullSync = new(false)
@@ -487,22 +450,9 @@ func whatsAppLogin(ctx context.Context) error {
 	return nil
 }
 
-// whatsAppEventHandler is a callback function that handles events from the
-// WhatsApp client. It switches on the type of the event and performs the
-// appropriate action.
-//
-// Events handled:
-//   - *events.AppStateSyncComplete: checks if the client has a push name and
-//     sends an available presence if so. Logs a message if the online sync
-//     completed and signals that the WhatsApp client is fully synced.
-//   - *events.Connected, *events.PushNameSetting: checks if the client has a
-//     push name and sends an available presence if so.
-//   - *events.PairSuccess, *events.PairError: checks if the client has a device
-//     ID and removes the database file if not. Logs a message if the linking
-//     process failed.
-//   - *events.LoggedOut: removes the database file and logs a message.
-//   - *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:
-//     logs a message, disconnects the client, and reconnects if possible.
+// whatsAppEventHandler is the runtime whatsmeow callback. Unrecoverable events
+// (LoggedOut, PairError with no device ID) delete the session DB and request a
+// graceful shutdown; stream-replacement events invalidate the group cache.
 func whatsAppEventHandler(rawEvt any) {
 	// Snapshot under mutex: whatsmeow fires callbacks outside init.
 	whatsAppCliMu.Lock()
@@ -540,7 +490,7 @@ func whatsAppEventHandler(rawEvt any) {
 			// Trigger graceful shutdown via SIGTERM-to-self so the main
 			// loop drains the failed-message queue before exiting.
 			logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
-			requestShutdown()
+			RequestShutdown()
 		} else {
 			logger.Debug().Msg("WhatsApp device successfully paired")
 		}
@@ -548,7 +498,7 @@ func whatsAppEventHandler(rawEvt any) {
 		_ = os.Remove(WhatsAppDBName)
 
 		logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppLoggedout)
-		requestShutdown()
+		RequestShutdown()
 	case *events.Disconnected:
 		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
 	case *events.StreamReplaced, *events.KeepAliveTimeout:
@@ -568,16 +518,7 @@ func whatsAppEventHandler(rawEvt any) {
 	}
 }
 
-// isWriteable checks if a file at the specified path is writable.
-//
-// It takes the following parameter:
-// - path: the path to the file to check.
-//
-// It returns true if the file is writable, false otherwise.
-//
-// It opens the file in write-only mode and checks if the open operation
-// succeeds. If it succeeds, it closes the file and returns true. If it
-// fails, it returns false.
+// isWriteable reports whether path can be opened for writing.
 func isWriteable(path string) bool {
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {

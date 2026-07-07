@@ -61,26 +61,27 @@ type DiscordConfig struct {
 	Retries uint
 }
 
-// Discord sends messages through the Discord API.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for handling deadlines and cancellations.
-// - eDB: the database instance for checking failed messages.
-// - ch: a channel for receiving messages to be sent.
-// - cfg: the Discord messenger configuration (token, recipient IDs, retries).
-//
-// It returns an error indicating any failures that occurred during the process.
+// Discord resends any queued failures, then delivers live messages from ch to
+// the configured user IDs. On init failure it drains ch into the queue so
+// already-dedup-flagged events are not lost.
 func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg DiscordConfig) error {
 	if cfg.Token == "" {
+		queueUndelivered(ctx, eDB, DiscordQueueName, ch)
+
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
 
 	if len(cfg.UserIDs) == 0 {
+		queueUndelivered(ctx, eDB, DiscordQueueName, ch)
+
 		return fmt.Errorf("%w", ErrDiscordEmptyUserIDs)
 	}
 
 	err := discordInit(cfg.Token)
 	if err != nil {
+		// Events are already dedup-flagged; queue them or they are lost forever.
+		queueUndelivered(ctx, eDB, DiscordQueueName, ch)
+
 		return err
 	}
 
@@ -88,22 +89,18 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
-	// Drain queued failures first; re-queue tail on shutdown.
-	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName)
-	for i, g := range failedMsgs {
+	// Resend queued failures first. Rows are only removed after processing, so
+	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
+	// rows simply stay queued for the next run.
+	for _, q := range queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName) {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, DiscordQueueName, failedMsgs[i:])
-
-			return ctx.Err()
+			break
 		}
 
-		processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
+		processDiscord(ctx, eDB, q.Msg, cfg.UserIDs, rl, cfg.Retries)
 
-		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, DiscordQueueName, failedMsgs[i+1:])
-
-			return ctx.Err()
-		}
+		// Failures were re-queued by processDiscord; drop the original row.
+		queue.Dequeue(ctx, eDB, q.Key)
 	}
 
 	// Drain fully; processDiscord durably queues on cancelled ctx, losing nothing.
@@ -114,12 +111,9 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 	return nil
 }
 
-// markDiscordPermanent wraps Discord API errors that will never succeed on
-// retry in retry.Unrecoverable so retry-go short-circuits the remaining
-// attempts. 4xx responses (auth failure, unknown channel, malformed embed) are
-// permanent — except 408 (timeout) and 429 (rate-limit), which are transient.
-// Non-REST errors (transport/network) fall through with their normal retry
-// budget.
+// markDiscordPermanent marks permanent 4xx REST errors (except 408/429) as
+// unrecoverable so retry-go stops retrying. Non-REST/transport errors keep
+// their normal retry budget.
 func markDiscordPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -135,17 +129,10 @@ func markDiscordPermanent(err error) error {
 	return err
 }
 
-// processDiscord processes a message from a channel and sends it to the specified user IDs on Discord.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function
-// - eDB: the database instance for checking failed messages
-// - g: the message to be processed
-// - userIDs: the list of Discord user IDs to send the messages to
-// - rl: the rate limiter
-// - retries: the number of retry attempts to send the message
-//
-// It returns no value and has no side effects except for error logging.
+// processDiscord renders g as an embed (field count and sizes capped to
+// Discord's limits) and sends it to each user ID via a lazily-resolved,
+// cached DM channel, re-queueing on partial or total failure. Recipients
+// already in SkipRecipients are omitted.
 func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// Cap field count and truncate strings so Discord does not reject the embed.
 	available := min(len(g.Fields), len(g.Descriptions))
@@ -303,18 +290,18 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 }
 
-// discordInit initializes a Discord client and starts a session if it has not been initialized yet.
-//
-// The function takes a string parameter, the Discord API key, and returns an error if there was a problem creating the client or starting the session.
-// If the client has already been initialized, the function does nothing and returns nil.
-//
-// The function logs errors if there was a problem creating the client or starting the session.
+// discordInit lazily creates the shared REST-only Discord client (idempotent).
 func discordInit(token string) error {
 	discordMu.Lock()
 	defer discordMu.Unlock()
 
 	var err error
 
+	// No Open(): this bot only sends via REST (UserChannelCreate /
+	// ChannelMessageSendEmbed), which needs no gateway websocket. Keeping a
+	// gateway connection open added heartbeats/reconnect churn for nothing —
+	// and a failed Open() left a half-initialized session that was never
+	// retried because discordCli was already non-nil.
 	if discordCli == nil {
 		logger.Debug().Msg("Initializing Discord client")
 
@@ -325,13 +312,10 @@ func discordInit(token string) error {
 			return err
 		}
 
-		discordCli.ShouldReconnectOnError = true
 		discordCli.ShouldRetryOnRateLimit = true
 		discordCli.MaxRestRetries = 1
 
 		discordChannels = make(map[string]string)
-
-		return discordCli.Open()
 	}
 
 	return nil

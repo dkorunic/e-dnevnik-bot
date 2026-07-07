@@ -36,15 +36,9 @@ func mustEncMode() cbor.EncMode {
 	return em
 }
 
-// DecodeMsgs takes a byte slice, decodes it as a CBOR-encoded
-// slice of msgtypes.Message, and returns the decoded slice and any
-// decoding error.
-//
-// The decoder is hardened against panics here: on-disk queue bytes may come
-// from an older binary or have been corrupted on disk. While CBOR decoding
-// normally returns malformed input as an error, wrapping Decode in
-// defer/recover converts any unexpected panic into a regular error so the
-// caller can log and start fresh instead of crashing the whole daemon.
+// DecodeMsgs CBOR-decodes val into a message slice. A decode panic on
+// corrupted or older-format on-disk bytes is recovered into ErrDecodePanic so
+// a bad queue entry never crashes the daemon.
 func DecodeMsgs(val []byte) (msgs []msgtypes.Message, err error) {
 	if len(val) == 0 {
 		return []msgtypes.Message{}, nil

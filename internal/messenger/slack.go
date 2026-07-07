@@ -46,23 +46,26 @@ type SlackConfig struct {
 	Retries uint
 }
 
-// Slack sends messages through the Slack API.
-//
-// ctx: the context in which the function is executed.
-// eDB: the database instance for checking failed messages.
-// ch: the channel from which messages are received.
-// cfg: the Slack messenger configuration (token, chat IDs, retries).
-// error: an error if there was a problem sending the message.
+// Slack resends any queued failures, then delivers live messages from ch to the
+// configured chat IDs. On init failure it drains ch into the queue so
+// already-dedup-flagged events are not lost.
 func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg SlackConfig) error {
 	if cfg.Token == "" {
+		queueUndelivered(ctx, eDB, SlackQueueName, ch)
+
 		return fmt.Errorf("%w", ErrSlackEmptyAPIKey)
 	}
 
 	if len(cfg.ChatIDs) == 0 {
+		queueUndelivered(ctx, eDB, SlackQueueName, ch)
+
 		return fmt.Errorf("%w", ErrSlackEmptyUserIDs)
 	}
 
 	if err := slackInit(cfg.Token); err != nil {
+		// Events are already dedup-flagged; queue them or they are lost forever.
+		queueUndelivered(ctx, eDB, SlackQueueName, ch)
+
 		return err
 	}
 
@@ -70,22 +73,18 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 
 	rl := ratelimit.New(SlackAPILimit, ratelimit.Per(SlackWindow))
 
-	// Drain queued failures first; re-queue tail on shutdown.
-	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, SlackQueueName)
-	for i, g := range failedMsgs {
+	// Resend queued failures first. Rows are only removed after processing, so
+	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
+	// rows simply stay queued for the next run.
+	for _, q := range queue.FetchFailedMsgs(ctx, eDB, SlackQueueName) {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, SlackQueueName, failedMsgs[i:])
-
-			return ctx.Err()
+			break
 		}
 
-		processSlack(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		processSlack(ctx, eDB, q.Msg, cfg.ChatIDs, rl, cfg.Retries)
 
-		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, SlackQueueName, failedMsgs[i+1:])
-
-			return ctx.Err()
-		}
+		// Failures were re-queued by processSlack; drop the original row.
+		queue.Dequeue(ctx, eDB, q.Key)
 	}
 
 	// Drain fully; processSlack durably queues on cancelled ctx, losing nothing.
@@ -96,19 +95,9 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 	return nil
 }
 
-// markSlackPermanent wraps Slack API errors that will never succeed on retry
-// in retry.Unrecoverable so retry-go short-circuits the remaining attempts.
-//
-// Two categories qualify as permanent:
-//   - slack.StatusCodeError with a 4xx code (auth failure, channel missing,
-//     malformed request) — except 408 (timeout) and 429 (rate-limit), which
-//     are transient.
-//   - slack.SlackErrorResponse — API-level "ok":false responses carry an
-//     Err field naming a specific API error (e.g. "invalid_auth",
-//     "channel_not_found"); none of these clear up on retry.
-//
-// Everything else (network errors, 5xx, unclassified) falls through unchanged
-// and keeps its normal retry budget.
+// markSlackPermanent marks permanent errors as unrecoverable so retry-go stops
+// retrying: 4xx StatusCodeError (except 408/429) and any SlackErrorResponse
+// (API-level "ok":false, e.g. invalid_auth). Network/5xx errors stay transient.
 func markSlackPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -127,20 +116,9 @@ func markSlackPermanent(err error) error {
 	return err
 }
 
-// processSlack sends a message to a list of Slack chat IDs.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function.
-// - eDB: the database instance for checking failed messages.
-// - g: the message to be processed and sent.
-// - chatIDs: a slice of strings containing the IDs of the recipients (Slack channels).
-// - rl: the rate limiter to control the message sending rate.
-// - err: an error that occurred during message sending.
-// - retries: the number of retry attempts for sending the message.
-//
-// The function formats the message as Markup and attempts to send it to each chat ID.
-// It logs errors for sending failures, and stores failed messages for retry.
-// It uses rate limiting and supports retries with delay.
+// processSlack renders g as markup and sends it to each chat ID (channel or
+// nickname), re-queueing on partial or total failure. Recipients already in
+// SkipRecipients are omitted.
 func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	// Truncate over Slack's text cap — oversize bodies are rejected outright.
 	m := truncateWithEllipsis(format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), SlackMaxMessageChars)
@@ -211,12 +189,7 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	}
 }
 
-// slackInit initializes the Slack client using the provided API token.
-//
-// token: The Slack API key used to authenticate and create a new Slack client.
-// If the Slack client is not already initialized, the function creates a new
-// Slack client. If the client has already been initialized, the function does
-// nothing.
+// slackInit lazily creates the shared Slack client (idempotent).
 func slackInit(token string) error {
 	slackMu.Lock()
 	defer slackMu.Unlock()

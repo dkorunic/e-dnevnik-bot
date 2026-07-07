@@ -62,15 +62,9 @@ type CalendarConfig struct {
 	Retries uint
 }
 
-// Calendar sends messages through the Google Calendar API to the specified calendar.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for handling deadlines and cancellations.
-// - eDB: the database instance for checking failed messages.
-// - ch: a channel for receiving messages to be sent.
-// - cfg: the Google Calendar messenger configuration (name, token file, retries).
-//
-// It returns an error indicating any failures that occurred during the process.
+// Calendar resends any queued failures, then inserts exam events from ch into
+// the configured calendar. On init failure it drains ch into the queue so
+// already-dedup-flagged events are not lost.
 func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalendarConfig) error {
 	calendarMu.Lock()
 
@@ -80,6 +74,11 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		calendarSrv, calendarID, err = InitCalendar(ctx, cfg.TokFile, cfg.Name)
 		if err != nil {
 			calendarMu.Unlock()
+
+			// InitCalendar refreshes OAuth tokens over the network, so this
+			// path is reachable on transient failures. Events are already
+			// dedup-flagged; queue them or they are lost forever.
+			queueUndelivered(ctx, eDB, CalendarQueueName, ch)
 
 			return err
 		}
@@ -94,22 +93,18 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
-	// Drain queued failures first; re-queue tail on shutdown.
-	failedMsgs := queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName)
-	for i, g := range failedMsgs {
+	// Resend queued failures first. Rows are only removed after processing, so
+	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
+	// rows simply stay queued for the next run.
+	for _, q := range queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName) {
 		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, CalendarQueueName, failedMsgs[i:])
-
-			return ctx.Err()
+			break
 		}
 
-		processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
+		processCalendar(ctx, eDB, q.Msg, rl, srv, calID, cfg.Retries)
 
-		if ctx.Err() != nil {
-			queue.RequeueMsgs(ctx, eDB, CalendarQueueName, failedMsgs[i+1:])
-
-			return ctx.Err()
-		}
+		// Failures were re-queued by processCalendar; drop the original row.
+		queue.Dequeue(ctx, eDB, q.Key)
 	}
 
 	// Drain fully; processCalendar durably queues on cancelled ctx, losing nothing.
@@ -120,14 +115,10 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
-// markCalendarPermanent wraps Google Calendar API errors that will never
-// succeed on retry in retry.Unrecoverable. 4xx responses other than 408
-// (timeout) and 429 (rate-limit) indicate permanent failures (bad request,
-// auth failure, missing calendar, revoked access). 409 Conflict is also
-// classified permanent here; the post-Do block treats it as success — the
-// deterministic event ID means the insert already happened.
-// Everything else — 5xx, transport errors, timeouts — falls through with its
-// normal retry budget.
+// markCalendarPermanent marks permanent 4xx errors (except 408/429) as
+// unrecoverable so retry-go stops retrying. 409 Conflict is permanent too and
+// the caller treats it as success — the deterministic event ID means the
+// insert already landed. 5xx/transport errors stay transient.
 func markCalendarPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -142,18 +133,9 @@ func markCalendarPermanent(err error) error {
 	return err
 }
 
-// processCalendar is a helper function that processes a message from a channel and creates an event in Google Calendar.
-//
-// It takes the following parameters:
-// - ctx: the context.Context object for managing the execution of the function
-// - eDB: the database instance for checking failed messages
-// - g: the message to be processed
-// - rl: the rate limiter
-// - srv: the Google Calendar service client
-// - calID: the ID of the Google Calendar
-// - retries: the number of retry attempts for inserting a Google Calendar event
-//
-// It returns an error indicating any issues encountered during the execution of the function.
+// processCalendar inserts g as an all-day event, re-queueing on failure.
+// Non-exam events, past exams, and field-less exams are skipped. The event ID
+// is a deterministic hash so a retried insert dedupes server-side (409).
 func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, rl ratelimit.Limiter,
 	srv *calendar.Service, calID string, retries uint,
 ) {
@@ -167,9 +149,10 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	// Refresh per call: long-running daemons must not use a stale boundary.
-	now := time.Now()
-
-	if g.Timestamp.Before(now) {
+	// Compare calendar dates, not instants: exam timestamps are midnight-UTC
+	// all-day markers, so comparing against time.Now() directly would drop an
+	// exam first seen on the exam day itself. Only strictly-past days skip.
+	if g.Timestamp.Format(time.DateOnly) < time.Now().UTC().Format(time.DateOnly) {
 		logger.Info().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)
 
 		return
@@ -247,15 +230,9 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 }
 
-// InitCalendar initializes a Google Calendar service and retrieves the calendar ID.
-//
-// ctx: The context.Context for the function.
-// tokFile: The path to the token file.
-// name: The name of the calendar.
-// returns:
-// - *calendar.Service: A pointer to the calendar.Service.
-// - string: The calendar ID.
-// - error: Any error that occurred during initialization.
+// InitCalendar builds an OAuth2-authenticated Calendar service (running the
+// interactive consent flow if tokFile has no valid token) and resolves the
+// calendar named name to its ID.
 func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service, string, error) {
 	b, err := credentialFS.ReadFile(CalendarCredentials)
 	if err != nil {

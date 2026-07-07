@@ -94,7 +94,7 @@
 
 **Responsibility:** Persistent dead-letter queue for failed message deliveries. Built on top of `sqlitedb`.
 **Key deps:** `internal/codec/` for CBOR serialization
-**Patterns:** Atomic fetch-and-clear semantics; each messenger has its own queue key; resend attempted on next poll cycle.
+**Patterns:** One SQLite row per queued message (`<queue> || 0x00 || <time+seq>` keys) so enqueue cost is independent of queue depth; fetch is non-destructive — rows are removed via `Dequeue` only after processing, so a crash mid-resend re-delivers (at-least-once) instead of losing messages; each messenger has its own queue key; resend attempted on next poll cycle; legacy aggregate-blob queues are migrated to per-message rows on first fetch.
 
 ### `internal/codec/`
 
@@ -190,7 +190,7 @@
 ### Persistence and caching strategy
 
 - **Deduplication DB** (`internal/sqlitedb/`): SHA-256 KV store. All events indexed permanently (~1 year TTL). No read cache; SQLite WAL provides sufficient throughput for single-node polling.
-- **Failed message queue** (`internal/queue/`): Per-messenger SQLite keys storing CBOR-encoded `[]Message`. Cleared atomically on successful re-send.
+- **Failed message queue** (`internal/queue/`): One SQLite row per queued message under a per-messenger key prefix, each row a CBOR-encoded single-message list. Rows are deleted only after the message has been processed (delivered or re-queued), so a hard crash re-delivers rather than loses.
 - **WhatsApp session** (`.e-dnevnik.wa.sqlite`): `whatsmeow`-managed multi-device session database.
 - **Calendar OAuth token** (`calendar_token.json`): JSON-encoded `oauth2.Token`, refreshed automatically.
 - No in-memory caches (by design — each poll is a fresh HTTP session with cookie jar).
