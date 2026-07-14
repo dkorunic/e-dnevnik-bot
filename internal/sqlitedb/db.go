@@ -9,10 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
@@ -28,8 +25,6 @@ const (
 var (
 	ErrSqliteOpen        = errors.New("could not open Sqlite database")
 	ErrSqliteCreateTable = errors.New("could not create table")
-	ErrDeleteBadgerDB    = errors.New("could not remove old BadgerDB directory, please delete manually")
-	importOnce           sync.Once // BadgerDB migration must run at most once per process lifetime.
 )
 
 // Edb holds e-dnevnik structure including sql.DB struct.
@@ -43,8 +38,6 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	if filePath == "" {
 		filePath = DefaultDBPath
 	}
-
-	origFilePath := filePath
 
 	if !strings.HasSuffix(filePath, ".sqlite") {
 		filePath += ".sqlite"
@@ -81,51 +74,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	edb := &Edb{db: db, isExisting: isExisting}
 
-	var importErr error
-
-	importOnce.Do(func() {
-		// One-shot destructive BadgerDB migration; at most once per process.
-		edb, importErr = badgerDB2Sqlite(ctx, origFilePath, edb)
-	})
-	if importErr != nil {
-		_ = edb.Close()
-
-		return nil, importErr
-	}
-
 	edb.cleanup(ctx)
-
-	return edb, nil
-}
-
-// badgerDB2Sqlite checks if the given path is an old BadgerDB directory
-// and if so, imports all data into the given Edb and removes the old
-// BadgerDB directory.
-// Returns the Edb with imported data and an error if any occurred.
-func badgerDB2Sqlite(ctx context.Context, origFilePath string, edb *Edb) (*Edb, error) {
-	fid, errDir := os.Stat(origFilePath)
-	fim, errManifest := os.Stat(filepath.Join(origFilePath, "MANIFEST"))
-
-	dirExists := errDir == nil && fid.IsDir()
-	manifestExists := errManifest == nil && fim.Mode().IsRegular()
-
-	isBadgerDir := dirExists && manifestExists
-	if isBadgerDir {
-		if err := edb.ImportFromBadger(ctx, origFilePath); err != nil {
-			_ = edb.Close()
-
-			return nil, err
-		}
-
-		// Imported rows count as pre-existing; suppresses first-run seeding.
-		edb.isExisting = true
-
-		logger.Info().Msgf("Removing BadgerDB directory post-import at %v", origFilePath)
-
-		if err := os.RemoveAll(origFilePath); err != nil {
-			return edb, fmt.Errorf("%w: %w", ErrDeleteBadgerDB, err)
-		}
-	}
 
 	return edb, nil
 }

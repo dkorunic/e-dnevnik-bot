@@ -15,7 +15,7 @@ All sub-packages live under `internal/` (enforced by the Go toolchain — nothin
 | `internal/msgtypes` | Canonical domain event: `Message` struct + `EventCode` enum. No deps. |
 | `internal/fetch` | Raw HTTP client for e-Dnevnik (SAML/SSO auth, cookie jar). |
 | `internal/scrape` | Parses `fetch/` HTML into `msgtypes.Message` events. |
-| `internal/sqlitedb` | SQLite KV dedup store + BadgerDB migration. |
+| `internal/sqlitedb` | SQLite KV dedup store. |
 | `internal/codec` | CBOR (`fxamacker/cbor/v2`) encode/decode for `[]Message` queue persistence. |
 | `internal/queue` | Dead-letter queue built on `sqlitedb` + `codec`. |
 | `internal/messenger` | Six messenger backends (Discord/Telegram/Slack/Mail/Calendar/WhatsApp). |
@@ -103,10 +103,6 @@ A fresh DB (`!eDB.Existing()`) causes `msgDedup` to store hashes but forward not
 ### TTL-based dedup re-fires after ~1 year — `internal/sqlitedb/db.go:CheckAndFlagTTL`
 
 `DefaultEntryTTL = 9000h`. Expired rows are treated as absent and re-inserted. Long-lived installs will re-alert on stale events. Do not shorten this TTL without coordinating with the relevance-period filter in `msgDedup`.
-
-### BadgerDB migration is one-shot and destructive — `internal/sqlitedb/import.go`
-
-Wrapped in a `sync.Once`, runs at most once per process, and **deletes the legacy BadgerDB directory on success**. There is no rollback. Do not factor this into a reusable helper that might be called twice.
 
 ### Bounded version check — `routines.go:versionCheck`
 

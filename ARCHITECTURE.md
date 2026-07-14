@@ -87,8 +87,8 @@
 ### `internal/sqlitedb/`
 
 **Responsibility:** Pure-Go SQLite KV store for deduplication. Keys are SHA-256 hashes of `(username, subject, fields)`. Entries carry a `DefaultEntryTTL` of ~9 000 h (slightly over one year).
-**Key deps:** `modernc.org/sqlite` (no CGO), `dgraph-io/badger/v4` (migration source only), `minio/sha256-simd` (hardware-accelerated hashing)
-**Patterns:** WAL mode with a small shared connection pool (`MaxOpenConns=4`), prepared statements, TTL-indexed expiry (expired rows are re-inserted via `CheckAndFlagTTL` so stale dedup keys re-fire), background `cleanup` sweep, automatic BadgerDB migration on first run via `sync.Once` (runs at most once per process lifetime).
+**Key deps:** `modernc.org/sqlite` (no CGO), `minio/sha256-simd` (hardware-accelerated hashing)
+**Patterns:** WAL mode with a small shared connection pool (`MaxOpenConns=4`), prepared statements, TTL-indexed expiry (expired rows are re-inserted via `CheckAndFlagTTL` so stale dedup keys re-fire), background `cleanup` sweep.
 
 ### `internal/queue/`
 
@@ -353,5 +353,4 @@
 | **Retry queue is best-effort**            | If the process crashes mid-delivery, messages in-flight (not yet queued) are lost. Queue is only populated after a confirmed API error. A graceful shutdown (SIGTERM/ctx cancel) still flushes pending failures via `queueStoreCtx`, but a hard crash bypasses it.         |
 | **TTL-based dedup re-fires on expiry**    | After ~9 000 h (>1 year) an entry can be re-inserted by `CheckAndFlagTTL` and the same historical event will alert again. Long-lived installations will see "echoes" of year-old grades unless the DB is manually cleaned.         |
 | **`D.M.` year inference for Grade relevance** | When today's day/month exactly matches a grade's `Fields[0]` date, the year is assumed to be the current year — so a grade from the same calendar day of the prior school year will slip past the relevance filter. Inherent limitation of the portal's date format. |
-| **BadgerDB migration is destructive**     | Old BadgerDB directory deleted after import. No rollback if import fails partway.                                                               |
 | **Go version pinned to 1.26+**            | Cutting-edge; some CI environments may not have 1.26 toolchain.                                                                                 |

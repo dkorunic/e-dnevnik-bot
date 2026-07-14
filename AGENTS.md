@@ -53,7 +53,6 @@ Single test: `go test -run TestName ./path/to/package/`
 - **Single-threaded dedup** (`routines.go:msgDedup`): do not parallelize
 - **First-run seeding is silent** (`sqlitedb/db.go` + `msgDedup`): do not suppress
 - **TTL-based dedup re-fires** after ~1 year: `sqlitedb/db.go:CheckAndFlagTTL`
-- **BadgerDB migration** is one-shot + destructive: `sqlitedb/import.go`
 - **Continuous jitter** `[0.9, 1.1)`: `main.go:durationRandJitter` — do not discretize
 - **Bounded version check**: `versionCheckTimeout = 30s` in `routines.go:versionCheck`
 
