@@ -46,7 +46,9 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	r64 := int64(attempts)
 
-	// Shared deadline across entire scrape.
+	// One deadline for the whole per-user scrape. NOTE: this couples -r to total
+	// pipeline time, not per-request retries — a large -r (up to 100) permits a
+	// multi-hour cycle and can starve later steps. Keep -r modest.
 	budgetCtx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
 	defer stop()
 

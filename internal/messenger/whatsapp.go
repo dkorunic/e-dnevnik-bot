@@ -122,9 +122,17 @@ type WhatsAppConfig struct {
 // failures, then delivers live messages from ch to the configured user IDs and
 // groups. On init failure it drains ch into the queue so already-dedup-flagged
 // events are not lost.
-func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg WhatsAppConfig) error {
-	// Local aliases: group resolution below mutates userIDs in place.
-	userIDs := cfg.UserIDs
+func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg WhatsAppConfig) (err error) {
+	// A send-path panic must drain ch and degrade, not crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = recoverMessenger(ctx, eDB, WhatsAppQueueName, ch, r)
+		}
+	}()
+
+	// Clone: group resolution appends to userIDs, which would otherwise mutate
+	// cfg.UserIDs' backing array.
+	userIDs := slices.Clone(cfg.UserIDs)
 	groups := cfg.Groups
 
 	if len(userIDs) == 0 && len(groups) == 0 {
@@ -134,7 +142,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	}
 
 	// Keep connection open; reconnect is expensive (full state resync).
-	err := whatsAppInit(ctx)
+	err = whatsAppInit(ctx)
 	if err != nil {
 		// Connect() is a network operation, so this path is reachable on
 		// transient failures. Events are already dedup-flagged; queue them or
@@ -265,6 +273,9 @@ func processWhatsApp(ctx context.Context, cli *whatsmeow.Client, eDB *sqlitedb.E
 
 	var successfulIDs []string
 
+	// Permanently-failed recipients: skipped on retry, never requeued.
+	var poisonedIDs []string
+
 	anyFailed := false
 	// False on mid-loop cancel forces requeue so sends aren't dropped.
 	allProcessed := true
@@ -284,7 +295,10 @@ func processWhatsApp(ctx context.Context, cli *whatsmeow.Client, eDB *sqlitedb.E
 		// Validate before Take(): invalid JIDs must not spend rate budget.
 		target, err := types.ParseJID(u)
 		if err != nil {
-			logger.Error().Msgf("%v: %v", ErrWhatsAppInvalidJID, err)
+			// A malformed JID never becomes valid: log loudly and drop it.
+			logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrWhatsAppInvalidJID, u, err)
+
+			poisonedIDs = append(poisonedIDs, u)
 
 			continue
 		}
@@ -303,6 +317,15 @@ func processWhatsApp(ctx context.Context, cli *whatsmeow.Client, eDB *sqlitedb.E
 			},
 		)
 		if err != nil {
+			if isPermanentSendErr(err) {
+				// Permanent (broadcast unsupported, unknown server): drop, don't requeue.
+				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrWhatsAppSendingMessage, u, err)
+
+				poisonedIDs = append(poisonedIDs, u)
+
+				continue
+			}
+
 			logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
 
 			anyFailed = true
@@ -314,8 +337,8 @@ func processWhatsApp(ctx context.Context, cli *whatsmeow.Client, eDB *sqlitedb.E
 	}
 
 	if anyFailed || !allProcessed {
-		// Dedup prevents unbounded SkipRecipients growth across retries.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
+		// Skip successful and poisoned recipients on retry; dedup bounds growth.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
 
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, WhatsAppQueueName, g); err != nil {
@@ -483,12 +506,17 @@ func whatsAppEventHandler(rawEvt any) {
 			SendPresenceBounded(cli, types.PresenceAvailable)
 			SendPresenceBounded(cli, types.PresenceUnavailable)
 		}
-	case *events.PairSuccess, *events.PairError:
+	case *events.PairError:
+		// Always a failure, regardless of any stale Store.ID. Shut down
+		// gracefully (SIGTERM-to-self) so the queue drains before exit.
+		_ = os.Remove(WhatsAppDBName)
+
+		logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
+		RequestShutdown()
+	case *events.PairSuccess:
 		if cli.Store.ID == nil {
 			_ = os.Remove(WhatsAppDBName)
 
-			// Trigger graceful shutdown via SIGTERM-to-self so the main
-			// loop drains the failed-message queue before exiting.
 			logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
 			RequestShutdown()
 		} else {

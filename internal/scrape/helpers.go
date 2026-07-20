@@ -125,6 +125,11 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						spans = append(spans, txt)
 					})
 
+					// Skip contentless rows (mirrors parseCourse) — no fieldless alert.
+					if len(spans) == 0 || len(descriptions) == 0 {
+						return
+					}
+
 					select {
 					case ch <- msgtypes.Message{
 						Code:         msgtypes.Grade,

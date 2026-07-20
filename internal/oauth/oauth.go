@@ -264,6 +264,9 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		authTimer.Stop()
 	case <-authTimer.C:
 		return nil, ErrOAuthTimeout
+	case <-ctx.Done():
+		// SIGTERM during consent must abort promptly, not block for AuthTimeout.
+		return nil, ctx.Err()
 	}
 
 	// Empty code indicates a state-mismatch callback.

@@ -90,11 +90,13 @@ When adding a new messenger or touching send paths, the post-send `StoreFailedMs
 
 ### Two-level WaitGroup in `msgSend` — `routines.go`
 
-`msgSend` uses a dedicated `wgInner` to track the per-messenger goroutines. The deferred sequence is `relay.Close()` **then** `wgInner.Wait()`. Reversed ordering deadlocks because listener `range` loops only exit when the relay is closed.
+`msgSend` uses a dedicated `wgInner` to track the per-messenger goroutines. The deferred sequence closes **every messenger channel** first, **then** `wgInner.Wait()`. Reversed ordering deadlocks because each messenger's `range` loop only exits once its channel is closed.
+
+The fan-out is a hand-rolled **non-blocking** dispatch (not `teivah/broadcast`, which was removed): for each message it does a `select { case ch <- g: default: storeOverflow(...) }` per messenger. A messenger that has fallen behind (full buffer) has the message spilled to its failed-message queue for next-cycle delivery, so a slow/stalled messenger (e.g. mail mid-retry) never paces the others. Trade-off: under sustained overload a slow messenger's messages are delivered a cycle late and slightly out of order.
 
 ### Dedup is single-threaded by design — `routines.go:msgDedup`
 
-`wgFilter` spawns exactly one goroutine. This is not a scaling limitation to "fix" — it guarantees consistent first-run detection and avoids sqlite write contention against the messenger queue writes. `gradesMsg` is closed in a `defer` so the broadcast loop unblocks on ctx cancel.
+`wgFilter` spawns exactly one goroutine. This is not a scaling limitation to "fix" — it guarantees consistent first-run detection and avoids sqlite write contention against the messenger queue writes. `gradesMsg` is closed in a `defer` so the fan-out loop unblocks on ctx cancel.
 
 ### First-run seeding is silent on purpose — `internal/sqlitedb/db.go` + `msgDedup`
 

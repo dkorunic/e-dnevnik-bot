@@ -49,7 +49,7 @@ Single test: `go test -run TestName ./path/to/package/`
 ## Load-bearing invariants
 
 - **Shutdown-tolerant queue writes** (`messenger/common.go`): use `queueStoreCtx`, not raw `ctx`
-- **Two-level WaitGroup** (`routines.go:msgSend`): `relay.Close()` *then* `wgInner.Wait()` — reversed order deadlocks
+- **Two-level WaitGroup** (`routines.go:msgSend`): close every messenger channel *then* `wgInner.Wait()` — reversed order deadlocks. Fan-out is hand-rolled non-blocking (`select`/`default` → `storeOverflow` spill-to-queue), not `teivah/broadcast`
 - **Single-threaded dedup** (`routines.go:msgDedup`): do not parallelize
 - **First-run seeding is silent** (`sqlitedb/db.go` + `msgDedup`): do not suppress
 - **TTL-based dedup re-fires** after ~1 year: `sqlitedb/db.go:CheckAndFlagTTL`

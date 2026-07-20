@@ -64,6 +64,78 @@ func TestFetchFailedMsgs(t *testing.T) {
 	}
 }
 
+// TestFetchFailedMsgsPartialExpiryKeepsSurvivor: an expired message in a
+// multi-message row must not delete the whole row and lose its live siblings;
+// the rewritten row still returns the survivor on a second fetch.
+func TestFetchFailedMsgsPartialExpiryKeepsSurvivor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	eDB, err := sqlitedb.New(ctx, t.TempDir()+"/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	queueKey := []byte("test-queue")
+
+	// One row holding an expired message followed by a live one.
+	encoded, err := codec.EncodeMsgs([]msgtypes.Message{
+		{Subject: "expired", QueuedAt: time.Now().Add(-2 * MaxQueueAge)},
+		{Subject: "live", QueuedAt: time.Now()},
+	})
+	if err != nil {
+		t.Fatalf("EncodeMsgs failed: %v", err)
+	}
+
+	if err := eDB.Put(ctx, rowKey(queueKey), encoded); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	got := FetchFailedMsgs(ctx, eDB, queueKey)
+	if len(got) != 1 || got[0].Msg.Subject != "live" {
+		t.Fatalf("first fetch = %+v, want single 'live' survivor", got)
+	}
+
+	// Survivor must persist (row rewritten, not deleted): second fetch returns it.
+	got2 := FetchFailedMsgs(ctx, eDB, queueKey)
+	if len(got2) != 1 || got2[0].Msg.Subject != "live" {
+		t.Fatalf("second fetch = %+v, want survivor still present (not lost)", got2)
+	}
+}
+
+// TestFetchFailedMsgsAllExpiredDropsRow verifies a row whose every message is
+// past MaxQueueAge is removed and returns nothing.
+func TestFetchFailedMsgsAllExpiredDropsRow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	eDB, err := sqlitedb.New(ctx, t.TempDir()+"/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	queueKey := []byte("test-queue")
+
+	encoded, err := codec.EncodeMsgs([]msgtypes.Message{
+		{Subject: "expired", QueuedAt: time.Now().Add(-2 * MaxQueueAge)},
+	})
+	if err != nil {
+		t.Fatalf("EncodeMsgs failed: %v", err)
+	}
+
+	if err := eDB.Put(ctx, rowKey(queueKey), encoded); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	if got := FetchFailedMsgs(ctx, eDB, queueKey); len(got) != 0 {
+		t.Fatalf("fetch = %+v, want empty (all expired)", got)
+	}
+}
+
 // TestLegacyQueueMigration verifies the aggregate row is removed after
 // migration so a second fetch does not duplicate messages, and that message
 // order is preserved.

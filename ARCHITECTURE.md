@@ -31,8 +31,8 @@
 │                           e-dnevnik-bot process                         │
 │                                                                         │
 │  ┌──────────────┐    ┌───────────────────┐    ┌──────────────────────┐ │
-│  │  Scraper     │    │   msgDedup        │    │  broadcast.Relay     │ │
-│  │  goroutines  │───▶│  (single thread)  │───▶│  (fan-out)           │ │
+│  │  Scraper     │    │   msgDedup        │    │  msgSend fan-out     │ │
+│  │  goroutines  │───▶│  (single thread)  │───▶│  (non-blocking)      │ │
 │  │  (per user)  │    │  SQLite KV check  │    │  ┌────────────────┐  │ │
 │  └──────────────┘    └───────────────────┘    │  │ Discord        │  │ │
 │                                               │  │ Telegram       │  │ │
@@ -104,9 +104,9 @@
 
 ### `internal/messenger/`
 
-**Responsibility:** Six independent messenger goroutines, each consuming from a `broadcast.Relay` listener.
-**Key deps:** `teivah/broadcast`, `go.uber.org/ratelimit`, per-backend SDK
-**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence uses a shutdown-tolerant context (`queueStoreCtx` / `storeTimeout = 5s`, built on `context.WithoutCancel`) so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries.
+**Responsibility:** Six independent messenger goroutines, each draining its own buffered channel from `msgSend`'s non-blocking fan-out.
+**Key deps:** `go.uber.org/ratelimit`, per-backend SDK
+**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Each entry point installs a deferred `recoverMessenger` panic guard that drains its channel to the queue on panic, so a send-path panic degrades one messenger instead of crashing the process. Permanent send errors (unrecoverable per `markNamePermanent`, invalid recipients) are poison-dropped — logged loudly and skipped on retry — rather than requeued until `MaxQueueAge`. Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence uses a shutdown-tolerant context (`queueStoreCtx` / `storeTimeout = 5s`, built on `context.WithoutCancel`) so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries.
 
 | Messenger | Backend Library               | Rate Limit | Format   | Max body/subject   |
 | --------- | ----------------------------- | ---------- | -------- | ------------------ |
@@ -172,10 +172,10 @@
           (future day/month → previous year, else current year);
           parse failure is fail-open (event passed through)
     else → store hash + TTL, send to gradesMsg (buffered chan)
-    On ctx.Done: defer close(gradesMsg) unblocks the broadcast loop
+    On ctx.Done: defer close(gradesMsg) unblocks the fan-out loop
         │
         ▼
-[wgFilter.Wait() + broadcast relay]
+[wgFilter.Wait() + msgSend non-blocking fan-out]
         │
         ├──▶ Discord goroutine
         ├──▶ Telegram goroutine
@@ -203,7 +203,6 @@
 | ----------------------- | ------------------------------------------------------------------------------- |
 | **Go 1.26+**            | Required for `sync.WaitGroup.Go` (1.25) and `context.WithoutCancel` (1.21) usage; static binary, no runtime dependencies |
 | `modernc.org/sqlite`    | CGO-free SQLite — enables fully static binary without C toolchain               |
-| `teivah/broadcast`      | Fanout broadcaster: one writer, N concurrent goroutine readers, no shared state |
 | `avast/retry-go/v5`     | Declarative retry with context awareness; wraps scraping and messaging          |
 | `go.uber.org/ratelimit` | Token-bucket rate limiting per messenger                                        |
 | `PuerkitoBio/goquery`   | jQuery-style HTML parsing — e-Dnevnik HTML is complex table-based               |
@@ -219,7 +218,7 @@
 
 ### Architectural patterns
 
-- **Pipeline with fan-out:** scrape → dedup (single thread for consistency) → broadcast relay → parallel messengers.
+- **Pipeline with fan-out:** scrape → dedup (single thread for consistency) → non-blocking fan-out → parallel messengers.
 - **Dead-letter queue:** failed deliveries persisted to SQLite; retried on next poll without message loss.
 - **First-run seeding:** new installations silently seed the dedup DB and suppress alerts — critical UX correctness.
 
@@ -227,8 +226,8 @@
 
 - **Per-user goroutines** for scraping (fully independent HTTP sessions); launched with `wgScrape.Go` (Go 1.25+ API).
 - **Single-threaded dedup** — intentional; ensures consistent first-run detection and avoids SQLite write contention.
-- **Parallel messengers** via broadcast relay — each messenger goroutine gets its own buffered channel listener; a slow API (e.g. WhatsApp) does not block Discord.
-- **Two-level WaitGroup in `msgSend`**: `wgInner` tracks the per-messenger goroutines so `relay.Close()` can unblock their listener `range` loops *before* the outer wait — closing first and waiting second avoids a deadlock where listeners never exit.
+- **Parallel messengers** via a non-blocking fan-out — each messenger goroutine drains its own buffered channel. `msgSend` dispatches with `select { case ch <- g: default: storeOverflow(...) }`, so a slow or stalled messenger (e.g. mail mid-retry) has its messages spilled to its failed-message queue for next-cycle delivery instead of blocking the others. Replaced `teivah/broadcast`, whose synchronous `Notify` paced every messenger to the slowest.
+- **Two-level WaitGroup in `msgSend`**: `wgInner` tracks the per-messenger goroutines so every messenger channel is closed to unblock their `range` loops *before* the outer wait — closing first and waiting second avoids a deadlock where drainers never exit.
 - **Shutdown-tolerant queue writes**: on ctx cancellation mid-send, messengers re-queue un-delivered messages through a detached short-lived context (`queueStoreCtx`, `context.WithoutCancel` + `storeTimeout = 5s`) so in-flight work is not silently dropped.
 - **Bounded background goroutines**: the systemd watchdog is tracked in a separate `bgWG` that shutdown waits on with a ceiling of `exitDelay` (10 s).
 - Synchronization via `sync.WaitGroup` and explicit channel close signals (no polling, no sleeps).

@@ -65,4 +65,8 @@ type TomlConfig struct {
 	MailEnabled     bool     `toml:"-"`
 	CalendarEnabled bool     `toml:"-"`
 	WhatsAppEnabled bool     `toml:"-"`
+	// CalendarDeferred: Calendar is configured but not yet initialized (e.g.
+	// headless daemon before OAuth); msgSend runs a queue-only stub to preserve
+	// exams.
+	CalendarDeferred bool `toml:"-"`
 }

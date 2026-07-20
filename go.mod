@@ -28,7 +28,6 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.1
 	github.com/slack-go/slack v0.27.0
-	github.com/teivah/broadcast v0.1.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
 	go.mau.fi/whatsmeow v0.0.0-20260716095330-85d99080dee8

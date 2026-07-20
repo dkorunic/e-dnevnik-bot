@@ -31,7 +31,10 @@ func initLog() {
 	zerolog.SetGlobalLevel(logLevel)
 
 	if *colorLogs {
-		logger.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).
+		// NO_COLOR (https://no-color.org) suppresses colour even when -l is set.
+		noColor := os.Getenv("NO_COLOR") != ""
+
+		logger.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339, NoColor: noColor}).
 			Level(logLevel).
 			With().
 			Timestamp().

@@ -61,12 +61,15 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			continue
 		}
 
-		// Rows normally hold exactly one message; tolerate more defensively.
+		// Classify the whole row before mutating it: a legacy row may hold >1
+		// message, and deleting on the first expiry would orphan live siblings.
+		survivors := make([]msgtypes.Message, 0, len(msgs))
+
+		rowDropped := 0
+
 		for _, m := range msgs {
 			if !m.QueuedAt.IsZero() && now.Sub(m.QueuedAt) > MaxQueueAge {
-				dropped++
-
-				Dequeue(ctx, eDB, row.Key)
+				rowDropped++
 
 				continue
 			}
@@ -76,6 +79,29 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 				m.QueuedAt = now
 			}
 
+			survivors = append(survivors, m)
+		}
+
+		dropped += rowDropped
+
+		// Whole row expired: delete it.
+		if len(survivors) == 0 {
+			Dequeue(ctx, eDB, row.Key)
+
+			continue
+		}
+
+		// Partial expiry: rewrite with survivors only — never delete a row with
+		// live messages still referenced in kept.
+		if rowDropped > 0 {
+			if val, encErr := codec.EncodeMsgs(survivors); encErr != nil {
+				logger.Error().Msgf("%v: %v", ErrQueueing, encErr)
+			} else if putErr := eDB.Put(ctx, row.Key, val); putErr != nil {
+				logger.Error().Msgf("%v: %v", ErrQueueing, putErr)
+			}
+		}
+
+		for _, m := range survivors {
 			kept = append(kept, Queued{Msg: m, Key: row.Key})
 		}
 	}

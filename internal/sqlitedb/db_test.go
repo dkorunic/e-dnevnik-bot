@@ -130,6 +130,68 @@ func TestDbExists(t *testing.T) {
 	}
 }
 
+// TestDbExistsDanglingSymlink verifies dbExists uses os.Stat (follows the link)
+// rather than os.Lstat: a dangling symlink at the DB path must read as
+// non-existent, otherwise first-run seeding is skipped and the next run floods.
+func TestDbExistsDanglingSymlink(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	link := filepath.Join(dir, "dangling.db")
+	target := filepath.Join(dir, "missing-target.db")
+
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("cannot create symlink on this platform: %v", err)
+	}
+
+	if dbExists(link) {
+		t.Error("dbExists() returned true for a dangling symlink (would suppress first-run seeding)")
+	}
+}
+
+// TestNewDBPathWithQuestionMark verifies a DB path containing '?' — which would
+// corrupt a naively concatenated "file:...?pragma" DSN — is opened correctly:
+// the file lands at the literal path and data round-trips across reopen.
+func TestNewDBPathWithQuestionMark(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "weird?name.sqlite")
+
+	eDB, err := New(ctx, path)
+	if err != nil {
+		t.Fatalf("New() with '?' in path failed: %v", err)
+	}
+
+	if _, err := eDB.CheckAndFlagTTL(ctx, "b", "s", []string{"t"}); err != nil {
+		t.Fatalf("CheckAndFlagTTL failed: %v", err)
+	}
+
+	if err := eDB.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// File at the literal path proves the DSN wasn't truncated at the '?'.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("db file not created at literal path %q: %v", path, err)
+	}
+
+	eDB2, err := New(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen failed: %v", err)
+	}
+	defer eDB2.Close() //nolint:errcheck
+
+	found, err := eDB2.CheckAndFlagTTL(ctx, "b", "s", []string{"t"})
+	if err != nil {
+		t.Fatalf("CheckAndFlagTTL after reopen failed: %v", err)
+	}
+
+	if !found {
+		t.Error("flagged key not found after reopen — DSN likely targeted the wrong file")
+	}
+}
+
 func TestCheckAndFlagTTLExpiredKey(t *testing.T) {
 	t.Parallel()
 	tmpFile := filepath.Join(t.TempDir(), "test-db-ttl-expired.db.sqlite")

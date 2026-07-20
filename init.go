@@ -51,24 +51,36 @@ func init() {
 }
 
 // checkCalendar runs first-run Calendar OAuth when no token file exists,
-// disabling the integration if setup fails or no interactive terminal is present.
+// deferring the integration (a queue-only stub preserves exams) if setup fails,
+// no interactive terminal is present, or the token file cannot be stat'd.
 func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
 	}
 
-	if _, err := os.Stat(*calTokFile); errors.Is(err, fs.ErrNotExist) {
-		if !isTerminal() {
-			logger.Warn().Msgf("Google Calendar token file %q not found; first-run OAuth requires an interactive terminal. Disabling Calendar integration.", *calTokFile)
+	// deferCal disables live Calendar but leaves the queue-only stub (via
+	// CalendarDeferred) so exams are preserved until OAuth is completed.
+	deferCal := func() {
+		config.CalendarEnabled = false
+		config.CalendarDeferred = true
+	}
 
-			config.CalendarEnabled = false
-		} else {
-			_, _, err := messenger.InitCalendar(ctx, *calTokFile, config.Calendar.Name)
-			if err != nil {
-				logger.Error().Msgf("Error initializing Google Calendar API: %v. Disabling Calendar integration.", err)
+	_, err := os.Stat(*calTokFile)
 
-				config.CalendarEnabled = false
-			}
+	switch {
+	case err == nil:
+		// Token present; the runtime InitCalendar loads it on first send.
+	case !errors.Is(err, fs.ErrNotExist):
+		// Unexpected stat error (e.g. EACCES): defer rather than fail confusingly later.
+		logger.Error().Msgf("Cannot stat Google Calendar token file %q: %v. Deferring Calendar integration.", *calTokFile, err)
+		deferCal()
+	case !isTerminal():
+		logger.Warn().Msgf("Google Calendar token file %q not found; first-run OAuth requires an interactive terminal. Deferring Calendar integration (exams will be queued for delivery once OAuth is completed).", *calTokFile)
+		deferCal()
+	default:
+		if _, _, err := messenger.InitCalendar(ctx, *calTokFile, config.Calendar.Name); err != nil {
+			logger.Error().Msgf("Error initializing Google Calendar API: %v. Deferring Calendar integration (exams will be queued for retry).", err)
+			deferCal()
 		}
 	}
 }
@@ -162,7 +174,12 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Fatal().Msgf("Failed to connect to WhatsApp: %v", err)
 	}
 
-	defer whatsAppPairingCli.Disconnect()
+	// Cancel the QR context before disconnecting (LIFO: this runs first) so a
+	// late "code" event can't PairPhone on a tearing-down client.
+	defer func() {
+		qrCancel()
+		whatsAppPairingCli.Disconnect()
+	}()
 
 	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep Android/iOS mobile app active and open")
 
@@ -218,14 +235,20 @@ func whatsappPairingEventHandler(rawEvt any) {
 			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceAvailable)
 			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceUnavailable)
 		}
-	case *events.PairSuccess, *events.PairError:
+	case *events.PairError:
+		// Always a failure, regardless of any stale Store.ID.
+		_ = os.Remove(messenger.WhatsAppDBName)
+
+		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
+	case *events.PairSuccess:
+		// A success without a stored device ID is really a failure.
 		if whatsAppPairingCli.Store.ID == nil {
 			_ = os.Remove(messenger.WhatsAppDBName)
 
 			logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
-		} else {
-			logger.Info().Msg("WhatsApp device successfully paired")
 		}
+
+		logger.Info().Msg("WhatsApp device successfully paired")
 	case *events.LoggedOut:
 		_ = os.Remove(messenger.WhatsAppDBName)
 
@@ -240,11 +263,12 @@ func whatsappPairingEventHandler(rawEvt any) {
 	}
 }
 
-// isTerminal reports whether stdout is an interactive terminal (honouring
-// NO_COLOR and TERM=dumb), used to gate interactive first-run flows.
+// isTerminal reports whether stdout is an interactive terminal, gating
+// first-run flows. TERM=dumb counts as non-interactive. NO_COLOR does not gate
+// here — it controls colour only (see initLog); a NO_COLOR TTY is interactive.
 func isTerminal() bool {
 	fd := os.Stdout.Fd()
 
-	return os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" &&
+	return os.Getenv("TERM") != "dumb" &&
 		(isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd))
 }

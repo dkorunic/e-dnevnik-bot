@@ -65,12 +65,17 @@ type CalendarConfig struct {
 // Calendar resends any queued failures, then inserts exam events from ch into
 // the configured calendar. On init failure it drains ch into the queue so
 // already-dedup-flagged events are not lost.
-func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalendarConfig) error {
+func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalendarConfig) (err error) {
+	// A send-path panic must drain ch and degrade, not crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = recoverMessenger(ctx, eDB, CalendarQueueName, ch, r)
+		}
+	}()
+
 	calendarMu.Lock()
 
 	if calendarSrv == nil || calendarID == "" {
-		var err error
-
 		calendarSrv, calendarID, err = InitCalendar(ctx, cfg.TokFile, cfg.Name)
 		if err != nil {
 			calendarMu.Unlock()
@@ -113,6 +118,36 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	}
 
 	return nil
+}
+
+// CalendarDeferred is the queue-only stub msgSend runs when Calendar is
+// configured but not yet initializable (headless daemon before interactive
+// OAuth). It queues exam events — the only type Calendar delivers — so they are
+// inserted once OAuth completes rather than dedup-flagged and lost; non-exam
+// events are dropped (other messengers already got them).
+func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message) {
+	queued := 0
+
+	for g := range ch {
+		if g.Code != msgtypes.Exam {
+			continue
+		}
+
+		// Shutdown-tolerant: queue write must survive ctx cancel.
+		sctx, scancel := queueStoreCtx(ctx)
+		if err := queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+		}
+
+		scancel()
+
+		queued++
+	}
+
+	if queued > 0 {
+		logger.Warn().Msgf("Google Calendar not yet initialized; queued %v exam events for delivery once OAuth is completed",
+			queued)
+	}
 }
 
 // markCalendarPermanent marks permanent 4xx errors (except 408/429) as
@@ -164,7 +199,10 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		return
 	}
 
-	// Deterministic lowercase-hex ID lets the API dedupe on retry.
+	// Deterministic ID makes a retried insert a 409 (idempotent success below).
+	// Keyed on (username, subject, date), NOT g.Fields — so a later edit to an
+	// exam's note on the same date is a 409 no-op and keeps the original.
+	// Accepted: exam notes rarely change once dated.
 	idHash := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s",
 		g.Username, g.Subject, g.Timestamp.Format(time.DateOnly)))
 
@@ -212,6 +250,14 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		var gaErr *googleapi.Error
 		if errors.As(err, &gaErr) && gaErr.Code == http.StatusConflict {
 			logger.Debug().Msgf("Google Calendar event already exists (idempotent insert): %v", newEvent.Id)
+
+			return
+		}
+
+		if isPermanentSendErr(err) {
+			// Permanent non-409 (400/403/404): drop, don't requeue.
+			logger.Error().Msgf("Permanently dropping Google Calendar event for %v/%v (will not retry): %v",
+				g.Username, g.Subject, err)
 
 			return
 		}

@@ -49,7 +49,14 @@ type SlackConfig struct {
 // Slack resends any queued failures, then delivers live messages from ch to the
 // configured chat IDs. On init failure it drains ch into the queue so
 // already-dedup-flagged events are not lost.
-func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg SlackConfig) error {
+func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg SlackConfig) (err error) {
+	// A send-path panic must drain ch and degrade, not crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = recoverMessenger(ctx, eDB, SlackQueueName, ch, r)
+		}
+	}()
+
 	if cfg.Token == "" {
 		queueUndelivered(ctx, eDB, SlackQueueName, ch)
 
@@ -116,9 +123,9 @@ func markSlackPermanent(err error) error {
 	return err
 }
 
-// processSlack renders g as markup and sends it to each chat ID (channel or
-// nickname), re-queueing on partial or total failure. Recipients already in
-// SkipRecipients are omitted.
+// processSlack renders g as markup and sends it to each chat ID (Slack
+// channel/user/group IDs, not @nicknames), re-queueing on partial or total
+// failure. Recipients already in SkipRecipients are omitted.
 func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	// Truncate over Slack's text cap — oversize bodies are rejected outright.
 	m := truncateWithEllipsis(format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), SlackMaxMessageChars)
@@ -130,11 +137,13 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 
 	var successfulIDs []string
 
+	// Permanently-failed recipients: skipped on retry, never requeued.
+	var poisonedIDs []string
+
 	anyFailed := false
 	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
 
-	// chatIDs may be channels or nicknames; Slack resolves either.
 	for _, u := range chatIDs {
 		if _, skip := skipSet[u]; skip {
 			continue
@@ -165,6 +174,15 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 			},
 		)
 		if err != nil {
+			if isPermanentSendErr(err) {
+				// Permanent (channel_not_found, not_in_channel): drop, don't requeue.
+				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrSlackSendingMessage, u, err)
+
+				poisonedIDs = append(poisonedIDs, u)
+
+				continue
+			}
+
 			logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
 			anyFailed = true
@@ -176,8 +194,8 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	}
 
 	if anyFailed || !allProcessed {
-		// Dedup prevents unbounded SkipRecipients growth across retries.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
+		// Skip successful and poisoned recipients on retry; dedup bounds growth.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
 
 		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)

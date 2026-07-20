@@ -70,13 +70,14 @@ func isValidTelegramChatID(id string) bool {
 	return telegramChatIDRegex.MatchString(id)
 }
 
-// isValidWhatsAppJID reports whether jid parses and targets a user, group, or
-// broadcast server.
+// isValidWhatsAppJID reports whether jid parses and targets a user or group.
+// Broadcast lists are rejected: whatsmeow can't send to non-status broadcast
+// lists (ErrBroadcastListUnsupported), so they only ever fail delivery.
 func isValidWhatsAppJID(jid string) bool {
 	parsedJID, err := types.ParseJID(jid)
 	if err != nil {
 		return false
 	}
 
-	return parsedJID.Server == "s.whatsapp.net" || parsedJID.Server == "g.us" || parsedJID.Server == "broadcast"
+	return parsedJID.Server == "s.whatsapp.net" || parsedJID.Server == "g.us"
 }

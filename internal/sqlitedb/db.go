@@ -47,7 +47,8 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	logger.Debug().Msgf("Opening database: %v", filePath)
 
-	sqlitePath := "file:" + filePath + DefaultDBOptions
+	// Encode the path so a '?'/'#'/'%' in it can't corrupt the pragma query.
+	sqlitePath := "file:" + sqliteURIEscape(filePath) + DefaultDBOptions
 
 	db, err := sql.Open("sqlite", sqlitePath)
 	if err != nil {

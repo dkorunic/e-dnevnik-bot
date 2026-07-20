@@ -5,16 +5,23 @@ package messenger
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 	"unicode/utf8"
 
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
+
+// ErrMessengerPanic wraps a recovered messenger-send panic so the run is
+// flagged failed (see recoverMessenger).
+var ErrMessengerPanic = errors.New("messenger panicked")
 
 // isPermanentHTTPStatus reports whether a 4xx status will never succeed on
 // retry. 408 (timeout) and 429 (rate-limit) are excluded — those are transient.
@@ -23,6 +30,14 @@ func isPermanentHTTPStatus(code int) bool {
 	isRetriable := code == http.StatusRequestTimeout || code == http.StatusTooManyRequests
 
 	return isClientError && !isRetriable
+}
+
+// isPermanentSendErr reports whether err was wrapped retry.Unrecoverable by a
+// markNamePermanent helper. Permanent failures (blocked bot, deleted chat, 4xx)
+// must not be requeued — they would re-attempt every cycle until MaxQueueAge —
+// so callers poison-drop the recipient instead.
+func isPermanentSendErr(err error) bool {
+	return err != nil && !retry.IsRecoverable(err)
 }
 
 // storeTimeout bounds the detached context used to persist queue writes after caller ctx cancel.
@@ -40,11 +55,11 @@ func queueStoreCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
 }
 
-// queueUndelivered is the init-failure fallback: it drains ch into the
-// failed-message queue so already-dedup-flagged events survive to the next
-// cycle instead of being dropped forever (dedup guarantees they never re-fire).
-// Blocking until ch closes also keeps the broadcast relay from wedging on an
-// undrained listener.
+// queueUndelivered drains ch into the failed-message queue so already-flagged
+// events survive to the next cycle instead of being dropped (dedup never
+// re-fires them). Blocking until ch closes also lets msgSend's fan-out close
+// and wait cleanly. A store failure (e.g. disk full) is only logged: with a
+// single durable store there is no fallback, so the message is lost.
 func queueUndelivered(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, ch <-chan msgtypes.Message) {
 	queued := 0
 
@@ -64,6 +79,20 @@ func queueUndelivered(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, 
 		logger.Warn().Msgf("Messenger %v failed to initialize; stored %v undelivered messages for retry on next run",
 			string(queueName), queued)
 	}
+}
+
+// recoverMessenger is the deferred panic guard every messenger installs: an
+// unrecovered send-path panic would crash the whole process, taking every other
+// messenger with it. Instead it drains ch to the queue and returns a wrapped
+// error so only the panicking messenger degrades. Callers assign the result to
+// their named return from within the deferred recover.
+func recoverMessenger(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, ch <-chan msgtypes.Message, r any) error {
+	logger.Error().Msgf("Messenger %v panicked, draining undelivered messages to queue for retry: %v",
+		string(queueName), r)
+
+	queueUndelivered(ctx, eDB, queueName, ch)
+
+	return fmt.Errorf("%w: %v", ErrMessengerPanic, r)
 }
 
 // Per-platform outbound size caps; we truncate client-side to turn API rejection into lossy delivery.
@@ -147,10 +176,19 @@ func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descrip
 }
 
 // truncateWithEllipsis shortens s to at most m runes, appending "..." when it
-// trims. Strings already within budget are returned unchanged.
+// trims. For m < 3 (below the ellipsis width; no caller does this) it plain-
+// truncates instead, so the result never exceeds m runes.
 func truncateWithEllipsis(s string, m int) string {
 	if utf8.RuneCountInString(s) <= m {
 		return s
+	}
+
+	if m < 3 {
+		if m <= 0 {
+			return ""
+		}
+
+		return string([]rune(s)[:m])
 	}
 
 	count := 0

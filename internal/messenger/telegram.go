@@ -52,7 +52,14 @@ type TelegramConfig struct {
 // Telegram resends any queued failures, then delivers live messages from ch to
 // the configured chat IDs. On init failure it drains ch into the queue so
 // already-dedup-flagged events are not lost.
-func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg TelegramConfig) error {
+func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg TelegramConfig) (err error) {
+	// A send-path panic must drain ch and degrade, not crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = recoverMessenger(ctx, eDB, TelegramQueueName, ch, r)
+		}
+	}()
+
 	if cfg.Token == "" {
 		queueUndelivered(ctx, eDB, TelegramQueueName, ch)
 
@@ -65,7 +72,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		return fmt.Errorf("%w", ErrTelegramEmptyUserIDs)
 	}
 
-	err := telegramInit(cfg.Token)
+	err = telegramInit(cfg.Token)
 	if err != nil {
 		// bot.New performs a network getMe call, so this path is reachable on
 		// transient failures. Events are already dedup-flagged; queue them or
@@ -142,6 +149,9 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	var successfulIDs []string
 
+	// Permanently-failed recipients: skipped on retry, never requeued.
+	var poisonedIDs []string
+
 	anyFailed := false
 	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
@@ -153,7 +163,10 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		uu, err := strconv.ParseInt(u, 10, 64)
 		if err != nil {
-			logger.Error().Msgf("%v: %v", ErrTelegramInvalidChatID, err)
+			// Malformed ID never becomes valid: drop loudly, don't silently skip.
+			logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrTelegramInvalidChatID, u, err)
+
+			poisonedIDs = append(poisonedIDs, u)
 
 			continue
 		}
@@ -185,6 +198,15 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			},
 		)
 		if err != nil {
+			if isPermanentSendErr(err) {
+				// Permanent (blocked bot, deleted chat): drop, don't requeue.
+				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrTelegramSendingMessage, u, err)
+
+				poisonedIDs = append(poisonedIDs, u)
+
+				continue
+			}
+
 			logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
 			anyFailed = true
@@ -196,8 +218,8 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	if anyFailed || !allProcessed {
-		// Dedup prevents unbounded SkipRecipients growth across retries.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
+		// Skip successful and poisoned recipients on retry; dedup bounds growth.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
 
 		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)

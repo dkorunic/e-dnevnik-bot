@@ -6,6 +6,7 @@ package sqlitedb
 import (
 	"errors"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/minio/sha256-simd"
@@ -22,9 +23,19 @@ var hashBufPool = sync.Pool{
 	},
 }
 
-// dbExists checks if the path exists on the filesystem and returns boolean.
+// sqliteURIEscape percent-encodes the characters that break a "file:" SQLite
+// DSN — '%' (encoding introducer), '?' (query separator), '#' (fragment) — so a
+// path containing them can't truncate the filename or corrupt the pragma query.
+// SQLite's URI parser decodes them back. The Replacer encodes each byte once.
+func sqliteURIEscape(path string) string {
+	return strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(path)
+}
+
+// dbExists reports whether filePath exists. os.Stat (not Lstat) so a dangling
+// symlink reads as absent — otherwise first-run seeding is skipped and the next
+// run floods.
 func dbExists(filePath string) bool {
-	_, err := os.Lstat(filePath)
+	_, err := os.Stat(filePath)
 
 	return !errors.Is(err, os.ErrNotExist)
 }

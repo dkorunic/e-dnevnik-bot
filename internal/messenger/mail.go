@@ -56,7 +56,14 @@ type MailConfig struct {
 
 // Mail resends any queued failures, then delivers live messages from ch to the
 // configured recipients. An invalid port falls back to 587.
-func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg MailConfig) error {
+func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg MailConfig) (err error) {
+	// A send-path panic must drain ch and degrade, not crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = recoverMessenger(ctx, eDB, MailQueueName, ch, r)
+		}
+	}()
+
 	logger.Debug().Msgf("Started e-mail messenger (%v)", MailVersion)
 
 	portInt, err := strconv.Atoi(cfg.Port)
@@ -161,6 +168,9 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 
 	var successfulIDs []string
 
+	// Permanently-failed recipients: skipped on retry, never requeued.
+	var poisonedIDs []string
+
 	anyFailed := false
 	// Tracks incomplete batches so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
@@ -180,17 +190,19 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m := mail.NewMsg()
 
 		if err := m.From(from); err != nil {
-			logger.Error().Msgf("Invalid mail From address %v: %v", from, err)
+			// Malformed From is permanent: the message can never be sent, so drop.
+			logger.Error().Msgf("Invalid mail From address %v, permanently dropping recipient %q: %v", from, u, err)
 
-			anyFailed = true
+			poisonedIDs = append(poisonedIDs, u)
 
 			continue
 		}
 
 		if err := m.To(u); err != nil {
-			logger.Error().Msgf("Invalid mail To address %v: %v", u, err)
+			// Malformed To never becomes valid: drop.
+			logger.Error().Msgf("Invalid mail To address, permanently dropping recipient %q: %v", u, err)
 
-			anyFailed = true
+			poisonedIDs = append(poisonedIDs, u)
 
 			continue
 		}
@@ -213,27 +225,38 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		pendingRcpt = append(pendingRcpt, u)
 	}
 
-	if len(pendingMsgs) > 0 {
+	switch {
+	case len(pendingMsgs) == 0:
+		// Nothing left to send after skips/poison.
+	case ctx.Err() != nil:
 		// Check before rl.Take() so shutdown is not blocked on a token.
-		if ctx.Err() != nil {
-			allProcessed = false
-		} else {
-			rl.Take()
+		allProcessed = false
+	default:
+		rl.Take()
 
-			delivered, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, retries)
-			successfulIDs = append(successfulIDs, delivered...)
+		delivered, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, retries)
+		successfulIDs = append(successfulIDs, delivered...)
 
-			if err != nil {
-				logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
+		switch {
+		case err == nil:
+			// All delivered.
+		case isPermanentSendErr(err):
+			// All undelivered failed permanently (e.g. SMTP 5xx): drop, don't requeue.
+			undelivered := undeliveredRecipients(pendingRcpt, delivered)
+			poisonedIDs = append(poisonedIDs, undelivered...)
 
-				anyFailed = true
-			}
+			logger.Error().Msgf("%v: permanently dropping %d recipient(s): %v",
+				ErrMailSendingMessages, len(undelivered), err)
+		default:
+			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
+
+			anyFailed = true
 		}
 	}
 
 	if anyFailed || !allProcessed {
-		// Dedup prevents unbounded SkipRecipients growth across retries.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, successfulIDs)
+		// Skip successful and poisoned recipients on retry; dedup bounds growth.
+		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
 
 		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
@@ -243,6 +266,24 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 
 		scancel()
 	}
+}
+
+// undeliveredRecipients returns the entries of rcpt not in delivered, in order.
+func undeliveredRecipients(rcpt, delivered []string) []string {
+	deliveredSet := make(map[string]struct{}, len(delivered))
+	for _, d := range delivered {
+		deliveredSet[d] = struct{}{}
+	}
+
+	var out []string
+
+	for _, r := range rcpt {
+		if _, ok := deliveredSet[r]; !ok {
+			out = append(out, r)
+		}
+	}
+
+	return out
 }
 
 // sendMailBatch delivers msgs (parallel to rcpt) over one SMTP connection per

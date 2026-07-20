@@ -242,7 +242,8 @@ func main() {
 
 			_ = sysdnotify.Status(scheduledActive)
 
-			exitWithError.Store(false)
+			// exitWithError latches for the process lifetime (not reset per
+			// cycle) so a daemon that errored in any cycle exits non-zero.
 
 			gradesScraped := make(chan msgtypes.Message, chanBufLen)
 			gradesMsg := make(chan msgtypes.Message, chanBufLen)

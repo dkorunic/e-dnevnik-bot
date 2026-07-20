@@ -159,6 +159,10 @@ func TestTruncateWithEllipsisRuneCount(t *testing.T) {
 		{"ascii", "abcdefghijk", 8},
 		{"unicode", "héllo wörld extra", 9},
 		{"exactly-max-plus-1", "abcde", 4},
+		// Below ellipsis width: guard hard-truncates instead of emitting "...".
+		{"below-ellipsis-2", "abcdef", 2},
+		{"below-ellipsis-1", "abcdef", 1},
+		{"below-ellipsis-0", "abcdef", 0},
 	}
 
 	for _, tc := range cases {

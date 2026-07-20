@@ -17,10 +17,10 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/scrape"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/google/go-github/v89/github"
-	"github.com/teivah/broadcast"
 	"github.com/tj/go-spin"
 )
 
@@ -63,32 +63,55 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 	}
 }
 
-// msgSend broadcasts messages from gradesMsg to every enabled messenger, each
-// running in its own goroutine off a shared relay. See the two-level WaitGroup
-// note below: the relay must Close before wgInner.Wait or listener loops deadlock.
+// msgSend fans messages from gradesMsg out to every enabled messenger, each
+// draining its own buffered channel in its own goroutine.
+//
+// The fan-out is non-blocking: a messenger whose buffer is full (fallen behind,
+// e.g. mail mid-retry) has the message spilled to its queue for a later cycle
+// instead of blocking the others — isolating a slow messenger's failure domain.
+//
+// Two-level WaitGroup: the deferred sequence closes every messenger channel
+// *then* wgInner.Wait(). Reversed order deadlocks — a drain loop exits only
+// once its channel closes.
 func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Go(func() {
-		relay := broadcast.NewRelay[msgtypes.Message]()
-
-		// Close relay first, then wait — reversed order deadlocks listener loops.
 		var wgInner sync.WaitGroup
 
-		defer func() {
-			relay.Close()
-			wgInner.Wait()
-		}()
+		// sink pairs a messenger's channel with its queue for full-buffer spills.
+		type sink struct {
+			ch    chan msgtypes.Message
+			queue []byte
+		}
 
-		if cfg.DiscordEnabled {
-			l := relay.Listener(broadcastBufLen)
+		var sinks []sink
+
+		// start registers a messenger's buffered channel as a sink and drains it
+		// in a tracked goroutine.
+		start := func(queueName []byte, run func(ch <-chan msgtypes.Message)) {
+			ch := make(chan msgtypes.Message, broadcastBufLen)
+			sinks = append(sinks, sink{ch: ch, queue: queueName})
 
 			wgInner.Add(1)
 
 			wgMsg.Go(func() {
 				defer wgInner.Done()
-				// Close on early exit so the broadcast loop can't wedge on an undrained listener.
-				defer l.Close()
 
-				if err := messenger.Discord(ctx, eDB, l.Ch(), messenger.DiscordConfig{
+				run(ch)
+			})
+		}
+
+		// Close before wait (see doc): drain loops exit only on channel close.
+		defer func() {
+			for _, s := range sinks {
+				close(s.ch)
+			}
+
+			wgInner.Wait()
+		}()
+
+		if cfg.DiscordEnabled {
+			start(messenger.DiscordQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.Discord(ctx, eDB, ch, messenger.DiscordConfig{
 					Token:   cfg.Discord.Token,
 					UserIDs: cfg.Discord.UserIDs,
 					Retries: *retries,
@@ -100,15 +123,8 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.TelegramEnabled {
-			l := relay.Listener(broadcastBufLen)
-
-			wgInner.Add(1)
-
-			wgMsg.Go(func() {
-				defer wgInner.Done()
-				defer l.Close()
-
-				if err := messenger.Telegram(ctx, eDB, l.Ch(), messenger.TelegramConfig{
+			start(messenger.TelegramQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.Telegram(ctx, eDB, ch, messenger.TelegramConfig{
 					Token:   cfg.Telegram.Token,
 					ChatIDs: cfg.Telegram.ChatIDs,
 					Retries: *retries,
@@ -120,15 +136,8 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.SlackEnabled {
-			l := relay.Listener(broadcastBufLen)
-
-			wgInner.Add(1)
-
-			wgMsg.Go(func() {
-				defer wgInner.Done()
-				defer l.Close()
-
-				if err := messenger.Slack(ctx, eDB, l.Ch(), messenger.SlackConfig{
+			start(messenger.SlackQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.Slack(ctx, eDB, ch, messenger.SlackConfig{
 					Token:   cfg.Slack.Token,
 					ChatIDs: cfg.Slack.ChatIDs,
 					Retries: *retries,
@@ -140,15 +149,8 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.MailEnabled {
-			l := relay.Listener(broadcastBufLen)
-
-			wgInner.Add(1)
-
-			wgMsg.Go(func() {
-				defer wgInner.Done()
-				defer l.Close()
-
-				if err := messenger.Mail(ctx, eDB, l.Ch(), messenger.MailConfig{
+			start(messenger.MailQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.Mail(ctx, eDB, ch, messenger.MailConfig{
 					Server:   cfg.Mail.Server,
 					Port:     cfg.Mail.Port,
 					Username: cfg.Mail.Username,
@@ -165,15 +167,8 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.CalendarEnabled {
-			l := relay.Listener(broadcastBufLen)
-
-			wgInner.Add(1)
-
-			wgMsg.Go(func() {
-				defer wgInner.Done()
-				defer l.Close()
-
-				if err := messenger.Calendar(ctx, eDB, l.Ch(), messenger.CalendarConfig{
+			start(messenger.CalendarQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.Calendar(ctx, eDB, ch, messenger.CalendarConfig{
 					Name:    cfg.Calendar.Name,
 					TokFile: *calTokFile,
 					Retries: *retries,
@@ -184,16 +179,17 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
+		// Calendar configured but not yet initializable: queue-only stub
+		// preserves exams. Mutually exclusive with CalendarEnabled.
+		if cfg.CalendarDeferred {
+			start(messenger.CalendarQueueName, func(ch <-chan msgtypes.Message) {
+				messenger.CalendarDeferred(ctx, eDB, ch)
+			})
+		}
+
 		if cfg.WhatsAppEnabled {
-			l := relay.Listener(broadcastBufLen)
-
-			wgInner.Add(1)
-
-			wgMsg.Go(func() {
-				defer wgInner.Done()
-				defer l.Close()
-
-				if err := messenger.WhatsApp(ctx, eDB, l.Ch(), messenger.WhatsAppConfig{
+			start(messenger.WhatsAppQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.WhatsApp(ctx, eDB, ch, messenger.WhatsAppConfig{
 					UserIDs: cfg.WhatsApp.UserIDs,
 					Groups:  cfg.WhatsApp.Groups,
 					Retries: *retries,
@@ -204,11 +200,33 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// Lossless blocking fan-out; gradesMsg close terminates this on shutdown.
+		// Non-blocking: a full (behind) buffer spills to the queue, never blocks.
+		// gradesMsg close ends this on shutdown.
 		for g := range gradesMsg {
-			relay.Notify(g)
+			for _, s := range sinks {
+				select {
+				case s.ch <- g:
+				default:
+					storeOverflow(ctx, eDB, s.queue, g)
+				}
+			}
 		}
 	})
+}
+
+// overflowStoreTimeout bounds the detached spill-to-queue write.
+const overflowStoreTimeout = 5 * time.Second
+
+// storeOverflow spills g to a messenger's queue when its channel is full,
+// detached from ctx so a spill during shutdown still lands. A store failure
+// only logs — the event is already dedup-flagged, so there is no fallback.
+func storeOverflow(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) {
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), overflowStoreTimeout)
+	defer cancel()
+
+	if err := queue.StoreFailedMsgs(sctx, eDB, queueName, g); err != nil {
+		logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+	}
 }
 
 // msgDedup acts like a filter: processes all incoming messages, calls in to database check and if it hasn't been found
@@ -234,10 +252,6 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
 			}
 
-			if !*readingList && g.Code == msgtypes.Reading {
-				continue
-			}
-
 			found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
 			if err != nil {
 				// Not Fatal: os.Exit here would bypass in-flight messenger
@@ -253,6 +267,13 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 			// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
 			if found || !eDB.Existing() {
+				continue
+			}
+
+			// Seeded above but only forwarded when --readinglist is set. Flagging
+			// regardless (not skipping before CheckAndFlagTTL) prevents a flood
+			// when the flag is first enabled.
+			if !*readingList && g.Code == msgtypes.Reading {
 				continue
 			}
 
