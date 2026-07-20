@@ -73,26 +73,14 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		}
 	}()
 
-	calendarMu.Lock()
+	srv, calID, err := ensureCalendarInit(ctx, cfg.TokFile, cfg.Name)
+	if err != nil {
+		// Init does network I/O (OAuth refresh), so failure may be transient.
+		// Queue the already-flagged events or lose them.
+		queueUndelivered(ctx, eDB, CalendarQueueName, ch)
 
-	if calendarSrv == nil || calendarID == "" {
-		calendarSrv, calendarID, err = InitCalendar(ctx, cfg.TokFile, cfg.Name)
-		if err != nil {
-			calendarMu.Unlock()
-
-			// InitCalendar refreshes OAuth tokens over the network, so this
-			// path is reachable on transient failures. Events are already
-			// dedup-flagged; queue them or they are lost forever.
-			queueUndelivered(ctx, eDB, CalendarQueueName, ch)
-
-			return err
-		}
+		return err
 	}
-
-	calendarMu.Unlock()
-
-	srv := calendarSrv
-	calID := calendarID
 
 	logger.Debug().Msgf("Started Google Calendar API messenger (%v)", CalendarVersion)
 
@@ -118,6 +106,26 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	}
 
 	return nil
+}
+
+// ensureCalendarInit lazily initializes the shared calendar service under
+// calendarMu. The defer-unlock (not a manual one) keeps a panic in InitCalendar
+// from leaking the lock, which would deadlock the next cycle's Calendar at Lock
+// and hang shutdown.
+func ensureCalendarInit(ctx context.Context, tokFile, name string) (*calendar.Service, string, error) {
+	calendarMu.Lock()
+	defer calendarMu.Unlock()
+
+	if calendarSrv == nil || calendarID == "" {
+		srv, id, err := InitCalendar(ctx, tokFile, name)
+		if err != nil {
+			return nil, "", err
+		}
+
+		calendarSrv, calendarID = srv, id
+	}
+
+	return calendarSrv, calendarID, nil
 }
 
 // CalendarDeferred is the queue-only stub msgSend runs when Calendar is
