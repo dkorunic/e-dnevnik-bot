@@ -5,9 +5,18 @@ package messenger
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/avast/retry-go/v5"
+	"github.com/bwmarrin/discordgo"
+	"github.com/go-telegram/bot"
+	"github.com/slack-go/slack"
+	"go.mau.fi/whatsmeow"
+	"google.golang.org/api/googleapi"
 )
 
 // TestQueueStoreCtxLiveCtx checks that queueStoreCtx passes a still-live
@@ -197,5 +206,94 @@ func TestTruncateWithEllipsisMinimumCase(t *testing.T) {
 
 	if got != "a..." {
 		t.Errorf("truncateWithEllipsis(%q, 4) = %q, want %q", "abcde", got, "a...")
+	}
+}
+
+// TestIsPermanentSendErrSurvivesRetryDo is the regression test for the
+// poison-drop classification bug: retry-go v5 strips the outer
+// unrecoverableError marker before returning (unpackUnrecoverable), so
+// classifying on IsRecoverable of the Do result always reported "transient"
+// and permanent failures were requeued forever. The inner permanentError wrap
+// must survive and classify correctly on both paths.
+func TestIsPermanentSendErrSurvivesRetryDo(t *testing.T) {
+	t.Parallel()
+
+	permanent := errors.New("permanent 403")
+
+	// Production pipeline shape: mark wraps, Do unpacks the outer layer.
+	err := retry.New(
+		retry.Attempts(3),
+		retry.Delay(0),
+	).Do(func() error {
+		return retry.Unrecoverable(permanentError{permanent})
+	})
+	if !isPermanentSendErr(err) {
+		t.Errorf("permanent error through retry.Do classified transient (marker stripped?): %v", err)
+	}
+
+	// Transient failure must stay recoverable.
+	err = retry.New(
+		retry.Attempts(2),
+		retry.Delay(0),
+	).Do(func() error {
+		return permanent
+	})
+	if isPermanentSendErr(err) {
+		t.Errorf("transient error through retry.Do misclassified permanent: %v", err)
+	}
+}
+
+// TestIsPermanentSendErrDirect covers the non-retry.Do call sites (e.g.
+// Discord UserChannelCreate) that classify markNamePermanent output directly.
+func TestIsPermanentSendErrDirect(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("permanent")
+
+	if !isPermanentSendErr(retry.Unrecoverable(permanentError{sentinel})) {
+		t.Error("direct mark-wrapped error not classified permanent")
+	}
+
+	if isPermanentSendErr(sentinel) {
+		t.Error("raw error misclassified as permanent")
+	}
+
+	if isPermanentSendErr(nil) {
+		t.Error("nil misclassified as permanent")
+	}
+}
+
+// TestMarkPermanentWrapping verifies each messenger's markNamePermanent wraps
+// its permanent cases so isPermanentSendErr detects them, and leaves
+// transient/unknown errors unwrapped.
+func TestMarkPermanentWrapping(t *testing.T) {
+	t.Parallel()
+
+	unknown := errors.New("boom")
+
+	cases := []struct {
+		name      string
+		permanent error
+		mark      func(error) error
+	}{
+		{"telegram", bot.ErrorForbidden, markTelegramPermanent},
+		{"whatsapp", whatsmeow.ErrNotLoggedIn, markWhatsAppPermanent},
+		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}}, markDiscordPermanent},
+		{"slack", slack.StatusCodeError{Code: http.StatusForbidden}, markSlackPermanent},
+		{"calendar", &googleapi.Error{Code: http.StatusForbidden}, markCalendarPermanent},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tc.mark(tc.permanent); !isPermanentSendErr(got) {
+				t.Errorf("mark(%v) = %v, want classified permanent", tc.permanent, got)
+			}
+
+			if got := tc.mark(unknown); isPermanentSendErr(got) {
+				t.Errorf("mark(%v) = %v, want classified transient", unknown, got)
+			}
+		})
 	}
 }

@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	broadcastBufLen    = 100                    // events to broadcast for sending at once
+	messengerBufLen    = 100                    // per-messenger fan-out channel buffer
 	spinnerRotateDelay = 100 * time.Millisecond // spinner delay
 	githubOrg          = "dkorunic"
 	githubRepo         = "e-dnevnik-bot"
@@ -88,7 +88,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		// start registers a messenger's buffered channel as a sink and drains it
 		// in a tracked goroutine.
 		start := func(queueName []byte, run func(ch <-chan msgtypes.Message)) {
-			ch := make(chan msgtypes.Message, broadcastBufLen)
+			ch := make(chan msgtypes.Message, messengerBufLen)
 			sinks = append(sinks, sink{ch: ch, queue: queueName})
 
 			wgInner.Add(1)
@@ -233,7 +233,7 @@ func storeOverflow(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g m
 // and if it is not an initial run, it will pass through to messengers for further alerting.
 func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Go(func() {
-		// Close gradesMsg on exit so msgSend's broadcast loop unblocks.
+		// Close gradesMsg on exit so msgSend's fan-out loop unblocks.
 		defer close(gradesMsg)
 
 		if !eDB.Existing() {

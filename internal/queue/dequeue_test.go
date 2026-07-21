@@ -105,6 +105,57 @@ func TestFetchFailedMsgsPartialExpiryKeepsSurvivor(t *testing.T) {
 	}
 }
 
+// TestFetchFailedMsgsMultiSurvivorSplit: a multi-message row must be split
+// into per-message rows at fetch, so a crash after dequeuing one survivor
+// cannot orphan its siblings (shared key would delete the row for all).
+func TestFetchFailedMsgsMultiSurvivorSplit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	eDB, err := sqlitedb.New(ctx, t.TempDir()+"/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	queueKey := []byte("test-queue")
+
+	encoded, err := codec.EncodeMsgs([]msgtypes.Message{
+		{Subject: "one", QueuedAt: time.Now()},
+		{Subject: "two", QueuedAt: time.Now()},
+	})
+	if err != nil {
+		t.Fatalf("EncodeMsgs failed: %v", err)
+	}
+
+	if err := eDB.Put(ctx, rowKey(queueKey), encoded); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	got := FetchFailedMsgs(ctx, eDB, queueKey)
+	if len(got) != 2 {
+		t.Fatalf("fetch = %d messages, want 2", len(got))
+	}
+
+	if string(got[0].Key) == string(got[1].Key) {
+		t.Fatal("survivors share a row key; multi-message row was not split")
+	}
+
+	if got[0].Msg.Subject != "one" || got[1].Msg.Subject != "two" {
+		t.Fatalf("fetch order = %q, %q, want one, two", got[0].Msg.Subject, got[1].Msg.Subject)
+	}
+
+	// Simulate a crash after processing the first survivor: dequeue it, then
+	// re-fetch — the sibling must still be there.
+	Dequeue(ctx, eDB, got[0].Key)
+
+	refetched := FetchFailedMsgs(ctx, eDB, queueKey)
+	if len(refetched) != 1 || refetched[0].Msg.Subject != "two" {
+		t.Fatalf("re-fetch = %+v, want lone sibling 'two' (orphaned by shared key?)", refetched)
+	}
+}
+
 // TestFetchFailedMsgsAllExpiredDropsRow verifies a row whose every message is
 // past MaxQueueAge is removed and returns nothing.
 func TestFetchFailedMsgsAllExpiredDropsRow(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
@@ -64,6 +65,25 @@ func openExistingDB(t *testing.T, path string) *sqlitedb.Edb {
 	}
 
 	return eDB
+}
+
+// TestStoreOverflowSpillsToQueue: a fan-out spill (full messenger buffer) must
+// land in the target messenger's queue for next-cycle delivery.
+func TestStoreOverflowSpillsToQueue(t *testing.T) {
+	t.Parallel()
+
+	eDB := openExistingDB(t, t.TempDir()+"/overflow.db")
+	defer eDB.Close() //nolint:errcheck
+
+	queueName := []byte("test-overflow-queue")
+	g := msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "spilled"}
+
+	storeOverflow(context.Background(), eDB, queueName, g)
+
+	got := queue.FetchFailedMsgs(context.Background(), eDB, queueName)
+	if len(got) != 1 || got[0].Msg.Subject != "spilled" {
+		t.Fatalf("FetchFailedMsgs = %+v, want the spilled message", got)
+	}
 }
 
 // TestMsgDedupYearInferenceFutureMonth verifies Bug 8A from TESTING-PLAN:
