@@ -66,9 +66,12 @@ type DiscordConfig struct {
 // already-dedup-flagged events are not lost.
 func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg DiscordConfig) (err error) {
 	// A send-path panic must drain ch and degrade, not crash the process.
+	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	var inflight *msgtypes.Message
+
 	defer func() {
 		if r := recover(); r != nil {
-			err = recoverMessenger(ctx, eDB, DiscordQueueName, ch, r)
+			err = recoverMessenger(ctx, eDB, DiscordQueueName, ch, r, inflight)
 		}
 	}()
 
@@ -112,7 +115,9 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	// Drain fully; processDiscord durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
+		inflight = &g
 		processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
+		inflight = nil
 	}
 
 	return nil
@@ -129,7 +134,8 @@ func markDiscordPermanent(err error) error {
 	var rerr *discordgo.RESTError
 	if errors.As(err, &rerr) && rerr.Response != nil {
 		if isPermanentHTTPStatus(rerr.Response.StatusCode) {
-			return retry.Unrecoverable(err)
+			// permanentError inside: survives retry.Do's marker stripping.
+			return retry.Unrecoverable(permanentError{err})
 		}
 	}
 

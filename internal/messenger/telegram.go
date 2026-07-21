@@ -54,9 +54,12 @@ type TelegramConfig struct {
 // already-dedup-flagged events are not lost.
 func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg TelegramConfig) (err error) {
 	// A send-path panic must drain ch and degrade, not crash the process.
+	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	var inflight *msgtypes.Message
+
 	defer func() {
 		if r := recover(); r != nil {
-			err = recoverMessenger(ctx, eDB, TelegramQueueName, ch, r)
+			err = recoverMessenger(ctx, eDB, TelegramQueueName, ch, r, inflight)
 		}
 	}()
 
@@ -102,7 +105,9 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	// Drain fully; processTelegram durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
+		inflight = &g
 		processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		inflight = nil
 	}
 
 	return nil
@@ -130,7 +135,8 @@ func markTelegramPermanent(err error) error {
 		errors.Is(err, bot.ErrorUnauthorized) ||
 		errors.Is(err, bot.ErrorNotFound) ||
 		errors.Is(err, bot.ErrorConflict) {
-		return retry.Unrecoverable(err)
+		// permanentError inside: survives retry.Do's marker stripping.
+		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err

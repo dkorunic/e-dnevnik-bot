@@ -67,9 +67,12 @@ type CalendarConfig struct {
 // already-dedup-flagged events are not lost.
 func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalendarConfig) (err error) {
 	// A send-path panic must drain ch and degrade, not crash the process.
+	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	var inflight *msgtypes.Message
+
 	defer func() {
 		if r := recover(); r != nil {
-			err = recoverMessenger(ctx, eDB, CalendarQueueName, ch, r)
+			err = recoverMessenger(ctx, eDB, CalendarQueueName, ch, r, inflight)
 		}
 	}()
 
@@ -102,7 +105,9 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	// Drain fully; processCalendar durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
+		inflight = &g
 		processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
+		inflight = nil
 	}
 
 	return nil
@@ -134,12 +139,23 @@ func ensureCalendarInit(ctx context.Context, tokFile, name string) (*calendar.Se
 // inserted once OAuth completes rather than dedup-flagged and lost; non-exam
 // events are dropped (other messengers already got them).
 func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message) {
+	// Same panic-guard contract as the full messengers: degrade, don't crash.
+	var inflight *msgtypes.Message
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error().Msgf("%v", recoverMessenger(ctx, eDB, CalendarQueueName, ch, r, inflight))
+		}
+	}()
+
 	queued := 0
 
 	for g := range ch {
 		if g.Code != msgtypes.Exam {
 			continue
 		}
+
+		inflight = &g
 
 		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
@@ -148,6 +164,8 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 		}
 
 		scancel()
+
+		inflight = nil
 
 		queued++
 	}
@@ -169,7 +187,8 @@ func markCalendarPermanent(err error) error {
 
 	if gaErr, ok := errors.AsType[*googleapi.Error](err); ok {
 		if isPermanentHTTPStatus(gaErr.Code) {
-			return retry.Unrecoverable(err)
+			// permanentError inside: survives retry.Do's marker stripping.
+			return retry.Unrecoverable(permanentError{err})
 		}
 	}
 

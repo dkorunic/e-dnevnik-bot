@@ -11,7 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
@@ -32,12 +31,23 @@ func isPermanentHTTPStatus(code int) bool {
 	return isClientError && !isRetriable
 }
 
-// isPermanentSendErr reports whether err was wrapped retry.Unrecoverable by a
-// markNamePermanent helper. Permanent failures (blocked bot, deleted chat, 4xx)
-// must not be requeued — they would re-attempt every cycle until MaxQueueAge —
-// so callers poison-drop the recipient instead.
+// permanentError survives retry.Do unwrapping. retry-go v5 strips the outer
+// retry.Unrecoverable marker on return; this inner sentinel keeps errors.As
+// detection working on both direct markNamePermanent results and post-retry values.
+type permanentError struct{ err error }
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
+
+// isPermanentSendErr reports whether err was classified permanent by a
+// markNamePermanent helper — either directly or wrapped in a retry.Do result.
+// Permanent failures (blocked bot, deleted chat, 4xx) must not be requeued —
+// they would re-attempt every cycle until MaxQueueAge — so callers poison-drop
+// the recipient instead.
 func isPermanentSendErr(err error) bool {
-	return err != nil && !retry.IsRecoverable(err)
+	var perr permanentError
+
+	return errors.As(err, &perr)
 }
 
 // storeTimeout bounds the detached context used to persist queue writes after caller ctx cancel.
@@ -81,14 +91,26 @@ func queueUndelivered(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, 
 	}
 }
 
-// recoverMessenger is the deferred panic guard every messenger installs: an
-// unrecovered send-path panic would crash the whole process, taking every other
-// messenger with it. Instead it drains ch to the queue and returns a wrapped
-// error so only the panicking messenger degrades. Callers assign the result to
-// their named return from within the deferred recover.
-func recoverMessenger(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, ch <-chan msgtypes.Message, r any) error {
+// recoverMessenger prevents a panicking messenger from crashing the process:
+// isolates the failure to one backend and preserves the backlog in the queue.
+//
+// inflight must be nil between messages and on the resend path (the queue row
+// persists; passing a non-nil value there would duplicate it). Recipients served
+// before a mid-send panic may get a duplicate — at-least-once, matching the
+// queue's crash semantics.
+func recoverMessenger(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, ch <-chan msgtypes.Message, r any, inflight *msgtypes.Message) error {
 	logger.Error().Msgf("Messenger %v panicked, draining undelivered messages to queue for retry: %v",
 		string(queueName), r)
+
+	// Consumed from ch before the panic — orphaned from both channel and queue.
+	if inflight != nil {
+		sctx, scancel := queueStoreCtx(ctx)
+		if err := queue.StoreFailedMsgs(sctx, eDB, queueName, *inflight); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+		}
+
+		scancel()
+	}
 
 	queueUndelivered(ctx, eDB, queueName, ch)
 

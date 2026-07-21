@@ -58,9 +58,12 @@ type MailConfig struct {
 // configured recipients. An invalid port falls back to 587.
 func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg MailConfig) (err error) {
 	// A send-path panic must drain ch and degrade, not crash the process.
+	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	var inflight *msgtypes.Message
+
 	defer func() {
 		if r := recover(); r != nil {
-			err = recoverMessenger(ctx, eDB, MailQueueName, ch, r)
+			err = recoverMessenger(ctx, eDB, MailQueueName, ch, r, inflight)
 		}
 	}()
 
@@ -98,7 +101,9 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	// Drain fully; processMail durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
+		inflight = &g
 		processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
+		inflight = nil
 	}
 
 	return nil
@@ -141,7 +146,8 @@ func markMailPermanent(err error) error {
 
 	var sendErr *mail.SendError
 	if errors.As(err, &sendErr) && !sendErr.IsTemp() {
-		return retry.Unrecoverable(err)
+		// permanentError inside: survives retry.Do's marker stripping.
+		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err
@@ -356,7 +362,8 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 				}
 			}
 
-			return retry.Unrecoverable(sendErr)
+			// permanentError inside: survives retry.Do's marker stripping.
+			return retry.Unrecoverable(permanentError{sendErr})
 		},
 	)
 

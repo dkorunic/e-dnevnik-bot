@@ -51,9 +51,12 @@ type SlackConfig struct {
 // already-dedup-flagged events are not lost.
 func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg SlackConfig) (err error) {
 	// A send-path panic must drain ch and degrade, not crash the process.
+	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	var inflight *msgtypes.Message
+
 	defer func() {
 		if r := recover(); r != nil {
-			err = recoverMessenger(ctx, eDB, SlackQueueName, ch, r)
+			err = recoverMessenger(ctx, eDB, SlackQueueName, ch, r, inflight)
 		}
 	}()
 
@@ -96,7 +99,9 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 
 	// Drain fully; processSlack durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
+		inflight = &g
 		processSlack(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		inflight = nil
 	}
 
 	return nil
@@ -112,12 +117,14 @@ func markSlackPermanent(err error) error {
 
 	if sce, ok := errors.AsType[slack.StatusCodeError](err); ok {
 		if isPermanentHTTPStatus(sce.Code) {
-			return retry.Unrecoverable(err)
+			// permanentError inside: survives retry.Do's marker stripping.
+			return retry.Unrecoverable(permanentError{err})
 		}
 	}
 
 	if _, ok := errors.AsType[*slack.SlackErrorResponse](err); ok {
-		return retry.Unrecoverable(err)
+		// permanentError inside: survives retry.Do's marker stripping.
+		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err

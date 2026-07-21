@@ -124,9 +124,12 @@ type WhatsAppConfig struct {
 // events are not lost.
 func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg WhatsAppConfig) (err error) {
 	// A send-path panic must drain ch and degrade, not crash the process.
+	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	var inflight *msgtypes.Message
+
 	defer func() {
 		if r := recover(); r != nil {
-			err = recoverMessenger(ctx, eDB, WhatsAppQueueName, ch, r)
+			err = recoverMessenger(ctx, eDB, WhatsAppQueueName, ch, r, inflight)
 		}
 	}()
 
@@ -232,7 +235,9 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	// Drain fully; processWhatsApp durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
+		inflight = &g
 		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
+		inflight = nil
 	}
 
 	return nil
@@ -252,7 +257,8 @@ func markWhatsAppPermanent(err error) error {
 		errors.Is(err, whatsmeow.ErrRecipientADJID) ||
 		errors.Is(err, whatsmeow.ErrBroadcastListUnsupported) ||
 		errors.Is(err, whatsmeow.ErrUnknownServer) {
-		return retry.Unrecoverable(err)
+		// permanentError inside: survives retry.Do's marker stripping.
+		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err
@@ -507,12 +513,16 @@ func whatsAppEventHandler(rawEvt any) {
 			SendPresenceBounded(cli, types.PresenceUnavailable)
 		}
 	case *events.PairError:
-		// Always a failure, regardless of any stale Store.ID. Shut down
-		// gracefully (SIGTERM-to-self) so the queue drains before exit.
-		_ = os.Remove(WhatsAppDBName)
+		// Fatal only when unpaired: a healthy paired client can see a spurious
+		// PairError (e.g. a stale pairing attempt) and must not self-logout.
+		if cli.Store.ID == nil {
+			_ = os.Remove(WhatsAppDBName)
 
-		logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
-		RequestShutdown()
+			logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
+			RequestShutdown()
+		} else {
+			logger.Warn().Msgf("Ignoring WhatsApp pairing error on an already-paired client: %v", evt.Error)
+		}
 	case *events.PairSuccess:
 		if cli.Store.ID == nil {
 			_ = os.Remove(WhatsAppDBName)

@@ -27,7 +27,8 @@ type Queued struct {
 //
 // Messages older than MaxQueueAge are dropped (their rows deleted) here.
 // Legacy aggregate-blob queues written by older releases are transparently
-// split into per-message rows on first encounter.
+// split into per-message rows on first encounter; any multi-message row is
+// also split so every returned Queued has a unique key.
 //
 // If any of the operations fail, the function logs an error and returns
 // whatever could be read.
@@ -91,8 +92,26 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			continue
 		}
 
-		// Partial expiry: rewrite with survivors only — never delete a row with
-		// live messages still referenced in kept.
+		// Multiple survivors: split into per-message rows so the caller's
+		// per-message Dequeue stays crash-safe — with a shared key, the first
+		// Dequeue would orphan live siblings. On split failure the original row
+		// is left intact and the row is skipped this cycle (retried on the next
+		// fetch), losing nothing.
+		if len(survivors) > 1 {
+			newKeys := splitRow(ctx, eDB, queueKey, row.Key, survivors)
+			if newKeys == nil {
+				continue
+			}
+
+			for i, m := range survivors {
+				kept = append(kept, Queued{Msg: m, Key: newKeys[i]})
+			}
+
+			continue
+		}
+
+		// Single survivor: rewrite in place only when expiry actually changed
+		// the contents.
 		if rowDropped > 0 {
 			if val, encErr := codec.EncodeMsgs(survivors); encErr != nil {
 				logger.Error().Msgf("%v: %v", ErrQueueing, encErr)
@@ -101,9 +120,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			}
 		}
 
-		for _, m := range survivors {
-			kept = append(kept, Queued{Msg: m, Key: row.Key})
-		}
+		kept = append(kept, Queued{Msg: survivors[0], Key: row.Key})
 	}
 
 	if dropped > 0 {
@@ -115,6 +132,38 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 	}
 
 	return kept
+}
+
+// splitRow rewrites a multi-message row as one row per message, returning the
+// new keys in survivor order, and removes the original row. On any failure it
+// rolls back the partial split (leaving the original intact) and returns nil
+// so the caller skips the row this cycle — no loss, no duplication.
+func splitRow(ctx context.Context, eDB *sqlitedb.Edb, queueKey, origKey []byte, survivors []msgtypes.Message) [][]byte {
+	newKeys := make([][]byte, 0, len(survivors))
+
+	for _, m := range survivors {
+		val, err := codec.EncodeMsgs([]msgtypes.Message{m})
+		if err == nil {
+			key := rowKey(queueKey)
+			if err = eDB.Put(ctx, key, val); err == nil {
+				newKeys = append(newKeys, key)
+
+				continue
+			}
+		}
+
+		logger.Error().Msgf("%v: %v", ErrQueueing, err)
+
+		for _, k := range newKeys {
+			Dequeue(ctx, eDB, k)
+		}
+
+		return nil
+	}
+
+	Dequeue(ctx, eDB, origKey)
+
+	return newKeys
 }
 
 // migrateLegacyQueue splits a pre-redesign aggregate queue row (whole queue
