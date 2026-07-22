@@ -50,6 +50,8 @@ Single test: `go test -run TestName ./path/to/package/`
 
 - **Shutdown-tolerant queue writes** (`messenger/common.go`): use `queueStoreCtx`, not raw `ctx`
 - **Two-level WaitGroup** (`routines.go:msgSend`): close every messenger channel *then* `wgInner.Wait()` — reversed order deadlocks. Fan-out is hand-rolled non-blocking (`select`/`default` → `storeOverflow` spill-to-queue), not `teivah/broadcast`
+- **Messenger panic guard** (`messenger/*.go`): entry points are `(err error)` with `defer recoverMessenger(..., inflight)`; set `inflight = &g` before processing a live msg, nil after / on the resend path, so a panic requeues it. Never hold a mutex across panic-able code under the guard (leaked lock hangs next cycle — see `ensureCalendarInit`)
+- **Poison-drop permanent errors** (`messenger/*.go`): `markNamePermanent` wraps `retry.Unrecoverable(permanentError{err})` — the inner sentinel survives `retry.Do` stripping so `isPermanentSendErr` detects it post-loop; permanent per-recipient failures are logged + skipped, not requeued
 - **Single-threaded dedup** (`routines.go:msgDedup`): do not parallelize
 - **First-run seeding is silent** (`sqlitedb/db.go` + `msgDedup`): do not suppress
 - **TTL-based dedup re-fires** after ~1 year: `sqlitedb/db.go:CheckAndFlagTTL`
