@@ -106,7 +106,7 @@
 
 **Responsibility:** Six independent messenger goroutines, each draining its own buffered channel from `msgSend`'s non-blocking fan-out.
 **Key deps:** `go.uber.org/ratelimit`, per-backend SDK
-**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Each entry point installs a deferred `recoverMessenger` panic guard that requeues the in-flight message and drains its channel to the queue on panic, so a send-path panic degrades one messenger instead of crashing the process (the queued-resend path is exempt — its row survives undequeued). Permanent send errors (unrecoverable per `markNamePermanent`, invalid recipients) are poison-dropped — logged loudly and skipped on retry — rather than requeued until `MaxQueueAge`. Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence uses a shutdown-tolerant context (`queueStoreCtx` / `storeTimeout = 5s`, built on `context.WithoutCancel`) so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries.
+**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Each entry point installs a deferred `recoverMessenger` panic guard that requeues the in-flight message and drains its channel to the queue on panic, so a send-path panic degrades one messenger instead of crashing the process (the queued-resend path is exempt — its row survives undequeued). Permanent send errors (unrecoverable per `markNamePermanent`, invalid recipients) are poison-dropped — logged loudly and skipped on retry — rather than requeued until `MaxQueueAge`. When Calendar is configured but cannot yet initialize (headless first run before interactive OAuth), `msgSend` substitutes a queue-only `CalendarDeferred` stub for the live Calendar goroutine: it queues exam events to the Calendar queue so they are delivered once OAuth completes, instead of being dedup-flagged and lost. Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence uses a shutdown-tolerant context (`queueStoreCtx` / `storeTimeout = 5s`, built on `context.WithoutCancel`) so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries.
 
 | Messenger | Backend Library               | Rate Limit | Format   | Max body/subject   |
 | --------- | ----------------------------- | ---------- | -------- | ------------------ |
@@ -162,16 +162,18 @@
 [msgDedup goroutine]             ← wgFilter (single goroutine)
   For each Message:
     hash = SHA-256(username + subject + fields)
-    if hash exists and not TTL-expired → discard
+    CheckAndFlagTTL(hash): report if already live; else flag it (seed) with TTL
+    if already seen → discard (duplicate)
+    if firstRun (fresh DB) → discard (seeded above, not forwarded)
     if --readinglist not set and Code == Reading → discard
-    if firstRun (fresh DB) → store hash, do NOT forward
+        (flagged above regardless, so first enabling the flag does not flood)
     if relevance period > 0 and event is stale → discard
         * Exam: uses Message.Timestamp directly
         * Grade: parses Fields[0] as "D.M." (formatHRDateOnly),
           year inferred from current calendar position
           (future day/month → previous year, else current year);
           parse failure is fail-open (event passed through)
-    else → store hash + TTL, send to gradesMsg (buffered chan)
+    else → send to gradesMsg (buffered chan)
     On ctx.Done: defer close(gradesMsg) unblocks the fan-out loop
         │
         ▼
@@ -237,7 +239,7 @@
 - **Fail-fast on startup:** config validation, DB init, and messenger credential checks are all fatal.
 - **Isolated runtime failures:** a scraping failure for one user sets an atomic error flag but does not cancel other users.
 - **Graceful degradation:** messenger failures store messages to queue; partial delivery tracked via `SkipRecipients` (deduplicated across retries via `mergeSkipRecipients`). Failed-message persistence survives context cancellation through a detached shutdown-tolerant context so no message is silently dropped on SIGTERM.
-- **Error flag propagation:** `atomic.Bool exitWithError` — goroutines write it, main reads it at shutdown to set exit code.
+- **Error flag propagation:** `atomic.Bool exitWithError` — goroutines write it, main reads it at shutdown to set the exit code. It latches for the process lifetime (never reset per cycle), so any failed cycle yields a non-zero exit.
 
 ### Domain modeling
 
@@ -349,7 +351,7 @@
 | **SQLite as shared state**                | WAL mode is robust, but all scrapers must access the same file. Docker volume mounts on NFS/FUSE can cause corruption.                          |
 | **Embedded Google credentials**           | OAuth2 client ID/secret compiled into binary. Binary should be treated as a secret if Google credentials are sensitive.                         |
 | **First-run behavior**                    | If the DB is deleted accidentally, the next run silently re-seeds without sending alerts. Users may think the bot missed events.                |
-| **Retry queue is best-effort**            | If the process crashes mid-delivery, messages in-flight (not yet queued) are lost. Queue is only populated after a confirmed API error. A graceful shutdown (SIGTERM/ctx cancel) still flushes pending failures via `queueStoreCtx`, but a hard crash bypasses it.         |
+| **Retry queue is best-effort**            | A graceful shutdown (SIGTERM/ctx cancel) flushes pending failures via `queueStoreCtx`, and a recovered send-path panic requeues its in-flight message. A hard crash (SIGKILL/OOM) bypasses both, losing any message in-flight (consumed from the channel but not yet queued).         |
 | **TTL-based dedup re-fires on expiry**    | After ~9 000 h (>1 year) an entry can be re-inserted by `CheckAndFlagTTL` and the same historical event will alert again. Long-lived installations will see "echoes" of year-old grades unless the DB is manually cleaned.         |
 | **`D.M.` year inference for Grade relevance** | When today's day/month exactly matches a grade's `Fields[0]` date, the year is assumed to be the current year — so a grade from the same calendar day of the prior school year will slip past the relevance filter. Inherent limitation of the portal's date format. |
 | **Go version pinned to 1.26+**            | Cutting-edge; some CI environments may not have 1.26 toolchain.                                                                                 |
