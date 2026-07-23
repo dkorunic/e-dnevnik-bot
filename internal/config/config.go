@@ -21,8 +21,8 @@ import (
 // invalid block or when no messenger is enabled.
 //
 // The config holds plain-text credentials, so LoadConfig best-effort tightens
-// the file to 0600 — the operator may still have set stricter goals, but an
-// accidental 0644 must not leave tokens group/world-readable.
+// the file to 0600 — an accidental 0644 must not leave tokens
+// group/world-readable.
 func LoadConfig(file string) (TomlConfig, error) {
 	var config TomlConfig
 	if _, err := toml.DecodeFile(file, &config); err != nil {

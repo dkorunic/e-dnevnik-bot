@@ -366,7 +366,6 @@ func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service,
 // calendar (whose Summary is the owner's e-mail address, so it can never
 // match by name). Name matching is case-insensitive and space-tolerant.
 func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName string) string {
-	// Empty name or the "primary" alias resolves to the user's primary calendar.
 	if calendarName == "" || strings.EqualFold(calendarName, CalendarPrimary) {
 		return CalendarPrimary
 	}
