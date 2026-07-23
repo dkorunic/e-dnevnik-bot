@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
+	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
@@ -40,6 +41,9 @@ var (
 	telegramCli       *bot.Bot
 	telegramMu        sync.Mutex // guards telegramCli initialisation
 	TelegramVersion   = version.ReadVersion("github.com/go-telegram/bot")
+
+	telegramMigratedIDsMu sync.Mutex            // guards telegramMigratedIDs
+	telegramMigratedIDs   = map[string]string{} // supergroup remaps seen this process: old chat ID -> new chat ID
 )
 
 // TelegramConfig holds the per-messenger settings for the Telegram backend.
@@ -162,17 +166,27 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
 	allProcessed := true
 
-	for _, u := range chatIDs {
-		if _, skip := skipSet[u]; skip {
+	for _, origID := range chatIDs {
+		if _, skip := skipSet[origID]; skip {
 			continue
 		}
+
+		// Follow supergroup migrations seen in earlier cycles. SkipRecipients
+		// bookkeeping stays on origID so retries dedupe correctly.
+		u := origID
+
+		telegramMigratedIDsMu.Lock()
+		if newID, ok := telegramMigratedIDs[origID]; ok {
+			u = newID
+		}
+		telegramMigratedIDsMu.Unlock()
 
 		uu, err := strconv.ParseInt(u, 10, 64)
 		if err != nil {
 			// Malformed ID never becomes valid: drop loudly, don't silently skip.
 			logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrTelegramInvalidChatID, u, err)
 
-			poisonedIDs = append(poisonedIDs, u)
+			poisonedIDs = append(poisonedIDs, origID)
 
 			continue
 		}
@@ -192,23 +206,34 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		rl.Take()
 
-		err = retry.New(
-			retry.Attempts(retries),
-			retry.Context(ctx),
-			retry.Delay(TelegramMinDelay),
-		).Do(
-			func() error {
-				_, err := telegramCli.SendMessage(ctx, &msg)
+		err = sendTelegramMsg(ctx, &msg, retries)
+		if err != nil {
+			var mig *bot.MigrateError
+			if errors.As(err, &mig) {
+				// Chat upgraded to supergroup: remap in-process, persist the
+				// new ID to configuration, and deliver to the supergroup now.
+				newID := strconv.Itoa(mig.MigrateToChatID)
 
-				return markTelegramPermanent(err)
-			},
-		)
+				logger.Warn().Msgf("Telegram: chat %v was migrated to supergroup %v — remapping and updating configuration",
+					u, mig.MigrateToChatID)
+
+				telegramMigratedIDsMu.Lock()
+				telegramMigratedIDs[origID] = newID
+				telegramMigratedIDsMu.Unlock()
+
+				telegramPersistChatID(ctx, origID, newID)
+
+				msg.ChatID = int64(mig.MigrateToChatID)
+				err = sendTelegramMsg(ctx, &msg, retries)
+			}
+		}
+
 		if err != nil {
 			if isPermanentSendErr(err) {
 				// Permanent (blocked bot, deleted chat): drop, don't requeue.
 				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrTelegramSendingMessage, u, err)
 
-				poisonedIDs = append(poisonedIDs, u)
+				poisonedIDs = append(poisonedIDs, origID)
 
 				continue
 			}
@@ -220,7 +245,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			continue
 		}
 
-		successfulIDs = append(successfulIDs, u)
+		successfulIDs = append(successfulIDs, origID)
 	}
 
 	if anyFailed || !allProcessed {
@@ -235,6 +260,71 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		scancel()
 	}
+}
+
+// sendTelegramMsg delivers msg under the per-recipient retry budget, marking
+// permanent failures so the caller can poison-drop or remap.
+func sendTelegramMsg(ctx context.Context, msg *bot.SendMessageParams, retries uint) error {
+	return retry.New(
+		retry.Attempts(retries),
+		retry.Context(ctx),
+		retry.Delay(TelegramMinDelay),
+	).Do(
+		func() error {
+			_, err := telegramCli.SendMessage(ctx, msg)
+
+			return markTelegramPermanent(err)
+		},
+	)
+}
+
+// telegramPersistChatID rewrites a migrated chat ID in the config file so the
+// supergroup remapping survives restarts. Best-effort: the in-process remap
+// stays active regardless; a failure only costs a manual edit.
+func telegramPersistChatID(ctx context.Context, oldID, newID string) {
+	confFile, ok := ctx.Value(ConfFileKey).(string)
+	if !ok {
+		return
+	}
+
+	configRewriteMu.Lock()
+	defer configRewriteMu.Unlock()
+
+	if !isWriteable(confFile) {
+		logger.Warn().Msgf("Telegram: cannot persist chat ID remap %v -> %v: %q is not writable", oldID, newID, confFile)
+
+		return
+	}
+
+	// Non-validating decode: a broken mid-run edit must not os.Exit this
+	// goroutine via LoadConfig's fail-fast validators.
+	cfg, err := config.LoadConfigRaw(confFile)
+	if err != nil {
+		logger.Error().Msgf("Telegram: unable to load configuration for chat ID remap: %v", err)
+
+		return
+	}
+
+	found := false
+
+	for i, id := range cfg.Telegram.ChatIDs {
+		if id == oldID {
+			cfg.Telegram.ChatIDs[i] = newID
+			found = true
+		}
+	}
+
+	if !found {
+		return
+	}
+
+	if err := config.SaveConfig(confFile, cfg); err != nil {
+		logger.Error().Msgf("Telegram: unable to save chat ID remap to configuration: %v", err)
+
+		return
+	}
+
+	logger.Info().Msgf("Telegram: persisted chat ID remap %v -> %v to %q", oldID, newID, confFile)
 }
 
 // telegramInit lazily creates the shared Telegram client (idempotent).

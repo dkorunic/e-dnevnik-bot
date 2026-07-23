@@ -4,12 +4,11 @@
 package sqlitedb
 
 import (
+	"crypto/sha256"
 	"errors"
 	"os"
 	"strings"
 	"sync"
-
-	"github.com/minio/sha256-simd"
 )
 
 // hashBufPoolMaxCap caps recycled buffers; oversized ones are dropped to bound pool memory.

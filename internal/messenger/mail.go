@@ -117,10 +117,8 @@ func mailInit(server string, portInt int, username, password string) error {
 	if mailCli == nil {
 		logger.Debug().Msg("Initializing e-mail client")
 
-		var err error
-
 		// Mandatory STARTTLS: AUTH PLAIN must never traverse cleartext.
-		mailCli, err = mail.NewClient(server,
+		cli, err := mail.NewClient(server,
 			mail.WithPort(portInt),
 			mail.WithSMTPAuth(mail.SMTPAuthPlain),
 			mail.WithTLSPolicy(mail.TLSMandatory),
@@ -130,6 +128,9 @@ func mailInit(server string, portInt int, username, password string) error {
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrMailDialer, err)
 		}
+
+		// Publish only on full success so a failed init is retried next cycle.
+		mailCli = cli
 	}
 
 	return nil

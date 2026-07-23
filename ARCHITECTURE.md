@@ -282,7 +282,7 @@
 
 ### Credential storage
 
-- TOML config file contains plain-text passwords. The application does not enforce file permissions; **operators must set 0600 manually** (assumed convention, not enforced).
+- TOML config file contains plain-text passwords. `LoadConfig` best-effort tightens the file to 0600 on every load (warn-only on failure, e.g. read-only fs); `SaveConfig` writes 0600 atomically via `renameio`.
 - Bot tokens (Discord, Telegram, Slack) stored as plain strings in the TOML config.
 
 ### Input validation
@@ -344,7 +344,7 @@
 
 | Area                                      | Risk / Trade-off                                                                                                                                |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plain-text credentials in TOML**        | Bot tokens and passwords readable by any process running as the same user. Acceptable for personal use; problematic in shared environments.     |
+| **Plain-text credentials in TOML**        | Bot tokens and passwords readable by any process running as the same user. The file is tightened to 0600 on load/save, but content stays plain text. Acceptable for personal use; problematic in shared environments.     |
 | **Unofficial WhatsApp protocol**          | `whatsmeow` can break on WhatsApp protocol updates, is not officially supported, and temporary bans are a real risk for high-frequency senders. |
 | **No horizontal scaling**                 | Two instances polling the same account simultaneously will cause duplicate alerts (no distributed lock).                                        |
 | **No metrics/alerting on the bot itself** | Failures are logged but not surfaced to an external dashboard. A silently hung bot won't be noticed until grades are missed.                    |

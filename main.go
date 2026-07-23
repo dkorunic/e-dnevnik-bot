@@ -324,9 +324,10 @@ func startSystemdWatchdog(ctx context.Context) {
 
 // testSingleRun pushes one synthetic message through the full send pipeline so
 // operators can verify messenger credentials and formatting without scraping.
+// The shared signal ctx stays active: SIGTERM drains gracefully through the
+// messengers' queue persistence instead of killing the process mid-send.
 func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
-	signal.Reset(os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	gradesMsg := make(chan msgtypes.Message, chanBufLen)
 	gradesMsg <- msgtypes.Message{

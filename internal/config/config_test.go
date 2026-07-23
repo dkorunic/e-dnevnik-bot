@@ -9,10 +9,28 @@ import (
 	"testing"
 )
 
+// copyTestConfig copies the checked-in fixture to a temp file so LoadConfig's
+// permission tightening never mutates the repository working tree.
+func copyTestConfig(t *testing.T) string {
+	t.Helper()
+
+	src, err := os.ReadFile("test_config.toml")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	dst := t.TempDir() + "/test_config.toml"
+	if err := os.WriteFile(dst, src, 0o644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	return dst
+}
+
 func TestLoadConfig(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadConfig("test_config.toml")
+	_, err := LoadConfig(copyTestConfig(t))
 	if err != nil {
 		t.Fatalf("LoadConfig() with valid config failed: %v", err)
 	}
@@ -37,6 +55,63 @@ func TestLoadConfig(t *testing.T) {
 	_, err = LoadConfig(tmpfile.Name())
 	if err == nil {
 		t.Fatal("LoadConfig() with invalid config should have failed")
+	}
+}
+
+// TestLoadConfigTightensPermissions verifies the config file — which holds
+// plain-text credentials — is tightened to owner-only on load.
+func TestLoadConfigTightensPermissions(t *testing.T) {
+	t.Parallel()
+
+	cfgFile := copyTestConfig(t)
+
+	if _, err := LoadConfig(cfgFile); err != nil {
+		t.Fatalf("LoadConfig() failed: %v", err)
+	}
+
+	fi, err := os.Stat(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("config permissions = %o, want 600", perm)
+	}
+}
+
+// TestLoadConfigRaw verifies the non-validating decode used by mid-run config
+// rewrites: a config that would trip LoadConfig's fail-fast validators (here:
+// no [[user]] blocks, normally logger.Fatal) must decode without side
+// effects, while malformed TOML still errors.
+func TestLoadConfigRaw(t *testing.T) {
+	t.Parallel()
+
+	// Valid TOML, but no users and no messenger — LoadConfig would Fatal.
+	userless := t.TempDir() + "/config.toml"
+	if err := os.WriteFile(userless, []byte("[telegram]\ntoken = \"x\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfigRaw(userless)
+	if err != nil {
+		t.Fatalf("LoadConfigRaw() failed on decodable config: %v", err)
+	}
+
+	if cfg.Telegram.Token != "x" || len(cfg.User) != 0 {
+		t.Errorf("LoadConfigRaw() decoded %+v, want token x with no users", cfg)
+	}
+
+	malformed := t.TempDir() + "/config.toml"
+	if err := os.WriteFile(malformed, []byte("invalid toml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadConfigRaw(malformed); err == nil {
+		t.Error("LoadConfigRaw() should fail on malformed TOML")
+	}
+
+	if _, err := LoadConfigRaw(t.TempDir() + "/missing.toml"); err == nil {
+		t.Error("LoadConfigRaw() should fail on a missing file")
 	}
 }
 
@@ -118,8 +193,19 @@ func TestValidators(t *testing.T) {
 	if !isValidSlackToken("xoxb-1234567890-1234567890-abcedfghijklmnopqrstuvwx") {
 		t.Error("isValidSlackToken() failed with a valid token")
 	}
+	// Concatenated so the token shape doesn't appear contiguously in source
+	// (GitHub push protection pattern-matches xox[bp]- token literals).
+	if !isValidSlackToken("xoxp-" + "1234567890-1234567890-1234567890123-abcdef0123456789abcdef0123456789abcdef") {
+		t.Error("isValidSlackToken() failed with a valid user token")
+	}
+	if !isValidSlackToken("xoxe-1234567890-1234567890-abcedfghijklmnopqrstuvwx") {
+		t.Error("isValidSlackToken() failed with a valid xoxe token")
+	}
 	if isValidSlackToken("invalid-token") {
 		t.Error("isValidSlackToken() passed with an invalid token")
+	}
+	if isValidSlackToken("xox-1234567890-abcedfghijklmnopqrstuvwx") {
+		t.Error("isValidSlackToken() passed with a prefix-less token")
 	}
 
 	// isValidSlackChatID

@@ -6,6 +6,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,10 +19,19 @@ import (
 // LoadConfig decodes the TOML config at file and runs per-messenger
 // validation, enabling each messenger whose block validates. Fatal on an
 // invalid block or when no messenger is enabled.
+//
+// The config holds plain-text credentials, so LoadConfig best-effort tightens
+// the file to 0600 — the operator may still have set stricter goals, but an
+// accidental 0644 must not leave tokens group/world-readable.
 func LoadConfig(file string) (TomlConfig, error) {
 	var config TomlConfig
 	if _, err := toml.DecodeFile(file, &config); err != nil {
 		return config, fmt.Errorf("failed to parse config file %s: %w", file, err)
+	}
+
+	// Best-effort: warn and continue on failure (read-only fs, foreign owner).
+	if err := os.Chmod(file, 0o600); err != nil {
+		logger.Warn().Msgf("Unable to tighten permissions on config file %q to 0600: %v", file, err)
 	}
 
 	checkUserConf(&config)
@@ -57,6 +67,20 @@ func SaveConfig(file string, config TomlConfig) error {
 	}
 
 	return nil
+}
+
+// LoadConfigRaw decodes the TOML config at file WITHOUT validation. It exists
+// for in-place rewrites (WhatsApp group resolution, Telegram chat-ID remap)
+// that run from messenger goroutines mid-cycle: LoadConfig's fail-fast
+// logger.Fatal on a broken config would os.Exit mid-cycle, bypassing graceful
+// shutdown and queue writes. Startup must use LoadConfig — never this.
+func LoadConfigRaw(file string) (TomlConfig, error) {
+	var config TomlConfig
+	if _, err := toml.DecodeFile(file, &config); err != nil {
+		return config, fmt.Errorf("failed to parse config file %s: %w", file, err)
+	}
+
+	return config, nil
 }
 
 // checkWhatsAppConf validates the WhatsApp block (phone format, JIDs, group

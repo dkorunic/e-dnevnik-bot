@@ -23,17 +23,16 @@ require (
 	github.com/lib4u/fake-useragent v1.0.6
 	github.com/mattn/go-isatty v0.0.23
 	github.com/mdp/qrterminal/v3 v3.2.1
-	github.com/minio/sha256-simd v1.0.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.1
 	github.com/slack-go/slack v0.27.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20260720135917-a2381054887e
+	go.mau.fi/whatsmeow v0.0.0-20260722203353-e9a033b24933
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
-	google.golang.org/api v0.289.0
+	google.golang.org/api v0.290.0
 	modernc.org/sqlite v1.54.0
 )
 
@@ -55,7 +54,6 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.18 // indirect
 	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect

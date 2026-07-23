@@ -170,6 +170,16 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		name := truncateWithEllipsis(g.Descriptions[ii], DiscordMaxFieldNameChars)
 		value := truncateWithEllipsis(g.Fields[ii], DiscordMaxFieldValChars)
 
+		// Discord 400s on empty field name/value, which would poison-drop
+		// the whole alert; a blank portal cell must not kill delivery.
+		if name == "" {
+			name = "-"
+		}
+
+		if value == "" {
+			value = "-"
+		}
+
 		nameLen := utf8.RuneCountInString(name)
 		valueLen := utf8.RuneCountInString(value)
 
@@ -240,15 +250,11 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 		// Resolve DM channel lazily; cache across recipients.
 		discordMu.Lock()
-		channelID, ok := discordChannels[u]
+		channelID, cached := discordChannels[u]
 		discordMu.Unlock()
 
-		var err error
-
-		if !ok {
-			var c *discordgo.Channel
-
-			c, err = discordCli.UserChannelCreate(u,
+		if !cached {
+			c, err := discordCli.UserChannelCreate(u,
 				discordgo.WithContext(ctx),
 				discordgo.WithRetryOnRatelimit(true),
 				discordgo.WithRestRetries(1))
@@ -275,21 +281,32 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			discordMu.Unlock()
 		}
 
-		err = retry.New(
-			retry.Attempts(retries),
-			retry.Context(ctx),
-			retry.Delay(DiscordMinDelay),
-		).Do(
-			func() error {
-				_, err := discordCli.ChannelMessageSendEmbed(channelID,
-					&msg,
-					discordgo.WithContext(ctx),
-					discordgo.WithRetryOnRatelimit(true),
-					discordgo.WithRestRetries(1))
+		err := sendDiscordEmbed(ctx, channelID, &msg, retries)
+		if err != nil && isPermanentSendErr(err) && cached {
+			// A cached DM channel can go stale (user closed the DM, channel
+			// deleted): evict, re-resolve once, and resend once before
+			// classifying. If the re-resolve fails, keep the original error
+			// — the cache is already evicted, so the next cycle starts clean.
+			discordMu.Lock()
+			delete(discordChannels, u)
+			discordMu.Unlock()
 
-				return markDiscordPermanent(err)
-			},
-		)
+			logger.Warn().Msgf("Discord: cached DM channel for %q rejected, re-resolving: %v", u, err)
+
+			if c, cerr := discordCli.UserChannelCreate(u,
+				discordgo.WithContext(ctx),
+				discordgo.WithRetryOnRatelimit(true),
+				discordgo.WithRestRetries(1)); cerr != nil {
+				logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, cerr)
+			} else {
+				discordMu.Lock()
+				discordChannels[u] = c.ID
+				discordMu.Unlock()
+
+				err = sendDiscordEmbed(ctx, c.ID, &msg, retries)
+			}
+		}
+
 		if err != nil {
 			if isPermanentSendErr(err) {
 				// Permanent (blocked bot, unknown channel): drop, don't requeue.
@@ -324,12 +341,30 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 }
 
+// sendDiscordEmbed delivers msg to channelID under the per-recipient retry
+// budget, marking permanent 4xx failures so the caller can poison-drop.
+func sendDiscordEmbed(ctx context.Context, channelID string, msg *discordgo.MessageEmbed, retries uint) error {
+	return retry.New(
+		retry.Attempts(retries),
+		retry.Context(ctx),
+		retry.Delay(DiscordMinDelay),
+	).Do(
+		func() error {
+			_, err := discordCli.ChannelMessageSendEmbed(channelID,
+				msg,
+				discordgo.WithContext(ctx),
+				discordgo.WithRetryOnRatelimit(true),
+				discordgo.WithRestRetries(1))
+
+			return markDiscordPermanent(err)
+		},
+	)
+}
+
 // discordInit lazily creates the shared REST-only Discord client (idempotent).
 func discordInit(token string) error {
 	discordMu.Lock()
 	defer discordMu.Unlock()
-
-	var err error
 
 	// No Open(): this bot only sends via REST (UserChannelCreate /
 	// ChannelMessageSendEmbed), which needs no gateway websocket. Keeping a
@@ -339,16 +374,18 @@ func discordInit(token string) error {
 	if discordCli == nil {
 		logger.Debug().Msg("Initializing Discord client")
 
-		discordCli, err = discordgo.New("Bot " + token)
+		cli, err := discordgo.New("Bot " + token)
 		if err != nil {
 			logger.Error().Msgf("%v: %v", ErrDiscordCreatingSession, err)
 
 			return err
 		}
 
-		discordCli.ShouldRetryOnRateLimit = true
-		discordCli.MaxRestRetries = 1
+		cli.ShouldRetryOnRateLimit = true
+		cli.MaxRestRetries = 1
 
+		// Publish only on full success so a failed init is retried next cycle.
+		discordCli = cli
 		discordChannels = make(map[string]string)
 	}
 

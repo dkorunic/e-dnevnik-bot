@@ -6,7 +6,6 @@ package fetch
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"time"
 )
 
@@ -15,7 +14,6 @@ import (
 //nolint:containedctx
 type Client struct {
 	httpClient *http.Client
-	URL        *url.URL
 	ctx        context.Context
 	username   string
 	password   string

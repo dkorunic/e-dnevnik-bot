@@ -89,6 +89,35 @@ func TestDBOperations(t *testing.T) {
 	}
 }
 
+// TestNewEmptyExistingDBIsNotExisting verifies that a DB file present on disk
+// but holding no rows (crashed first run, truncated/purged file, stat/open
+// TOCTOU) is treated as fresh: first-run seeding stays silent instead of
+// flooding every historical event.
+func TestNewEmptyExistingDBIsNotExisting(t *testing.T) {
+	t.Parallel()
+
+	tmpFile := filepath.Join(t.TempDir(), "test-empty-existing.db.sqlite")
+
+	eDB, err := New(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	if err := eDB.Close(); err != nil {
+		t.Fatalf("Close() failed: %v", err)
+	}
+
+	eDB, err = New(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	if eDB.Existing() {
+		t.Error("Existing() should be false for a present-but-empty database (first-run flood risk)")
+	}
+}
+
 func TestHashContent(t *testing.T) {
 	t.Parallel()
 

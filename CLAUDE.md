@@ -140,7 +140,7 @@ Every messenger follows an identical lifecycle and set of rules. When adding a n
 
 ## Config
 
-TOML (`.e-dnevnik.toml`). Multiple `[[user]]` blocks supported. Each messenger section is independently optional — absence disables that messenger. Validation is fail-fast in `internal/config/validators.go`. The app does **not** enforce 0600 permissions on the config file; mentioning this is an operator responsibility is a known trade-off (see ARCHITECTURE.md §10).
+TOML (`.e-dnevnik.toml`). Multiple `[[user]]` blocks supported. Each messenger section is independently optional — absence disables that messenger. Validation is fail-fast in `internal/config/validators.go`. `LoadConfig` tightens the file to 0600 on every load (best-effort, warn-only on failure); `SaveConfig` writes 0600 atomically.
 
 ## Flag variables
 

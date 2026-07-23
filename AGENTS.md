@@ -64,8 +64,8 @@ Single test: `go test -run TestName ./path/to/package/`
 - **Google Calendar first run**: local HTTP on `:9080`, browser OAuth2 consent (`calendar_token.json`).
 - **Poll interval floor**: clamped to 1h in `flags.go`.
 - **GOMEMLIMIT**: auto-tuned to 90% of cgroup/system memory.
-- **Config file permissions**: the bot does **not** enforce 0600 — operator responsibility.
-- **Config rewrites**: WhatsApp JID resolution can rewrite the config file in place. Comments and key ordering are not preserved.
+- **Config file permissions**: `LoadConfig` best-effort tightens the file to 0600 on every load (warn-only on failure); `SaveConfig` writes 0600.
+- **Config rewrites**: WhatsApp JID resolution and Telegram chat-ID remap rewrite the config file in place via `LoadConfigRaw` (non-validating decode — a broken mid-run edit must not `logger.Fatal` a messenger goroutine). Comments and key ordering are not preserved.
 
 ## CARNet portal constraints
 

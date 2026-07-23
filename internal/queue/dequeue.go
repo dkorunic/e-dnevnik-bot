@@ -5,6 +5,7 @@ package queue
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/codec"
@@ -12,6 +13,12 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
+
+// legacyChecked tracks queues whose pre-redesign aggregate row has been
+// migrated or proven absent this process, so FetchFailedMsgs skips the probe
+// transaction after the first pass instead of paying it per messenger per
+// cycle forever.
+var legacyChecked sync.Map // map[string]struct{}, keyed by queue name
 
 // Queued couples a fetched message with the row key it was read from so the
 // caller can Dequeue exactly that row once the message has been processed.
@@ -35,7 +42,13 @@ type Queued struct {
 func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []Queued {
 	queueKeyStr := string(queueKey)
 
-	migrateLegacyQueue(ctx, eDB, queueKey)
+	// Probe for a legacy aggregate row once per process per queue; a failed
+	// migration reports not-done and is retried on the next fetch.
+	if _, done := legacyChecked.Load(queueKeyStr); !done {
+		if migrateLegacyQueue(ctx, eDB, queueKey) {
+			legacyChecked.Store(queueKeyStr, struct{}{})
+		}
+	}
 
 	prefix := make([]byte, 0, len(queueKey)+1)
 	prefix = append(prefix, queueKey...)
@@ -67,6 +80,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		survivors := make([]msgtypes.Message, 0, len(msgs))
 
 		rowDropped := 0
+		rowStamped := false
 
 		for _, m := range msgs {
 			if !m.QueuedAt.IsZero() && now.Sub(m.QueuedAt) > MaxQueueAge {
@@ -76,8 +90,11 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			}
 
 			// Stamp legacy zero QueuedAt so MaxQueueAge applies from now on.
+			// The stamp must be persisted (see the rewrite below) — otherwise
+			// every fetch re-bases the age and the row never expires.
 			if m.QueuedAt.IsZero() {
 				m.QueuedAt = now
+				rowStamped = true
 			}
 
 			survivors = append(survivors, m)
@@ -110,9 +127,9 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			continue
 		}
 
-		// Single survivor: rewrite in place only when expiry actually changed
-		// the contents.
-		if rowDropped > 0 {
+		// Single survivor: rewrite in place when expiry or a QueuedAt stamp
+		// actually changed the contents.
+		if rowDropped > 0 || rowStamped {
 			if val, encErr := codec.EncodeMsgs(survivors); encErr != nil {
 				logger.Error().Msgf("%v: %v", ErrQueueing, encErr)
 			} else if putErr := eDB.Put(ctx, row.Key, val); putErr != nil {
@@ -170,8 +187,11 @@ func splitRow(ctx context.Context, eDB *sqlitedb.Edb, queueKey, origKey []byte, 
 // as one CBOR list stored under the bare queue name) into per-message rows.
 // The aggregate row is deleted only after every message has been re-stored,
 // so a crash mid-migration duplicates rather than loses; the migration is
-// idempotent apart from those duplicates.
-func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) {
+// idempotent apart from those duplicates. It reports whether the legacy row
+// is gone (absent, undecodable, or fully migrated) so the caller can skip
+// future probes; a mid-migration store failure reports not-done and is
+// retried on the next fetch.
+func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) bool {
 	var legacy []msgtypes.Message
 
 	// Read-only peek: returning old unchanged skips the write. A row that no
@@ -194,11 +214,11 @@ func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte)
 	if err != nil {
 		logger.Error().Msgf("Error checking legacy queue %v: %v", string(queueKey), err)
 
-		return
+		return false
 	}
 
 	if len(legacy) == 0 {
-		return
+		return true
 	}
 
 	logger.Info().Msgf("Migrating %v messages from legacy queue %v to per-message rows", len(legacy), string(queueKey))
@@ -208,11 +228,16 @@ func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte)
 			logger.Error().Msgf("%v: %v", ErrQueueing, err)
 
 			// Keep the aggregate row so nothing is lost; retry next fetch.
-			return
+			return false
 		}
 	}
 
 	if err := eDB.Delete(ctx, queueKey); err != nil {
+		// The rows are already migrated and the leftover aggregate is
+		// invisible to the prefix scan — re-migrating would duplicate, so a
+		// failed delete still counts as done.
 		logger.Error().Msgf("%v: %v", ErrQueueing, err)
 	}
+
+	return true
 }

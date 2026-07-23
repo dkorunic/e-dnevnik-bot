@@ -6,10 +6,12 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
@@ -83,6 +85,33 @@ func TestStoreOverflowSpillsToQueue(t *testing.T) {
 	got := queue.FetchFailedMsgs(context.Background(), eDB, queueName)
 	if len(got) != 1 || got[0].Msg.Subject != "spilled" {
 		t.Fatalf("FetchFailedMsgs = %+v, want the spilled message", got)
+	}
+}
+
+// TestCheckCalendarCorruptTokenDefers verifies that a present-but-undecodable
+// token file defers Calendar (queue-only stub) instead of enabling the live
+// messenger, which would otherwise fail every poll cycle at runtime.
+// Cannot run in parallel — modifies the package-level calTokFile flag pointer.
+func TestCheckCalendarCorruptTokenDefers(t *testing.T) {
+	tokFile := filepath.Join(t.TempDir(), "calendar_token.json")
+	if err := os.WriteFile(tokFile, []byte("not valid json {"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := calTokFile
+	calTokFile = &tokFile
+
+	defer func() { calTokFile = orig }()
+
+	cfg := config.TomlConfig{CalendarEnabled: true}
+	checkCalendar(context.Background(), &cfg)
+
+	if cfg.CalendarEnabled {
+		t.Error("CalendarEnabled should be false after corrupt-token detection")
+	}
+
+	if !cfg.CalendarDeferred {
+		t.Error("CalendarDeferred should be true so exams queue until re-auth")
 	}
 }
 

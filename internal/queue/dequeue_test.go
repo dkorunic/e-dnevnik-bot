@@ -48,7 +48,7 @@ func TestFetchFailedMsgs(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	queueKey := []byte("test-queue")
+	queueKey := []byte("test-queue-basic")
 	storeLegacyAggregate(t, eDB, queueKey, []msgtypes.Message{
 		{Username: "testuser", Subject: "Test Subject"},
 	})
@@ -78,7 +78,7 @@ func TestFetchFailedMsgsPartialExpiryKeepsSurvivor(t *testing.T) {
 	}
 	defer eDB.Close() //nolint:errcheck
 
-	queueKey := []byte("test-queue")
+	queueKey := []byte("test-queue-partial-expiry")
 
 	// One row holding an expired message followed by a live one.
 	encoded, err := codec.EncodeMsgs([]msgtypes.Message{
@@ -119,7 +119,7 @@ func TestFetchFailedMsgsMultiSurvivorSplit(t *testing.T) {
 	}
 	defer eDB.Close() //nolint:errcheck
 
-	queueKey := []byte("test-queue")
+	queueKey := []byte("test-queue-split")
 
 	encoded, err := codec.EncodeMsgs([]msgtypes.Message{
 		{Subject: "one", QueuedAt: time.Now()},
@@ -156,6 +156,77 @@ func TestFetchFailedMsgsMultiSurvivorSplit(t *testing.T) {
 	}
 }
 
+// TestFetchFailedMsgsStampsLegacyQueuedAt: a pre-QueuedAt single-message row
+// must have its stamped QueuedAt persisted back to the row. If the stamp only
+// lives in memory, every fetch re-bases the age to "now" and MaxQueueAge never
+// fires — the row would be retried forever.
+func TestFetchFailedMsgsStampsLegacyQueuedAt(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	eDB, err := sqlitedb.New(ctx, t.TempDir()+"/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	queueKey := []byte("test-queue-stamp")
+
+	// Legacy row: zero QueuedAt.
+	encoded, err := codec.EncodeMsgs([]msgtypes.Message{{Subject: "legacy"}})
+	if err != nil {
+		t.Fatalf("EncodeMsgs failed: %v", err)
+	}
+
+	if err := eDB.Put(ctx, rowKey(queueKey), encoded); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	got := FetchFailedMsgs(ctx, eDB, queueKey)
+	if len(got) != 1 || got[0].Msg.Subject != "legacy" {
+		t.Fatalf("first fetch = %+v, want the legacy message", got)
+	}
+
+	if got[0].Msg.QueuedAt.IsZero() {
+		t.Fatal("fetched message still has zero QueuedAt (was not stamped)")
+	}
+
+	// The stamp must be persisted: decode the raw row back from the DB.
+	prefix := append([]byte(nil), queueKey...)
+	prefix = append(prefix, rowKeySep)
+
+	rows, err := eDB.ScanPrefix(ctx, prefix)
+	if err != nil {
+		t.Fatalf("ScanPrefix failed: %v", err)
+	}
+
+	if len(rows) != 1 {
+		t.Fatalf("ScanPrefix = %d rows, want 1", len(rows))
+	}
+
+	persisted, err := codec.DecodeMsgs(rows[0].Value)
+	if err != nil {
+		t.Fatalf("DecodeMsgs failed: %v", err)
+	}
+
+	if len(persisted) != 1 || persisted[0].QueuedAt.IsZero() {
+		t.Fatalf("persisted row = %+v, want one message with a stamped QueuedAt", persisted)
+	}
+
+	// Second fetch: the row must not be duplicated, and the persisted stamp
+	// must survive (not re-stamped to the new fetch time).
+	got2 := FetchFailedMsgs(ctx, eDB, queueKey)
+	if len(got2) != 1 {
+		t.Fatalf("second fetch = %d messages, want 1", len(got2))
+	}
+
+	if !got2[0].Msg.QueuedAt.Equal(persisted[0].QueuedAt) {
+		t.Errorf("QueuedAt changed between fetches: %v vs %v — stamp not persisted",
+			got2[0].Msg.QueuedAt, persisted[0].QueuedAt)
+	}
+}
+
 // TestFetchFailedMsgsAllExpiredDropsRow verifies a row whose every message is
 // past MaxQueueAge is removed and returns nothing.
 func TestFetchFailedMsgsAllExpiredDropsRow(t *testing.T) {
@@ -169,7 +240,7 @@ func TestFetchFailedMsgsAllExpiredDropsRow(t *testing.T) {
 	}
 	defer eDB.Close() //nolint:errcheck
 
-	queueKey := []byte("test-queue")
+	queueKey := []byte("test-queue-all-expired")
 
 	encoded, err := codec.EncodeMsgs([]msgtypes.Message{
 		{Subject: "expired", QueuedAt: time.Now().Add(-2 * MaxQueueAge)},
@@ -225,6 +296,37 @@ func TestLegacyQueueMigration(t *testing.T) {
 	refetched := FetchFailedMsgs(context.Background(), eDB, queueKey)
 	if len(refetched) != 2 {
 		t.Errorf("expected 2 messages after re-fetch (no duplication), got %d", len(refetched))
+	}
+}
+
+// TestMigrateLegacyQueueProbedOnce verifies the legacy probe runs at most
+// once per process per queue: the first fetch migrates the aggregate row and
+// marks the queue checked; subsequent fetches skip the probe transaction.
+func TestMigrateLegacyQueueProbedOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	eDB, err := sqlitedb.New(ctx, t.TempDir()+"/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	queueKey := []byte("test-checked-queue")
+	storeLegacyAggregate(t, eDB, queueKey, []msgtypes.Message{{Subject: "old"}})
+
+	if got := FetchFailedMsgs(ctx, eDB, queueKey); len(got) != 1 {
+		t.Fatalf("first fetch = %d messages, want 1", len(got))
+	}
+
+	if _, ok := legacyChecked.Load(string(queueKey)); !ok {
+		t.Error("queue should be marked legacy-checked after the first fetch")
+	}
+
+	// Second fetch: served from per-message rows without re-probing.
+	if got := FetchFailedMsgs(ctx, eDB, queueKey); len(got) != 1 {
+		t.Fatalf("second fetch = %d messages, want 1", len(got))
 	}
 }
 

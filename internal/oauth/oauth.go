@@ -50,7 +50,12 @@ var (
 	ErrOAuthTokenSave       = errors.New("unable to save token to file")
 	ErrOAuthTokenEncode     = errors.New("unable to encode OAuth token to JSON")
 	ErrInvalidCallbackState = errors.New("invalid OAuth callback state")
+	ErrOAuthDenied          = errors.New("OAuth consent flow returned an error")
+	ErrOAuthGrantRevoked    = errors.New("OAuth grant revoked or expired")
 )
+
+// browserOpen is a seam for tests: production uses browser.OpenURL.
+var browserOpen = browser.OpenURL
 
 //go:embed templates/*html assets/*ico
 var contentFS embed.FS
@@ -61,6 +66,7 @@ type persistingTokenSource struct {
 	last      *oauth2.Token
 	tokenPath string
 	mu        sync.Mutex
+	warnOnce  sync.Once
 }
 
 // Token returns a cached/refreshed token, and persists it to tokenPath on
@@ -71,6 +77,14 @@ type persistingTokenSource struct {
 func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	tok, err := p.src.Token()
 	if err != nil {
+		if IsInvalidGrant(err) {
+			// Loud once per process: every API call will keep failing until re-auth.
+			p.warnOnce.Do(func() {
+				logger.Error().Msgf("Google Calendar OAuth grant was revoked or expired; delete %q and re-run the bot interactively to re-authenticate",
+					p.tokenPath)
+			})
+		}
+
 		return nil, err
 	}
 
@@ -106,6 +120,11 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 
 			newTok, err := src.Token()
 			if err != nil {
+				if IsInvalidGrant(err) {
+					return nil, fmt.Errorf("%w: delete %q and re-run the bot interactively to re-authenticate",
+						ErrOAuthGrantRevoked, tokenPath)
+				}
+
 				return nil, err
 			}
 
@@ -150,7 +169,14 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		return nil, fmt.Errorf("%w: %w", ErrOAuthUUID, err)
 	}
 
-	tokChan := make(chan string, 1)
+	// authCallback carries the callback outcome: an auth code on success, or
+	// the terminal cause (state mismatch, consent denial) otherwise.
+	type authCallback struct {
+		err  error
+		code string
+	}
+
+	tokChan := make(chan authCallback, 1)
 
 	var once sync.Once
 
@@ -211,22 +237,42 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 
+		q := req.URL.Query()
+
 		// Constant-time compare to avoid timing leaks on malformed callbacks.
 		expectedState := authReqState.String()
-		if receivedState := req.URL.Query().Get("state"); subtle.ConstantTimeCompare([]byte(receivedState), []byte(expectedState)) != 1 {
+		if receivedState := q.Get("state"); subtle.ConstantTimeCompare([]byte(receivedState), []byte(expectedState)) != 1 {
 			w.WriteHeader(http.StatusBadRequest)
 
 			if err := t.ExecuteTemplate(w, "failure.html", map[string]any{"error": ErrInvalidCallbackState}); err != nil {
 				logger.Error().Msgf("template execution failed: %v", err)
 			}
 
-			once.Do(func() { close(tokChan) })
+			once.Do(func() {
+				tokChan <- authCallback{err: ErrInvalidCallbackState}
+				close(tokChan)
+			})
+
+			return
+		}
+
+		// Google signals consent denial / flow errors via the error param —
+		// report the actual cause instead of rendering a false success page.
+		if cbErr := q.Get("error"); cbErr != "" {
+			if err := t.ExecuteTemplate(w, "failure.html", map[string]any{"error": cbErr}); err != nil {
+				logger.Error().Msgf("template execution failed: %v", err)
+			}
+
+			once.Do(func() {
+				tokChan <- authCallback{err: fmt.Errorf("%w: %s", ErrOAuthDenied, cbErr)}
+				close(tokChan)
+			})
 
 			return
 		}
 
 		once.Do(func() {
-			tokChan <- req.URL.Query().Get("code")
+			tokChan <- authCallback{code: q.Get("code")}
 			close(tokChan)
 		})
 
@@ -250,17 +296,17 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	logger.Info().Msgf("Opening local Web server through system browser: %v", authURL)
 
-	if err := browser.OpenURL(authURL); err != nil {
+	if err := browserOpen(authURL); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOAuthBrowser, err)
 	}
 
-	var authCode string
+	var cb authCallback
 
 	authTimer := time.NewTimer(AuthTimeout)
 	defer authTimer.Stop()
 
 	select {
-	case authCode = <-tokChan:
+	case cb = <-tokChan:
 		authTimer.Stop()
 	case <-authTimer.C:
 		return nil, ErrOAuthTimeout
@@ -269,12 +315,16 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		return nil, ctx.Err()
 	}
 
-	// Empty code indicates a state-mismatch callback.
-	if authCode == "" {
+	if cb.err != nil {
+		return nil, cb.err
+	}
+
+	// A valid-state callback carrying neither error nor code is malformed.
+	if cb.code == "" {
 		return nil, ErrInvalidCallbackState
 	}
 
-	tok, err := config.Exchange(ctx, authCode)
+	tok, err := config.Exchange(ctx, cb.code)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOAuthTokenFetch, err)
 	}
@@ -294,6 +344,25 @@ func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	err = json.NewDecoder(bytes.NewBuffer(b)).Decode(tok)
 
 	return tok, err
+}
+
+// ValidateTokenFile reports whether tokenPath holds a decodable OAuth2 token.
+// File presence alone is not sufficient — a truncated or hand-edited file
+// otherwise fails every poll cycle at runtime instead of once, clearly, at
+// startup.
+func ValidateTokenFile(tokenPath string) error {
+	_, err := tokenFromFile(tokenPath)
+
+	return err
+}
+
+// IsInvalidGrant reports whether err is an OAuth2 invalid_grant response from
+// the token endpoint — the refresh token was revoked or expired and only
+// interactive re-authentication helps; retrying is pointless.
+func IsInvalidGrant(err error) bool {
+	var re *oauth2.RetrieveError
+
+	return errors.As(err, &re) && re.ErrorCode == "invalid_grant"
 }
 
 // saveToken atomically writes token to tokenPath as JSON with DefaultPerms.

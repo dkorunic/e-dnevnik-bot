@@ -56,11 +56,32 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 		wgScrape.Go(func() {
 			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
 			if err != nil {
+				// Shutdown-induced cancellation is not a cycle failure.
+				if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+					logger.Debug().Msgf("Scraping aborted by shutdown for user %v", i.Username)
+
+					return
+				}
+
 				logger.Warn().Msgf("%v %v: %v", ErrScrapingUser, i.Username, err)
 				exitWithError.Store(true)
 			}
 		})
 	}
+}
+
+// flagMessengerError logs a messenger failure and latches the run as failed —
+// unless the failure is a shutdown-induced cancellation, which is part of a
+// normal stop and must not turn a clean SIGTERM into a non-zero exit.
+func flagMessengerError(ctx context.Context, sentinel, err error) {
+	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+		logger.Debug().Msgf("Messenger aborted by shutdown: %v", err)
+
+		return
+	}
+
+	logger.Warn().Msgf("%v: %v", sentinel, err)
+	exitWithError.Store(true)
 }
 
 // msgSend fans messages from gradesMsg out to every enabled messenger, each
@@ -116,8 +137,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 					UserIDs: cfg.Discord.UserIDs,
 					Retries: *retries,
 				}); err != nil {
-					logger.Warn().Msgf("%v: %v", ErrDiscord, err)
-					exitWithError.Store(true)
+					flagMessengerError(ctx, ErrDiscord, err)
 				}
 			})
 		}
@@ -129,8 +149,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 					ChatIDs: cfg.Telegram.ChatIDs,
 					Retries: *retries,
 				}); err != nil {
-					logger.Warn().Msgf("%v: %v", ErrTelegram, err)
-					exitWithError.Store(true)
+					flagMessengerError(ctx, ErrTelegram, err)
 				}
 			})
 		}
@@ -142,8 +161,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 					ChatIDs: cfg.Slack.ChatIDs,
 					Retries: *retries,
 				}); err != nil {
-					logger.Warn().Msgf("%v: %v", ErrSlack, err)
-					exitWithError.Store(true)
+					flagMessengerError(ctx, ErrSlack, err)
 				}
 			})
 		}
@@ -160,8 +178,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 					To:       cfg.Mail.To,
 					Retries:  *retries,
 				}); err != nil {
-					logger.Warn().Msgf("%v: %v", ErrMail, err)
-					exitWithError.Store(true)
+					flagMessengerError(ctx, ErrMail, err)
 				}
 			})
 		}
@@ -173,8 +190,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 					TokFile: *calTokFile,
 					Retries: *retries,
 				}); err != nil {
-					logger.Warn().Msgf("%v: %v", ErrCalendar, err)
-					exitWithError.Store(true)
+					flagMessengerError(ctx, ErrCalendar, err)
 				}
 			})
 		}
@@ -194,8 +210,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 					Groups:  cfg.WhatsApp.Groups,
 					Retries: *retries,
 				}); err != nil {
-					logger.Warn().Msgf("%v: %v", ErrWhatsApp, err)
-					exitWithError.Store(true)
+					flagMessengerError(ctx, ErrWhatsApp, err)
 				}
 			})
 		}
@@ -333,17 +348,18 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 	return false
 }
 
-// spinner shows a spiffy terminal spinner until done is closed.
+// spinner shows a spiffy terminal spinner until done is closed. It writes to
+// stderr so the stdout stream stays parseable when logs are JSON.
 func spinner(done <-chan struct{}) {
 	s := spin.New()
 
 	for {
-		fmt.Printf("\rWaiting... %v", s.Next())
+		fmt.Fprintf(os.Stderr, "\rWaiting... %v", s.Next())
 
 		// Cancellable wait so shutdown isn't held by an in-flight Sleep.
 		select {
 		case <-done:
-			fmt.Print("\r")
+			fmt.Fprint(os.Stderr, "\r")
 
 			return
 		case <-time.After(spinnerRotateDelay):
@@ -380,7 +396,10 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 
 		latestRelease, _, err := client.Repositories.GetLatestRelease(vctx, githubOrg, githubRepo)
 		if err != nil || latestRelease == nil {
-			logger.Error().Msgf("Unable to check for latest release of e-dnevnik-bot: %v", err)
+			// Shutdown cancelling vctx mid-request is not an app error.
+			if ctx.Err() == nil {
+				logger.Error().Msgf("Unable to check for latest release of e-dnevnik-bot: %v", err)
+			}
 
 			return
 		}

@@ -75,9 +75,35 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	edb := &Edb{db: db, isExisting: isExisting}
 
+	// A present-but-empty kv table must behave as a fresh DB: silent seeding
+	// beats flooding. This subsumes the stat/open TOCTOU (file deleted in
+	// between), truncated or purged files, and crashed first runs.
+	hasRows, err := edb.hasAnyRow(ctx)
+	if err != nil {
+		logger.Error().Msgf("Unable to probe database for existing entries, falling back to file presence: %v", err)
+	} else {
+		edb.isExisting = hasRows
+	}
+
 	edb.cleanup(ctx)
 
 	return edb, nil
+}
+
+// hasAnyRow reports whether the kv table holds at least one row.
+func (db *Edb) hasAnyRow(ctx context.Context) (bool, error) {
+	var one int
+
+	err := db.db.QueryRowContext(ctx, "SELECT 1 FROM kv LIMIT 1").Scan(&one)
+	if err == nil {
+		return true, nil
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	return false, err
 }
 
 // Close closes database.
@@ -180,7 +206,9 @@ func keyLive(ctx context.Context, conn *sql.Conn, key []byte, now time.Time) (bo
 	}
 }
 
-// Existing returns if the database was freshly initialized.
+// Existing reports whether the database held any dedup entries at open time.
+// A present-but-empty DB reads as fresh so the first run seeds silently
+// instead of flooding.
 func (db *Edb) Existing() bool {
 	return db.isExisting
 }

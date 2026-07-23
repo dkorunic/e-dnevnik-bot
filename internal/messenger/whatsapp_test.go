@@ -148,6 +148,41 @@ func TestIsWriteable(t *testing.T) {
 	}
 }
 
+// TestWhatsAppGroupsResolutionTTL verifies the cache gate: unresolved or
+// TTL-expired group resolution must be re-attempted, while a fresh cache is
+// trusted. Stale membership must not strand sends to dead groups.
+// NOTE: must not run in parallel — it writes the package-level group-cache globals.
+func TestWhatsAppGroupsResolutionTTL(t *testing.T) {
+	origResolved, origAt := whatsAppGroupsResolved, whatsAppGroupsResolvedAt
+
+	defer func() {
+		whatsAppGroupsMu.Lock()
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt = origResolved, origAt
+		whatsAppGroupsMu.Unlock()
+	}()
+
+	set := func(resolved bool, at time.Time) {
+		whatsAppGroupsMu.Lock()
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt = resolved, at
+		whatsAppGroupsMu.Unlock()
+	}
+
+	set(false, time.Time{})
+	if !whatsAppGroupsNeedsResolution() {
+		t.Error("unresolved cache should need resolution")
+	}
+
+	set(true, time.Now())
+	if whatsAppGroupsNeedsResolution() {
+		t.Error("fresh cache should not need resolution")
+	}
+
+	set(true, time.Now().Add(-2*whatsAppGroupsCacheTTL))
+	if !whatsAppGroupsNeedsResolution() {
+		t.Error("TTL-expired cache should need resolution")
+	}
+}
+
 // TestWhatsAppEventHandler must not run in parallel — it writes the package-level whatsAppCli global.
 func TestWhatsAppEventHandler(t *testing.T) {
 	container, err := sqlstore.New(context.Background(), "sqlite", "file::memory:?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000", nil)

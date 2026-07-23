@@ -49,6 +49,12 @@ const (
 
 	// whatsAppPresenceTimeout bounds each SendPresence call so a stalled socket can't block the callback goroutine.
 	whatsAppPresenceTimeout = 5 * time.Second
+
+	// whatsAppGroupsCacheTTL bounds how long resolved group JIDs are trusted
+	// before re-resolution: membership changes (bot removed from a group)
+	// must not strand sends to dead groups — those churn the failed-message
+	// queue on transient errors until MaxQueueAge.
+	whatsAppGroupsCacheTTL = 24 * time.Hour
 )
 
 // SendPresenceBounded sends a best-effort presence update under its own
@@ -78,15 +84,16 @@ var (
 	ErrWhatsAppOutdated       = errors.New("WhatsApp Go library version is outdated, please update")
 	ErrWhatsAppBan            = errors.New("WhatsApp device is temporarily banned")
 
-	WhatsAppQueueName       = []byte(WhatsAppQueue)
-	whatsAppCli             *whatsmeow.Client
-	whatsAppCliMu           sync.Mutex // guards whatsAppCli and whatsAppStore initialisation
-	whatsAppStore           *sqlstore.Container
-	WhatsAppVersion         = version.ReadVersion("go.mau.fi/whatsmeow")
-	whatsAppGroupsMu        sync.Mutex // protects whatsAppGroupsResolved and whatsAppResolvedUserIDs
-	whatsAppGroupsResolved  bool       // true once groups have been successfully resolved
-	whatsAppResolvedUserIDs []string   // resolved JIDs cached across poll cycles
-	whatsAppGroupsWarnOnce  sync.Once  // ensures the "no group matched" warning logs at most once per process
+	WhatsAppQueueName        = []byte(WhatsAppQueue)
+	whatsAppCli              *whatsmeow.Client
+	whatsAppCliMu            sync.Mutex // guards whatsAppCli and whatsAppStore initialisation
+	whatsAppStore            *sqlstore.Container
+	WhatsAppVersion          = version.ReadVersion("go.mau.fi/whatsmeow")
+	whatsAppGroupsMu         sync.Mutex // protects whatsAppGroupsResolved*, whatsAppResolvedUserIDs and whatsAppGroupsWarned
+	whatsAppGroupsResolved   bool       // true once groups have been successfully resolved
+	whatsAppGroupsResolvedAt time.Time  // when the cached resolution was made; re-resolve after whatsAppGroupsCacheTTL
+	whatsAppResolvedUserIDs  []string   // resolved JIDs cached across poll cycles
+	whatsAppGroupsWarned     bool       // "no group matched" warning latch; re-armed on each successful resolution
 
 	// WhatsAppPairingMu hands off the sqlstore from startup pairing to the runtime client.
 	// Pairing code holds it through Disconnect/Close so whatsAppInit cannot race.
@@ -165,53 +172,59 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
-	// Retry group resolution per tick; sync.Once would strand transient failures.
+	// Group resolution is cached for whatsAppGroupsCacheTTL, then re-resolved
+	// so a stale membership (bot removed from a group) is dropped instead of
+	// re-failing delivery every cycle. Retry semantics are preserved: lookup
+	// errors keep serving the previous cache and retry next cycle.
 	if len(groups) > 0 {
-		whatsAppGroupsMu.Lock()
-		needsResolution := !whatsAppGroupsResolved
-		whatsAppGroupsMu.Unlock()
-
-		if needsResolution {
+		if whatsAppGroupsNeedsResolution() {
 			userIDSize := len(userIDs)
 
-			userIDs = whatsAppProcessGroups(ctx, cli, userIDs, groups)
+			resolved, err := whatsAppProcessGroups(ctx, cli, userIDs, groups)
 
-			if len(userIDs) > userIDSize {
-				// Cache on first success to skip future resolution.
+			switch {
+			case err != nil:
+				// Lookup failed: serve the previous cache if one exists and
+				// leave the timestamp untouched so the next cycle retries.
+				whatsAppGroupsMu.Lock()
+				if whatsAppGroupsResolved {
+					userIDs = whatsAppResolvedUserIDs
+				}
+				whatsAppGroupsMu.Unlock()
+			case len(resolved) > userIDSize:
+				userIDs = resolved
+
+				// Cache with a timestamp to bound future resolution.
 				whatsAppGroupsMu.Lock()
 				whatsAppGroupsResolved = true
+				whatsAppGroupsResolvedAt = time.Now()
 				whatsAppResolvedUserIDs = userIDs
+				whatsAppGroupsWarned = false // re-arm the no-match warning
 				whatsAppGroupsMu.Unlock()
 
 				// Persist resolved JIDs so future runs skip resolution.
-				//nolint:nestif
 				if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
-					if isWriteable(confFile) {
-						logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
-
-						cfg, err := config.LoadConfig(confFile)
-						if err != nil {
-							logger.Error().Msgf("Error loading configuration: %v", err)
-						} else {
-							cfg.WhatsApp.UserIDs = userIDs
-							cfg.WhatsApp.Groups = []string{}
-
-							if err = config.SaveConfig(confFile, cfg); err != nil {
-								logger.Error().Msgf("Error saving configuration: %v", err)
-							}
-						}
-					} else {
-						logger.Info().Msg("Detected WhatsApp group with a name but rewriting configuration is impossible due to lack of permissions")
-					}
+					whatsAppPersistResolvedGroups(confFile, userIDs)
 				}
-			} else {
-				// Warn once so a typo in group names surfaces without spamming every tick.
-				whatsAppGroupsWarnOnce.Do(func() {
+			default:
+				// Zero groups matched: bot removed from the configured groups
+				// or a typo. Drop any stale cache so dead groups stop
+				// receiving sends; retry resolution next cycle.
+				whatsAppGroupsMu.Lock()
+				whatsAppGroupsResolved = false
+				whatsAppResolvedUserIDs = nil
+
+				// Latch the warning so a typo surfaces once without spamming
+				// every tick; a later successful resolution re-arms it.
+				warn := !whatsAppGroupsWarned
+				whatsAppGroupsWarned = true
+				whatsAppGroupsMu.Unlock()
+
+				if warn {
 					logger.Warn().Msgf("No WhatsApp groups matched the configured names %v; verify the bot is a member and the names match exactly",
 						groups)
-				})
+				}
 			}
-			// Cache empty on failure — next tick retries.
 		} else {
 			whatsAppGroupsMu.Lock()
 			userIDs = whatsAppResolvedUserIDs
@@ -399,15 +412,25 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
 	return jids
 }
 
+// whatsAppGroupsNeedsResolution reports whether the cached group resolution
+// is absent or older than whatsAppGroupsCacheTTL.
+func whatsAppGroupsNeedsResolution() bool {
+	whatsAppGroupsMu.Lock()
+	defer whatsAppGroupsMu.Unlock()
+
+	return !whatsAppGroupsResolved || time.Since(whatsAppGroupsResolvedAt) > whatsAppGroupsCacheTTL
+}
+
 // whatsAppProcessGroups appends the JIDs of joined groups matching the given
-// names to userIDs. On lookup error it logs and returns userIDs unchanged.
-func whatsAppProcessGroups(ctx context.Context, cli *whatsmeow.Client, userIDs, groups []string) []string {
+// names to userIDs. A lookup error leaves userIDs unchanged and is returned so
+// the caller can fall back to the cached resolution.
+func whatsAppProcessGroups(ctx context.Context, cli *whatsmeow.Client, userIDs, groups []string) ([]string, error) {
 	if len(groups) > 0 {
 		g, err := cli.GetJoinedGroups(ctx)
 		if err != nil {
 			logger.Error().Msgf("%v %v", ErrWhatsAppUnableGroups, err)
 
-			return userIDs
+			return userIDs, err
 		}
 
 		for _, jid := range filterGroupsByName(groups, g) {
@@ -418,7 +441,39 @@ func whatsAppProcessGroups(ctx context.Context, cli *whatsmeow.Client, userIDs, 
 		}
 	}
 
-	return userIDs
+	return userIDs, nil
+}
+
+// whatsAppPersistResolvedGroups rewrites group names as resolved JIDs in the
+// config file so future runs skip resolution. Best-effort: a failure only
+// means resolution runs again next cycle.
+func whatsAppPersistResolvedGroups(confFile string, userIDs []string) {
+	configRewriteMu.Lock()
+	defer configRewriteMu.Unlock()
+
+	if !isWriteable(confFile) {
+		logger.Info().Msg("Detected WhatsApp group with a name but rewriting configuration is impossible due to lack of permissions")
+
+		return
+	}
+
+	logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
+
+	// Non-validating decode: a broken mid-run edit must not os.Exit this
+	// goroutine via LoadConfig's fail-fast validators.
+	cfg, err := config.LoadConfigRaw(confFile)
+	if err != nil {
+		logger.Error().Msgf("Error loading configuration: %v", err)
+
+		return
+	}
+
+	cfg.WhatsApp.UserIDs = userIDs
+	cfg.WhatsApp.Groups = []string{}
+
+	if err = config.SaveConfig(confFile, cfg); err != nil {
+		logger.Error().Msgf("Error saving configuration: %v", err)
+	}
 }
 
 // whatsAppLogin opens the WhatsApp store DB, loads the first device, and

@@ -5,10 +5,12 @@ package messenger
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,7 +21,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/internal/version"
-	"github.com/minio/sha256-simd"
 	"go.uber.org/ratelimit"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -37,6 +38,9 @@ const (
 	CalendarQueue       = "calendar-queue"
 
 	CalendarExamSep = " - Ispit iz: "
+
+	// CalendarPrimary is the ID and accepted name-alias of the user's primary calendar.
+	CalendarPrimary = "primary"
 )
 
 var (
@@ -243,7 +247,13 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		End: &calendar.EventDateTime{
 			Date: g.Timestamp.AddDate(0, 0, 1).Format(time.DateOnly),
 		},
-		Description: g.Fields[len(g.Fields)-1],
+	}
+
+	// The exam note is the third field of scrape's exam layout (subject,
+	// date, note). Short rows (legacy queue entries) get no description
+	// instead of a mis-picked field.
+	if len(g.Fields) >= 3 {
+		newEvent.Description = g.Fields[2]
 	}
 
 	// Cancelled before insert: re-queue so caller's tail-slice does not drop us.
@@ -352,12 +362,16 @@ func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service,
 }
 
 // getCalendarID gets a Google calendar ID out of a symbolic calendar name.
+// An empty name or the literal "primary" resolves to the user's primary
+// calendar (whose Summary is the owner's e-mail address, so it can never
+// match by name). Name matching is case-insensitive and space-tolerant.
 func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName string) string {
-	// Empty name resolves to the user's primary calendar.
-	if calendarName == "" {
-		return "primary"
+	// Empty name or the "primary" alias resolves to the user's primary calendar.
+	if calendarName == "" || strings.EqualFold(calendarName, CalendarPrimary) {
+		return CalendarPrimary
 	}
 
+	want := strings.TrimSpace(calendarName)
 	nextPageToken := ""
 
 	for {
@@ -373,7 +387,7 @@ func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName stri
 		}
 
 		for _, item := range listCal.Items {
-			if item.Summary == calendarName {
+			if strings.EqualFold(strings.TrimSpace(item.Summary), want) {
 				return item.Id
 			}
 		}

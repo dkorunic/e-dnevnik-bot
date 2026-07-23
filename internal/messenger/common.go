@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -17,6 +18,11 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
+
+// configRewriteMu serializes LoadConfig→SaveConfig cycles across messengers so
+// concurrent rewrites (e.g. WhatsApp group resolution and a Telegram chat-ID
+// remap in the same cycle) can't lose each other's changes.
+var configRewriteMu sync.Mutex
 
 // ErrMessengerPanic wraps a recovered messenger-send panic so the run is
 // flagged failed (see recoverMessenger).

@@ -15,6 +15,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/oauth"
 	"github.com/hako/durafmt"
 	"github.com/mattn/go-isatty"
 	"github.com/mdp/qrterminal/v3"
@@ -69,7 +70,13 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 
 	switch {
 	case err == nil:
-		// Token present; the runtime InitCalendar loads it on first send.
+		// Token present — but it must at least decode: a truncated or
+		// hand-edited file would otherwise fail every poll cycle at runtime.
+		if verr := oauth.ValidateTokenFile(*calTokFile); verr != nil {
+			logger.Error().Msgf("Google Calendar token file %q is unreadable (%v). Deferring Calendar integration (exams will be queued); delete the file and re-run interactively to re-authenticate.",
+				*calTokFile, verr)
+			deferCal()
+		}
 	case !errors.Is(err, fs.ErrNotExist):
 		// Unexpected stat error (e.g. EACCES): defer rather than fail confusingly later.
 		logger.Error().Msgf("Cannot stat Google Calendar token file %q: %v. Deferring Calendar integration.", *calTokFile, err)
