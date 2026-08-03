@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	DefaultConfFile      = ".e-dnevnik.toml"     // default configuration filename
-	DefaultCalendarToken = "calendar_token.json" // default Google Calendar token file
-	DefaultTickInterval  = 1 * time.Hour         // default (and minimal permitted value) is 1 tick per 1h
-	DefaultRetries       = 3                     // default retry attempts
-	DefaultDBPath        = ".e-dnevnik.db"       // default SQLite DB
+	DefaultConfFile        = ".e-dnevnik.toml"     // default configuration filename
+	DefaultCalendarToken   = "calendar_token.json" // default Google Calendar token file
+	DefaultTickInterval    = 1 * time.Hour         // default (and minimal permitted value) is 1 tick per 1h
+	DefaultRelevancePeriod = 720 * time.Hour       // default relevance window for grade/exam events (~30 days)
+	DefaultRetries         = 3                     // default retry attempts
+	DefaultDBPath          = ".e-dnevnik.db"       // default SQLite DB
 )
 
 var (
@@ -52,7 +53,7 @@ func parseFlags() {
 	memProfile = fs.String('m', "memprofile", "", "memory profile output file")
 
 	tickInterval = fs.Duration('i', "interval", DefaultTickInterval, "interval between polls when in daemon mode")
-	relevancePeriod = fs.Duration('p', "relevance", 0, "maximum relevance period for grade and exam events (0 = unlimited)")
+	relevancePeriod = fs.Duration('p', "relevance", DefaultRelevancePeriod, "maximum relevance period for grade and exam events (0 = unlimited)")
 
 	retries = fs.Uint('r', "retries", DefaultRetries, "number of retry attempts on error")
 
