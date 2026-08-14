@@ -411,4 +411,4 @@ This GitHub Actions workflow runs every 6 hours. On each run it checks out the r
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=dkorunic/e-dnevnik-bot&type=Date)](https://star-history.com/#dkorunic/e-dnevnik-bot&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=dkorunic/e-dnevnik-bot&type=Date)](https://star-history.com/#dkorunic/e-dnevnik-bot&Date)
