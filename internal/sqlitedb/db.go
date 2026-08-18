@@ -132,7 +132,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close() //nolint:errcheck // releasing the conn back to the pool
+	defer conn.Close()
 
 	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return false, err
@@ -140,7 +140,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 
 	committed := false
 
-	defer func() {
+	defer func() { //nolint:contextcheck // detaching is the point, see below
 		if !committed {
 			// Fresh ctx: rollback must run even if caller's ctx is cancelled.
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
@@ -223,7 +223,7 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	if err != nil {
 		return err
 	}
-	defer conn.Close() //nolint:errcheck // releasing the conn back to the pool
+	defer conn.Close()
 
 	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return err
@@ -231,7 +231,7 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 
 	committed := false
 
-	defer func() {
+	defer func() { //nolint:contextcheck // detaching is the point, see below
 		if !committed {
 			// Fresh ctx: rollback must run even if caller's ctx is cancelled.
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")

@@ -42,7 +42,7 @@ func putBuilder(sb *strings.Builder) {
 
 // PlainMsg formats grade report as cleartext block in a string.
 func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := builderPool.Get().(*strings.Builder)
+	sb := builderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
 	defer putBuilder(sb)
 
 	sb.Reset()
@@ -55,8 +55,6 @@ func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, g
 }
 
 // plainFormatGrades formats grade descriptions and values.
-//
-//nolint:interfacer
 func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 	n := min(len(descriptions), len(grade))
 
@@ -72,7 +70,7 @@ func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 // string, using the package builder pool so callers do not pay a per-call
 // strings.Builder allocation in hot paths (e.g. per-message embed titles).
 func PlainSubject(user, subject string, code msgtypes.EventCode) string {
-	sb := builderPool.Get().(*strings.Builder)
+	sb := builderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
 	defer putBuilder(sb)
 
 	sb.Reset()
@@ -84,8 +82,6 @@ func PlainSubject(user, subject string, code msgtypes.EventCode) string {
 }
 
 // PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.
-//
-//nolint:interfacer
 func PlainFormatSubject(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	switch code {
 	case msgtypes.Exam:

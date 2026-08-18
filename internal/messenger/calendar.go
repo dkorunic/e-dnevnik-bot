@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -239,7 +240,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	// All-day event spanning a single date.
 	newEvent := &calendar.Event{
-		Id:      fmt.Sprintf("%x", idHash),
+		Id:      hex.EncodeToString(idHash[:]),
 		Summary: g.Username + CalendarExamSep + g.Subject,
 		Start: &calendar.EventDateTime{
 			Date: g.Timestamp.Format(time.DateOnly),

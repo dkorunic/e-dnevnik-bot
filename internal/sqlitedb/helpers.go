@@ -72,7 +72,7 @@ func hashParts(bucket, subBucket string, target []string, withSep bool) []byte {
 	}
 
 	// Pooled buffer; grow when input exceeds capacity.
-	bufp := hashBufPool.Get().(*[]byte)
+	bufp := hashBufPool.Get().(*[]byte) //nolint:forcetypeassert // package-private pool; New returns this type
 
 	if cap(*bufp) < totalLen {
 		*bufp = make([]byte, 0, totalLen)

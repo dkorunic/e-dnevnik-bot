@@ -12,7 +12,7 @@ import (
 
 // HTMLMsg formats grade report as preformatted HTML block in a string.
 func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := builderPool.Get().(*strings.Builder)
+	sb := builderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
 	defer putBuilder(sb)
 
 	sb.Reset()

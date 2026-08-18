@@ -26,7 +26,7 @@ var ErrDecodePanic = errors.New("panic while decoding message queue")
 // would silently truncate sub-second precision on msgtypes.Message.Timestamp.
 var encMode = mustEncMode()
 
-func mustEncMode() cbor.EncMode {
+func mustEncMode() cbor.EncMode { //nolint:ireturn // cbor exposes no concrete EncMode
 	em, err := cbor.EncOptions{Time: cbor.TimeRFC3339Nano}.EncMode()
 	if err != nil {
 		// Options are static, so this can only fail on a programming error.
@@ -39,6 +39,8 @@ func mustEncMode() cbor.EncMode {
 // DecodeMsgs CBOR-decodes val into a message slice. A decode panic on
 // corrupted or older-format on-disk bytes is recovered into ErrDecodePanic so
 // a bad queue entry never crashes the daemon.
+//
+//nolint:nonamedreturns // the recover below assigns both returns
 func DecodeMsgs(val []byte) (msgs []msgtypes.Message, err error) {
 	if len(val) == 0 {
 		return []msgtypes.Message{}, nil

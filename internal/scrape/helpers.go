@@ -256,8 +256,11 @@ func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
 				})
 		})
 
+	// Legitimate over summer break, so not an error — but downstream this is
+	// indistinguishable from a healthy poll, making it the only signal that a
+	// login succeeded while alerts silently never fire.
 	if parsedClasses == 0 {
-		logger.Info().Msgf("No active classes found in the scraped content for user %v", username)
+		logger.Warn().Msgf("No active classes found in the scraped content for user %v", username)
 	}
 
 	return classes, nil
@@ -501,7 +504,7 @@ func trimAllSpace(s string) string {
 		return s
 	}
 
-	b := trimBuilderPool.Get().(*strings.Builder)
+	b := trimBuilderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
 	defer trimPutBuilder(b)
 
 	// No Reset needed: trimPutBuilder Resets before Put, so every Get yields a clean builder.

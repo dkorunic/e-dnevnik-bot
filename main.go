@@ -6,7 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand/v2" //nolint:gosec
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"runtime"

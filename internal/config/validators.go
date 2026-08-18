@@ -24,7 +24,7 @@ var (
 	telegramChatIDRegex = regexp.MustCompile(`^-?\d{5,19}$`)
 )
 
-// isValidPhone reports whether phone is in international format (+, 3-14 digits).
+// isValidPhone reports whether phone is a valid E.164 number (+ and 2-15 digits).
 func isValidPhone(phone string) bool {
 	return phoneRegex.MatchString(phone)
 }

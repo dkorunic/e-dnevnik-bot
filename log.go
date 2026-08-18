@@ -14,8 +14,6 @@ import (
 
 // initLog sets the global log level from -v or LOG_LEVEL (default Info) and
 // switches to colorized console output when -l is set.
-//
-//nolint:nestif
 func initLog() {
 	logLevel := zerolog.InfoLevel
 	if *debug {

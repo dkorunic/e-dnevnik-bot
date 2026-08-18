@@ -183,12 +183,15 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	// Bind first so authURL carries the actual port; loopback is required by Google.
 	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
 
-	listener, err := net.Listen("tcp", authListenHost)
+	// ListenConfig so a cancelled ctx aborts the bind.
+	var lc net.ListenConfig
+
+	listener, err := lc.Listen(ctx, "tcp", authListenHost)
 	if err != nil {
 		logger.Warn().Msgf("Preferred OAuth callback port %v unavailable (%v), falling back to an ephemeral port",
 			AuthListenPort, err)
 
-		listener, err = net.Listen("tcp", net.JoinHostPort(AuthListenAddr, "0"))
+		listener, err = lc.Listen(ctx, "tcp", net.JoinHostPort(AuthListenAddr, "0"))
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrOAuthHTTPServer, err)
 		}
@@ -212,7 +215,9 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		Addr:              listener.Addr().String(),
 		Handler:           r,
 	}
-	defer func() {
+	// Detached ctx: shutdown needs its grace period even once ctx is cancelled,
+	// or the listener leaks and the next run cannot bind the callback port.
+	defer func() { //nolint:contextcheck
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), WriteTimeout)
 		defer cancel()
 		_ = s.Shutdown(shutdownCtx)
@@ -369,7 +374,7 @@ func IsInvalidGrant(err error) bool {
 func saveToken(tokenPath string, token *oauth2.Token) error {
 	buf := new(bytes.Buffer)
 
-	err := json.NewEncoder(buf).Encode(token)
+	err := json.NewEncoder(buf).Encode(token) //nolint:gosec // G117: token cache; 0600 below carries confidentiality
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrOAuthTokenEncode, err)
 	}

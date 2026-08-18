@@ -45,7 +45,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 	// attempts*fetch.Timeout can't overflow int64 nanoseconds.
 	attempts := min(retries, scrapeMaxAttempts)
 
-	r64 := int64(attempts)
+	r64 := int64(attempts) //nolint:gosec // G115: min()-capped above, cannot overflow
 
 	// One deadline for the whole per-user scrape. NOTE: this couples -r to total
 	// pipeline time, not per-request retries — a large -r (up to 100) permits a

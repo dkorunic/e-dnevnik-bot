@@ -27,7 +27,7 @@ var markupReplacer = strings.NewReplacer(
 
 // MarkupMsg formats grade report as preformatted Markup block in a string.
 func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := builderPool.Get().(*strings.Builder)
+	sb := builderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
 	defer putBuilder(sb)
 
 	sb.Reset()

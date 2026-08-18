@@ -15,6 +15,8 @@ linters:
     - varnamelen
     - wrapcheck
     - noinlineerr
+    # `default: all` re-enables the deprecated `wsl` unless it is named too.
+    - wsl
     - wsl_v5
   exclusions:
     generated: lax
