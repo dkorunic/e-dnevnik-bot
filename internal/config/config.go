@@ -136,13 +136,7 @@ func checkMailConf(config *TomlConfig) {
 			logger.Fatal().Msgf("Configuration error: mail from %v is not in mail format", config.Mail.From)
 		}
 
-		// Fail fast instead of silently defaulting to 587; empty = mail.go default.
-		if config.Mail.Port != "" {
-			portNum, err := strconv.Atoi(config.Mail.Port)
-			if err != nil || portNum < 1 || portNum > 65535 {
-				logger.Fatal().Msgf("Configuration error: mail port %q is not a valid TCP port (1-65535)", config.Mail.Port)
-			}
-		}
+		checkMailPort(config.Mail.Port)
 
 		for _, t := range config.Mail.To {
 			if !isValidMail(t) {
@@ -154,6 +148,20 @@ func checkMailConf(config *TomlConfig) {
 		logger.Info().Msg("Configuration: mail messenger enabled")
 
 		config.MailEnabled = true
+	}
+}
+
+// checkMailPort rejects a malformed port at config load instead of letting the
+// first send fail hours later. Empty is valid and defers to mail.go's own 587
+// default; anything else is Fatal (exits the process).
+func checkMailPort(port string) {
+	if port == "" {
+		return
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		logger.Fatal().Msgf("Configuration error: mail port %q is not a valid TCP port (1-65535)", port)
 	}
 }
 

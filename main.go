@@ -184,36 +184,7 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info().Msg("Received stop signal, asking all routines to stop")
-			ticker.Stop()
-			statusTicker.Stop()
-
-			_ = sysdnotify.Stopping()
-
-			stop()
-
-			var spinnerDone chan struct{}
-			if isTerminal() {
-				spinnerDone = make(chan struct{})
-				go spinner(spinnerDone)
-			}
-
-			// Bounded wait — stuck goroutine must not stall shutdown.
-			bgDone := make(chan struct{})
-			go func() {
-				bgWG.Wait()
-				close(bgDone)
-			}()
-
-			select {
-			case <-bgDone:
-			case <-time.After(exitDelay):
-			}
-
-			if spinnerDone != nil {
-				close(spinnerDone)
-			}
-
+			awaitShutdown(stop, ticker, statusTicker)
 			fatalIfErrors()
 
 			return
@@ -242,32 +213,7 @@ func main() {
 
 			_ = sysdnotify.Status(scheduledActive)
 
-			// exitWithError latches for the process lifetime (not reset per
-			// cycle) so a daemon that errored in any cycle exits non-zero.
-
-			gradesScraped := make(chan msgtypes.Message, chanBufLen)
-			gradesMsg := make(chan msgtypes.Message, chanBufLen)
-
-			var wgVersion, wgScrape, wgFilter, wgMsg sync.WaitGroup
-
-			versionCheck(ctx, &wgVersion)
-
-			eDB := openDB(ctx, *dbFile)
-
-			scrapers(ctx, &wgScrape, gradesScraped, cfg)
-
-			msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg)
-
-			msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
-
-			wgScrape.Wait()
-			close(gradesScraped)
-
-			wgFilter.Wait()
-			wgMsg.Wait()
-			wgVersion.Wait()
-
-			closeDB(eDB)
+			runPollCycle(ctx, cfg)
 
 			if !*daemon {
 				fatalIfErrors()
@@ -296,6 +242,75 @@ func main() {
 			statusTicker.Reset(statusInterval)
 		}
 	}
+}
+
+// awaitShutdown drains the bgWG background goroutines under an exitDelay
+// ceiling — a wedged goroutine must not stall process exit. Only bgWG is
+// awaited: the per-cycle waitgroups have already drained inside runPollCycle.
+func awaitShutdown(stop context.CancelFunc, ticker, statusTicker *time.Ticker) {
+	logger.Info().Msg("Received stop signal, asking all routines to stop")
+	ticker.Stop()
+	statusTicker.Stop()
+
+	_ = sysdnotify.Stopping()
+
+	stop()
+
+	// Interactive only: the wait can run seconds, and silence reads as a hang.
+	var spinnerDone chan struct{}
+
+	if isTerminal() {
+		spinnerDone = make(chan struct{})
+		go spinner(spinnerDone)
+	}
+
+	bgDone := make(chan struct{})
+	go func() {
+		bgWG.Wait()
+		close(bgDone)
+	}()
+
+	select {
+	case <-bgDone:
+	case <-time.After(exitDelay):
+	}
+
+	if spinnerDone != nil {
+		close(spinnerDone)
+	}
+}
+
+// runPollCycle runs one scrape→dedup→send pipeline against a freshly opened DB.
+//
+// Teardown order is load-bearing: gradesScraped may only be closed once
+// scrapers have finished, because that close is what unblocks msgDedup's range;
+// and the DB must outlive every stage, since msgDedup and the messengers both
+// write to it. exitWithError deliberately latches for the process lifetime, so
+// a daemon that errored in any cycle still exits non-zero.
+func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
+	gradesScraped := make(chan msgtypes.Message, chanBufLen)
+	gradesMsg := make(chan msgtypes.Message, chanBufLen)
+
+	var wgVersion, wgScrape, wgFilter, wgMsg sync.WaitGroup
+
+	versionCheck(ctx, &wgVersion)
+
+	eDB := openDB(ctx, *dbFile)
+
+	scrapers(ctx, &wgScrape, gradesScraped, cfg)
+
+	msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg)
+
+	msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
+
+	wgScrape.Wait()
+	close(gradesScraped)
+
+	wgFilter.Wait()
+	wgMsg.Wait()
+	wgVersion.Wait()
+
+	closeDB(eDB)
 }
 
 // startSystemdWatchdog, when a watchdog is configured, spawns a bgWG-tracked

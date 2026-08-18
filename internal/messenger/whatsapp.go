@@ -172,65 +172,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
-	// Group resolution is cached for whatsAppGroupsCacheTTL, then re-resolved
-	// so a stale membership (bot removed from a group) is dropped instead of
-	// re-failing delivery every cycle. Retry semantics are preserved: lookup
-	// errors keep serving the previous cache and retry next cycle.
-	if len(groups) > 0 {
-		if whatsAppGroupsNeedsResolution() {
-			userIDSize := len(userIDs)
-
-			resolved, err := whatsAppProcessGroups(ctx, cli, userIDs, groups)
-
-			switch {
-			case err != nil:
-				// Lookup failed: serve the previous cache if one exists and
-				// leave the timestamp untouched so the next cycle retries.
-				whatsAppGroupsMu.Lock()
-				if whatsAppGroupsResolved {
-					userIDs = whatsAppResolvedUserIDs
-				}
-				whatsAppGroupsMu.Unlock()
-			case len(resolved) > userIDSize:
-				userIDs = resolved
-
-				// Cache with a timestamp to bound future resolution.
-				whatsAppGroupsMu.Lock()
-				whatsAppGroupsResolved = true
-				whatsAppGroupsResolvedAt = time.Now()
-				whatsAppResolvedUserIDs = userIDs
-				whatsAppGroupsWarned = false // re-arm the no-match warning
-				whatsAppGroupsMu.Unlock()
-
-				// Persist resolved JIDs so future runs skip resolution.
-				if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
-					whatsAppPersistResolvedGroups(confFile, userIDs)
-				}
-			default:
-				// Zero groups matched: bot removed from the configured groups
-				// or a typo. Drop any stale cache so dead groups stop
-				// receiving sends; retry resolution next cycle.
-				whatsAppGroupsMu.Lock()
-				whatsAppGroupsResolved = false
-				whatsAppResolvedUserIDs = nil
-
-				// Latch the warning so a typo surfaces once without spamming
-				// every tick; a later successful resolution re-arms it.
-				warn := !whatsAppGroupsWarned
-				whatsAppGroupsWarned = true
-				whatsAppGroupsMu.Unlock()
-
-				if warn {
-					logger.Warn().Msgf("No WhatsApp groups matched the configured names %v; verify the bot is a member and the names match exactly",
-						groups)
-				}
-			}
-		} else {
-			whatsAppGroupsMu.Lock()
-			userIDs = whatsAppResolvedUserIDs
-			whatsAppGroupsMu.Unlock()
-		}
-	}
+	userIDs = whatsAppEffectiveUserIDs(ctx, cli, userIDs, groups)
 
 	// Resend queued failures first. Rows are only removed after processing, so
 	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
@@ -410,6 +352,70 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
 	}
 
 	return jids
+}
+
+// whatsAppEffectiveUserIDs expands the configured group names to JIDs and
+// merges them into the static user IDs. Re-resolving on a TTL, rather than
+// caching for the process lifetime, is what lets a lost group membership stop
+// consuming sends. Cache state is guarded by whatsAppGroupsMu.
+func whatsAppEffectiveUserIDs(ctx context.Context, cli *whatsmeow.Client, userIDs, groups []string) []string {
+	if len(groups) == 0 {
+		return userIDs
+	}
+
+	if !whatsAppGroupsNeedsResolution() {
+		whatsAppGroupsMu.Lock()
+		defer whatsAppGroupsMu.Unlock()
+
+		return whatsAppResolvedUserIDs
+	}
+
+	userIDSize := len(userIDs)
+
+	resolved, err := whatsAppProcessGroups(ctx, cli, userIDs, groups)
+
+	switch {
+	case err != nil:
+		// Leaving the timestamp untouched is what makes the next cycle retry;
+		// serve the last good cache meanwhile.
+		whatsAppGroupsMu.Lock()
+		if whatsAppGroupsResolved {
+			userIDs = whatsAppResolvedUserIDs
+		}
+		whatsAppGroupsMu.Unlock()
+	case len(resolved) > userIDSize:
+		userIDs = resolved
+
+		whatsAppGroupsMu.Lock()
+		whatsAppGroupsResolved = true
+		whatsAppGroupsResolvedAt = time.Now()
+		whatsAppResolvedUserIDs = userIDs
+		whatsAppGroupsWarned = false // re-arm the no-match warning
+		whatsAppGroupsMu.Unlock()
+
+		// Persist resolved JIDs so future runs skip resolution.
+		if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
+			whatsAppPersistResolvedGroups(confFile, userIDs)
+		}
+	default:
+		// Zero matches = removed from the groups, or a typo. Drop the stale
+		// cache so dead groups stop receiving sends.
+		whatsAppGroupsMu.Lock()
+		whatsAppGroupsResolved = false
+		whatsAppResolvedUserIDs = nil
+
+		// Latch so a typo warns once, not every tick.
+		warn := !whatsAppGroupsWarned
+		whatsAppGroupsWarned = true
+		whatsAppGroupsMu.Unlock()
+
+		if warn {
+			logger.Warn().Msgf("No WhatsApp groups matched the configured names %v; verify the bot is a member and the names match exactly",
+				groups)
+		}
+	}
+
+	return userIDs
 }
 
 // whatsAppGroupsNeedsResolution reports whether the cached group resolution

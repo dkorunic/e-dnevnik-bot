@@ -90,22 +90,6 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	return edb, nil
 }
 
-// hasAnyRow reports whether the kv table holds at least one row.
-func (db *Edb) hasAnyRow(ctx context.Context) (bool, error) {
-	var one int
-
-	err := db.db.QueryRowContext(ctx, "SELECT 1 FROM kv LIMIT 1").Scan(&one)
-	if err == nil {
-		return true, nil
-	}
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-
-	return false, err
-}
-
 // Close closes database.
 func (db *Edb) Close() error {
 	logger.Debug().Msg("Closing database")
@@ -376,6 +360,22 @@ func prefixUpperBound(prefix []byte) []byte {
 	}
 
 	return nil
+}
+
+// hasAnyRow reports whether the kv table holds at least one row.
+func (db *Edb) hasAnyRow(ctx context.Context) (bool, error) {
+	var one int
+
+	err := db.db.QueryRowContext(ctx, "SELECT 1 FROM kv LIMIT 1").Scan(&one)
+	if err == nil {
+		return true, nil
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	return false, err
 }
 
 // cleanupBatchSize caps per-pass deletes so concurrent queue writes don't stall on the writer lock.

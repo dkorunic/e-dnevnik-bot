@@ -28,8 +28,9 @@ const (
 	DiscordMinDelay = DiscordWindow / DiscordAPILimit
 	DiscordQueue    = "discord-queue"
 
-	// Discord embed size limits; exceeding any rejects the whole message, so we truncate client-side.
-	// See https://discord.com/developers/docs/resources/channel#embed-object-embed-limits.
+	// DiscordMaxTitleChars and the Max* limits below are Discord's embed caps.
+	// Exceeding any one rejects the entire message, so we truncate client-side.
+	// https://discord.com/developers/docs/resources/channel#embed-object-embed-limits
 	DiscordMaxTitleChars     = 256
 	DiscordMaxFieldNameChars = 256
 	DiscordMaxFieldValChars  = 1024
