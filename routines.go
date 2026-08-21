@@ -20,7 +20,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/scrape"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
-	"github.com/google/go-github/v89/github"
+	"github.com/google/go-github/v90/github"
 	"github.com/tj/go-spin"
 )
 
