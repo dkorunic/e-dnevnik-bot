@@ -100,9 +100,9 @@ func TestFilterGroupsByNameMatchesConfiguredGroups(t *testing.T) {
 	jid3, _ := types.ParseJID("333333333333333333@g.us")
 
 	joined := []*types.GroupInfo{
-		{JID: jid1, GroupName: types.GroupName{Name: "Alpha"}},
-		{JID: jid2, GroupName: types.GroupName{Name: "Beta"}}, // not in config
-		{JID: jid3, GroupName: types.GroupName{Name: "Gamma"}},
+		{JID: jid1, Name: "Alpha"},
+		{JID: jid2, Name: "Beta"}, // not in config
+		{JID: jid3, Name: "Gamma"},
 	}
 
 	got := filterGroupsByName(wantGroups, joined)

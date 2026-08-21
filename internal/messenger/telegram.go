@@ -208,8 +208,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		err = sendTelegramMsg(ctx, &msg, retries)
 		if err != nil {
-			var mig *bot.MigrateError
-			if errors.As(err, &mig) {
+			if mig, ok := errors.AsType[*bot.MigrateError](err); ok {
 				// Chat upgraded to supergroup: remap in-process, persist the
 				// new ID to configuration, and deliver to the supergroup now.
 				newID := strconv.Itoa(mig.MigrateToChatID)
