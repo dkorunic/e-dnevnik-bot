@@ -203,7 +203,7 @@
 
 | Technology              | Reason                                                                          |
 | ----------------------- | ------------------------------------------------------------------------------- |
-| **Go 1.26+**            | Required for `sync.WaitGroup.Go` (1.25) and `context.WithoutCancel` (1.21) usage; static binary, no runtime dependencies |
+| **Go 1.27+**            | Set by the `go.mod` pin; oldest features used are `sync.WaitGroup.Go` (1.25) and `context.WithoutCancel` (1.21); static binary, no runtime dependencies |
 | `modernc.org/sqlite`    | CGO-free SQLite — enables fully static binary without C toolchain               |
 | `avast/retry-go/v5`     | Declarative retry with context awareness; wraps scraping and messaging          |
 | `go.uber.org/ratelimit` | Token-bucket rate limiting per messenger                                        |
@@ -354,4 +354,4 @@
 | **Retry queue is best-effort**            | A graceful shutdown (SIGTERM/ctx cancel) flushes pending failures via `queueStoreCtx`, and a recovered send-path panic requeues its in-flight message. A hard crash (SIGKILL/OOM) bypasses both, losing any message in-flight (consumed from the channel but not yet queued).         |
 | **TTL-based dedup re-fires on expiry**    | After ~9 000 h (>1 year) an entry can be re-inserted by `CheckAndFlagTTL` and the same historical event will alert again. Long-lived installations will see "echoes" of year-old grades unless the DB is manually cleaned.         |
 | **`D.M.` year inference for Grade relevance** | When today's day/month exactly matches a grade's `Fields[0]` date, the year is assumed to be the current year — so a grade from the same calendar day of the prior school year will slip past the relevance filter. Inherent limitation of the portal's date format. |
-| **Go version pinned to 1.26+**            | Cutting-edge; some CI environments may not have 1.26 toolchain.                                                                                 |
+| **Go version pinned to 1.27+**            | Cutting-edge; some CI environments may not have a 1.27 toolchain.                                                                                 |

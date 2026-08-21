@@ -40,7 +40,7 @@ Root-level files in the `main` package:
 
 ## Toolchain
 
-- **Go 1.26+ is mandatory** — the code calls `sync.WaitGroup.Go` (Go 1.25) and `context.WithoutCancel` (Go 1.21). `go.mod` pins `go 1.26`; older local toolchains will trigger an auto-download via `GOTOOLCHAIN` or fail to build.
+- **Go 1.27+ is mandatory** — `go.mod` pins `go 1.27`; older local toolchains will trigger an auto-download via `GOTOOLCHAIN` or fail to build. The oldest language features actually used are `sync.WaitGroup.Go` (Go 1.25) and `context.WithoutCancel` (Go 1.21), so the pin — not the source — is what sets the floor.
 - Build system: [Task](https://taskfile.dev/) via `Taskfile.yml`. `CGO_ENABLED=0` is set at the taskfile level; do not override — the whole point of `modernc.org/sqlite` is a static binary.
 
 ## Commands

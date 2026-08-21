@@ -6,7 +6,7 @@ Load-bearing context lives in **[CLAUDE.md](CLAUDE.md)** (invariants, constraint
 
 ## Toolchain
 
-- **Go 1.26+** — mandatory; code uses `sync.WaitGroup.Go` (Go 1.25) and `context.WithoutCancel` (Go 1.21)
+- **Go 1.27+** — mandatory; set by the `go.mod` pin (oldest features used: `sync.WaitGroup.Go` 1.25, `context.WithoutCancel` 1.21)
 - Static binary via `CGO_ENABLED=0` (enforced in `Taskfile.yml` env); do not override
 - `modernc.org/sqlite` at runtime — no C toolchain needed
 
