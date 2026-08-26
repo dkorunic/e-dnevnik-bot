@@ -74,7 +74,7 @@ func main() {
 		BuildTime, runtime.Version())
 
 	// Cap heap at 90% of cgroup/system memory to play nice with containers.
-	limit, err := memlimit.SetGoMemLimitWithOpts(
+	limit, err := memlimit.Set(
 		memlimit.WithRatio(maxMemRatio),
 		memlimit.WithProvider(
 			memlimit.ApplyFallback(
