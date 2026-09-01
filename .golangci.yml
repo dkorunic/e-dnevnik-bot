@@ -5,11 +5,18 @@ linters:
     - cyclop
     - depguard
     - dupl
+    # Same rename trap as wsl below: `default: all` re-enables this under its
+    # v5 name, and nearly every hit is a third-party struct (waE2E.Message
+    # alone has ~100 fields) that cannot meaningfully be filled exhaustively.
     - exhaustruct
+    - exhaustruct_v5
     - forbidigo
     - funlen
     - gochecknoglobals
     - gocognit
+    # Deprecated in favour of gomodguard_v2, which `default: all` already
+    # enables; naming it here only silences the deprecation warning.
+    - gomodguard
     - lll
     - mnd
     - varnamelen
