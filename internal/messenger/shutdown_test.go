@@ -81,14 +81,11 @@ func TestRequestShutdownFiresOnce(t *testing.T) {
 		sigCh := make(chan os.Signal, 4)
 		signal.Notify(sigCh, syscall.SIGTERM)
 
-		// Spaced, not a tight loop: POSIX does not queue duplicate pending
-		// signals, so five SIGTERMs raised back-to-back coalesce into one
-		// delivery and an unguarded RequestShutdown would look identical to a
-		// guarded one. Spacing them past the handler lets each surplus signal
-		// actually land. This also matches how the real callers behave — the
-		// WhatsApp events that trigger a shutdown (LoggedOut, PairError) arrive
-		// seconds apart, which is exactly when a second SIGTERM would cut the
-		// graceful drain short.
+		// Spaced, not tight: POSIX does not queue duplicate pending signals, so
+		// back-to-back SIGTERMs coalesce into one delivery and an unguarded
+		// RequestShutdown would look identical to a guarded one. Spacing also
+		// matches the real callers — LoggedOut and PairError arrive seconds
+		// apart, which is when a surplus signal would cut the drain short.
 		for range 5 {
 			RequestShutdown()
 			time.Sleep(150 * time.Millisecond)
@@ -137,20 +134,14 @@ const (
 	exitSessionDeleted = 46
 )
 
-// TestPairErrorOnPairedClientKeepsSession covers the guard that decides whether
-// a PairError is fatal.
+// TestPairErrorOnPairedClientKeepsSession: whatsmeow can deliver a spurious
+// PairError to a client that is already paired and working. Treating every one
+// as fatal deletes the session database, so a healthy install silently unpairs
+// and the user must re-scan the QR code. Only an unpaired client (nil Store.ID)
+// may take that path.
 //
-// whatsmeow can deliver a spurious PairError to a client that is already paired
-// and working — a stale pairing attempt echoing back, for instance. Treating
-// every PairError as fatal deletes the session database and requests shutdown,
-// so a healthy install silently unpairs itself and the user has to re-scan the
-// QR code. The guard is Store.ID: only an *unpaired* client (nil ID) may take
-// the destructive path.
-//
-// This runs in a re-executed child for two reasons: the unguarded path calls
-// RequestShutdown, which raises SIGTERM against the whole process and would
-// kill the test binary; and RequestShutdown's sync.Once can only fire once per
-// process, so it cannot share a process with the other shutdown tests.
+// Runs in a re-executed child: the unguarded path raises SIGTERM against the
+// whole process, and RequestShutdown's sync.Once fires only once per process.
 func TestPairErrorOnPairedClientKeepsSession(t *testing.T) {
 	if os.Getenv(shutdownCaseEnv) == "paired-pair-error" {
 		// Swallow the SIGTERM the unguarded path would raise, so the child

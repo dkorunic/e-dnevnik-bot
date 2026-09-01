@@ -10,18 +10,13 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// FuzzDecodeMsgs pins the contract that makes the failed-message queue
-// survivable: DecodeMsgs must return an error for any input, never panic.
+// FuzzDecodeMsgs: queue rows are re-read from disk on every startup, so a
+// decoder panic on a corrupted row is a boot loop rather than a one-off. Hence
+// the recover in DecodeMsgs, and hence this target — which asserts the property
+// (no panic escapes) rather than the mechanism.
 //
-// Queue rows are read back from disk on every startup, so a decoder panic on a
-// corrupted row is not a one-off failure — it is an unrecoverable boot loop,
-// with the daemon crashing on the same row every time it starts. That is why
-// DecodeMsgs carries an explicit recover.
-//
-// The current cbor/v2 rejects every malformed input tested here cleanly, so the
-// recover is presently unreachable insurance rather than a live code path. This
-// fuzz target is what would notice if a library upgrade changed that: it asserts
-// the property (no panic escapes) rather than the mechanism.
+// cbor/v2 currently rejects every malformed input cleanly, so that recover is
+// unreachable insurance. This is what would notice if an upgrade changed it.
 func FuzzDecodeMsgs(f *testing.F) {
 	f.Add([]byte(nil))
 	f.Add([]byte{})

@@ -10,23 +10,15 @@ import (
 	"testing"
 )
 
-// TestCheckAndFlagTTLIsExclusivePerKey pins first-run exclusivity: for a single
-// key, exactly one concurrent caller may observe found=false, and none may
-// error. That property is what stops two scraper goroutines racing on the same
-// event and both forwarding it as new — a duplicate alert.
+// TestCheckAndFlagTTLIsExclusivePerKey: for one key, exactly one concurrent
+// caller may see found=false and none may error. That is what stops two scrapers
+// racing on the same event and both forwarding it as new.
 //
-// Scope note, so this test is not mistaken for more than it is: it does **not**
-// reliably detect a downgrade of the flag transaction from BEGIN IMMEDIATE to
-// BEGIN. That was measured — 64 goroutines x 20 runs against a deferred-begin
-// build produced no double-flag and no error, because WAL, a four-connection
-// pool and a very short critical section make the calls serialise on their own.
-// The immediate write lock is defensive hardening whose absence this access
-// pattern does not currently expose; keeping it is a review-time invariant, not
-// something a black-box test can enforce.
-//
-// What this test does catch is a real loss of per-key exclusivity: dropping the
-// transaction altogether, or a keying bug that lets two callers flag under
-// different keys.
+// Scope, so this is not mistaken for more than it is: it does NOT detect a
+// BEGIN IMMEDIATE -> BEGIN downgrade. Measured at 64 goroutines x 20 runs, a
+// deferred-begin build produced no double-flag — WAL, a four-connection pool and
+// a very short critical section serialise the calls anyway. That write lock is a
+// review-time invariant. What this does catch is losing the transaction outright.
 func TestCheckAndFlagTTLIsExclusivePerKey(t *testing.T) {
 	t.Parallel()
 

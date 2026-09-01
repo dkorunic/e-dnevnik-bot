@@ -17,21 +17,13 @@ import (
 	"go.uber.org/ratelimit"
 )
 
-// TestProcessShutdownRequeuesEveryMessenger pins the shutdown half of the
-// requeue condition across every backend that fans out to recipients.
+// TestProcessShutdownRequeuesEveryMessenger: a recipient loop cut short by
+// shutdown must still requeue the message. With the context already cancelled
+// nothing is sent and nothing fails, so allProcessed is the only thing that can
+// trigger the write — and every event reaching processX is already dedup-flagged,
+// so dropping it here drops it for good.
 //
-// Each processX loop checks ctx.Err() before spending rate-limit budget and
-// records allProcessed=false when it breaks early. The requeue must fire on
-// that flag as well as on anyFailed: with the context already cancelled
-// nothing is sent and nothing fails, so anyFailed stays false and allProcessed
-// is the only thing left to trigger the write. Narrowing the condition to
-// `if anyFailed` therefore loses the message outright — and because every event
-// reaching processX has already been dedup-flagged, the portal will never
-// re-offer it. A SIGTERM landing mid-send becomes permanent data loss.
-//
-// No network client is configured on purpose: each loop must break before it
-// touches one, so a nil/unconfigured client is proof the send path was never
-// entered.
+// No client is configured on purpose: each loop must break before touching one.
 // Not parallel: the messengers read package-level client globals.
 func TestProcessShutdownRequeuesEveryMessenger(t *testing.T) {
 	g := msgtypes.Message{
@@ -106,25 +98,14 @@ func TestProcessShutdownRequeuesEveryMessenger(t *testing.T) {
 	}
 }
 
-// TestPoisonedRecipientsRecordedInSkipRecipients covers the second half of the
-// SkipRecipients merge: permanently-failed recipients must be recorded there
-// alongside the successful ones.
+// TestPoisonedRecipientsRecordedInSkipRecipients: a permanently-failed recipient
+// must be recorded in SkipRecipients, or every retry re-attempts it once per
+// cycle until MaxQueueAge, against APIs that rate-limit and ban for abuse.
 //
-// A poisoned recipient is dropped rather than requeued, but the *message* is
-// still requeued whenever anything else failed or the loop was cut short. If
-// the poisoned ID is not in SkipRecipients, every retry re-attempts a recipient
-// that can never accept the message — once per message per cycle for the full
-// 30 days of MaxQueueAge, against APIs that rate-limit and ban for abuse.
-//
-// Both cases pair a recipient that is invalid on its face (so it poisons with
-// no network involved) with a cancelled context (so the loop breaks early and
-// the message is requeued). That combination reaches the merge deterministically
-// without a live client.
-//
-// Slack and WhatsApp are absent deliberately: neither has a poison path that can
-// be reached without a configured client — Slack poisons only on an API error
-// response, and WhatsApp checks the context before parsing the JID, so a
-// cancelled context breaks before any recipient can poison.
+// Each case pairs a recipient invalid on its face (poisons with no network) with
+// a cancelled context (forces the requeue). Slack and WhatsApp are covered
+// separately: their poison paths need a configured client, and WhatsApp checks
+// the context before parsing the JID, so nothing can poison first.
 // Not parallel: the messengers read package-level client globals.
 func TestPoisonedRecipientsRecordedInSkipRecipients(t *testing.T) {
 	g := msgtypes.Message{
@@ -200,14 +181,10 @@ func (s *stubSlackPoster) PostMessageContext(_ context.Context, channelID string
 	return channelID, "", s.errs[channelID]
 }
 
-// TestSlackPoisonedRecipientRecordedInSkipRecipients closes the Slack half of
-// the poison bookkeeping.
-//
-// A SlackErrorResponse is an API-level rejection ("ok":false — channel_not_found,
-// not_in_channel), which will never succeed on retry, so the channel is dropped
-// rather than requeued. The message itself is still requeued because the second
-// channel failed transiently, and the dropped channel has to be recorded in
-// SkipRecipients or every retry re-attempts it until MaxQueueAge.
+// TestSlackPoisonedRecipientRecordedInSkipRecipients: a SlackErrorResponse is an
+// API-level rejection that never succeeds on retry, so the channel is dropped —
+// but it must still reach SkipRecipients, or the requeued message re-attempts it
+// every cycle until MaxQueueAge. The transient second channel forces the requeue.
 // Not parallel: writes the package-level slackCli global.
 func TestSlackPoisonedRecipientRecordedInSkipRecipients(t *testing.T) {
 	const (

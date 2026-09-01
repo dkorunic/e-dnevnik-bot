@@ -39,10 +39,8 @@ var (
 	SlackVersion   = version.ReadVersion("github.com/slack-go/slack")
 )
 
-// slackPoster is the subset of *slack.Client the delivery path uses. Narrowing
-// it here lets the send path be driven with synthetic outcomes — permanent
-// API errors versus transient transport failures — which a real client cannot
-// produce without a live workspace.
+// slackPoster is the subset of *slack.Client the send path uses, so tests can
+// drive permanent-vs-transient outcomes without a live workspace.
 type slackPoster interface {
 	PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error)
 }
@@ -58,8 +56,7 @@ type SlackConfig struct {
 // configured chat IDs. On init failure it drains ch into the queue so
 // already-dedup-flagged events are not lost.
 func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg SlackConfig) (err error) {
-	// A send-path panic must drain ch and degrade, not crash the process.
-	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -91,9 +88,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 
 	rl := ratelimit.New(SlackAPILimit, ratelimit.Per(SlackWindow))
 
-	// Resend queued failures first. Rows are only removed after processing, so
-	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
-	// rows simply stay queued for the next run.
+	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
 	for _, q := range queue.FetchFailedMsgs(ctx, eDB, SlackQueueName) {
 		if ctx.Err() != nil {
 			break

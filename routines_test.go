@@ -474,17 +474,13 @@ func TestSpinnerStopsOnDone(t *testing.T) {
 	}
 }
 
-// TestMsgSendClosesEveryMessengerChannel covers the fan-out teardown with more
-// than one sink attached. Each messenger drains its own channel with a range
-// loop, which exits only when that channel is closed — so closing just the
-// first sink leaves every later messenger blocked and wgInner.Wait() waiting on
-// it forever. The bug is invisible with a single messenger configured, which is
-// exactly why it needs two: it would first appear in production, on the machine
-// of the first user to enable a second backend.
+// TestMsgSendClosesEveryMessengerChannel: each messenger's range loop exits only
+// when its own channel closes, so closing just the first sink leaves the rest
+// blocked and wgInner.Wait() waiting forever. Invisible with one messenger
+// configured — it would first appear for whoever enables a second backend.
 //
-// Discord is configured with an empty token on purpose: it drains its channel
-// into its own queue and returns, giving a second real sink without any
-// network I/O.
+// Discord gets an empty token on purpose: it drains to its queue and returns,
+// giving a second real sink with no network I/O.
 // Not parallel: mutates package-level flag pointers and the exit latch.
 func TestMsgSendClosesEveryMessengerChannel(t *testing.T) {
 	setRetries(t, 1)
@@ -514,20 +510,13 @@ func TestMsgSendClosesEveryMessengerChannel(t *testing.T) {
 	}
 }
 
-// TestDispatchSpillsInsteadOfBlocking pins the non-blocking property of the
-// fan-out: a messenger whose buffer is full must have the message spilled to its
-// queue, not have the whole fan-out wait on it.
+// TestDispatchSpillsInsteadOfBlocking pins the fan-out's isolation guarantee.
+// Mail is limited to twenty sends an hour, so a burst leaves it minutes behind
+// while the others idle; blocking on its channel would pace every messenger, and
+// every later message, behind it.
 //
-// This is the isolation guarantee for the slowest messenger. Mail, for instance,
-// is rate-limited to twenty sends an hour, so a burst leaves it minutes behind
-// while Discord and Telegram are idle. Blocking on its channel would pace every
-// other messenger — and every later message in the cycle — behind it. The
-// trade-off the spill buys is deliberate: that messenger delivers a cycle late
-// and slightly out of order, rather than everyone stalling.
-//
-// The channel is deliberately full and never drained, so a blocking send would
-// hang here; the timeout is what turns that into a failure rather than a wedged
-// test binary.
+// The channel is full and never drained, so a blocking send hangs here — the
+// timeout is what turns that into a failure rather than a wedged test binary.
 func TestDispatchSpillsInsteadOfBlocking(t *testing.T) {
 	t.Parallel()
 

@@ -66,8 +66,7 @@ type DiscordConfig struct {
 // the configured user IDs. On init failure it drains ch into the queue so
 // already-dedup-flagged events are not lost.
 func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg DiscordConfig) (err error) {
-	// A send-path panic must drain ch and degrade, not crash the process.
-	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -100,9 +99,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
-	// Resend queued failures first. Rows are only removed after processing, so
-	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
-	// rows simply stay queued for the next run.
+	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
 	for _, q := range queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName) {
 		if ctx.Err() != nil {
 			break

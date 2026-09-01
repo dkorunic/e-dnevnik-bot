@@ -183,13 +183,13 @@ func splitRow(ctx context.Context, eDB *sqlitedb.Edb, queueKey, origKey []byte, 
 	return newKeys
 }
 
-// migrateLegacyQueue splits a pre-redesign aggregate queue row (whole queue
-// as one CBOR list stored under the bare queue name) into per-message rows.
-// The aggregate row is deleted only after every message has been re-stored,
-// so a crash mid-migration duplicates rather than loses; the migration is
-// idempotent apart from those duplicates. It reports whether the legacy row
-// is gone (absent, undecodable, or fully migrated) so the caller can skip
-// future probes; a mid-migration store failure reports not-done and is
+// migrateLegacyQueue splits a pre-redesign aggregate row (whole queue as one
+// CBOR list under the bare queue name) into per-message rows. The aggregate is
+// deleted only once every message is re-stored, so a crash mid-migration
+// duplicates rather than loses.
+//
+// Reports whether the legacy row is gone — absent, undecodable, or migrated —
+// so the caller can latch the probe. A store failure reports not-done and is
 // retried on the next fetch.
 func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) bool {
 	var legacy []msgtypes.Message

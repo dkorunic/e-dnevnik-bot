@@ -71,8 +71,7 @@ type CalendarConfig struct {
 // the configured calendar. On init failure it drains ch into the queue so
 // already-dedup-flagged events are not lost.
 func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalendarConfig) (err error) {
-	// A send-path panic must drain ch and degrade, not crash the process.
-	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -94,9 +93,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
-	// Resend queued failures first. Rows are only removed after processing, so
-	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
-	// rows simply stay queued for the next run.
+	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
 	for _, q := range queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName) {
 		if ctx.Err() != nil {
 			break

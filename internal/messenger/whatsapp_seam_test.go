@@ -68,14 +68,10 @@ func resetWhatsAppGroupCache(t *testing.T) {
 	})
 }
 
-// TestWhatsAppPoisonedRecipientRecordedInSkipRecipients closes the WhatsApp half
-// of the poison bookkeeping: a recipient that failed permanently must be
-// recorded in SkipRecipients, or every retry re-attempts it until MaxQueueAge.
-//
-// ErrUnknownServer is a "this request is impossible" sentinel, so the recipient
-// is dropped rather than requeued — but the transient failure on the second
-// recipient still requeues the message, which is what makes the omission
-// observable.
+// TestWhatsAppPoisonedRecipientRecordedInSkipRecipients: ErrUnknownServer is a
+// "request is impossible" sentinel, so the recipient is dropped rather than
+// requeued — but it must still reach SkipRecipients, or every retry re-attempts
+// it until MaxQueueAge. The transient second recipient forces the requeue.
 // Not parallel: reads package-level client globals.
 func TestWhatsAppPoisonedRecipientRecordedInSkipRecipients(t *testing.T) {
 	const (
@@ -115,15 +111,11 @@ func TestWhatsAppPoisonedRecipientRecordedInSkipRecipients(t *testing.T) {
 	}
 }
 
-// TestWhatsAppEffectiveUserIDsDropsCacheOnZeroMatches covers the branch taken
-// when no joined group matches the configured names — the bot was removed from
-// the group, or the name has a typo.
-//
-// The resolution must count as a failure, not a success: caching an unchanged
-// list would freeze a stale set of JIDs and keep sending to groups the bot has
-// left, churning the failed-message queue until MaxQueueAge. The distinction is
-// `len(resolved) > len(userIDs)` — strictly greater, because equal length means
-// nothing was appended.
+// TestWhatsAppEffectiveUserIDsDropsCacheOnZeroMatches: no matching group means
+// the bot was removed or the name is a typo. That must count as a failed
+// resolution — caching an unchanged list would keep sending to groups the bot
+// has left, churning the queue until MaxQueueAge. Hence strictly greater, since
+// equal length means nothing was appended.
 // Not parallel: writes the package-level group-resolution cache.
 func TestWhatsAppEffectiveUserIDsDropsCacheOnZeroMatches(t *testing.T) {
 	resetWhatsAppGroupCache(t)

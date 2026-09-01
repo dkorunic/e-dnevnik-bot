@@ -47,9 +47,8 @@ var (
 	formatHRDateOnly = "2.1."
 )
 
-// scrapeStage is a seam for tests: production runs the real scrapers. It exists
-// so a test can drive runPollCycle's teardown ordering with synthetic events,
-// which is otherwise only reachable by scraping the live portal.
+// scrapeStage is a test seam: runPollCycle's teardown ordering is only
+// observable with events in flight, which otherwise needs the live portal.
 var scrapeStage = scrapers
 
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI User and send grades/exams messages
@@ -90,11 +89,8 @@ func flagMessengerError(ctx context.Context, sentinel, err error) {
 }
 
 // msgSend fans messages from gradesMsg out to every enabled messenger, each
-// draining its own buffered channel in its own goroutine.
-//
-// The fan-out is non-blocking: a messenger whose buffer is full (fallen behind,
-// e.g. mail mid-retry) has the message spilled to its queue for a later cycle
-// instead of blocking the others — isolating a slow messenger's failure domain.
+// draining its own buffered channel in its own goroutine. Delivery per
+// messenger is non-blocking — see dispatch.
 //
 // Two-level WaitGroup: the deferred sequence closes every messenger channel
 // *then* wgInner.Wait(). Reversed order deadlocks — a drain loop exits only
@@ -223,20 +219,16 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 	})
 }
 
-// messengerSink pairs a messenger's fan-out channel with the queue used to hold
-// messages it could not accept.
+// messengerSink is a messenger's fan-out channel plus the queue for spills.
 type messengerSink struct {
 	ch    chan msgtypes.Message
 	queue []byte
 }
 
-// dispatch hands g to one messenger without ever blocking the fan-out.
-//
-// A messenger that has fallen behind — mail mid-retry, say — has a full buffer,
-// and blocking on it would pace every other messenger behind the slowest one.
-// Spilling to that messenger's queue instead keeps the failure domain isolated:
-// the slow messenger delivers a cycle late and slightly out of order, while the
-// rest of the fan-out proceeds at full speed.
+// dispatch delivers g to one messenger, never blocking the fan-out: a full
+// buffer means that messenger is behind (mail mid-retry, say), so the message
+// spills to its queue instead of pacing every other messenger behind it.
+// Trade-off: it then delivers a cycle late and slightly out of order.
 func dispatch(ctx context.Context, eDB *sqlitedb.Edb, s messengerSink, g msgtypes.Message) {
 	select {
 	case s.ch <- g:

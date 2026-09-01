@@ -9,16 +9,11 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// TestFormattersTolerateMismatchedFieldCounts guards the min() bound shared by
-// every formatter. Descriptions come from a table's header row and values from
-// its data rows — they are scraped separately, so any portal HTML drift (an
-// extra header cell, a missing data cell) makes the two slices different
-// lengths. Indexing on the longer one panics.
-//
-// The blast radius is what makes this worth pinning: scrapers run with no panic
-// guard of their own, so a panic here takes down the whole process rather than
-// degrading one messenger. A formatter must render the pairs it has and drop
-// the rest.
+// TestFormattersTolerateMismatchedFieldCounts guards the min() bound every
+// formatter shares. Descriptions come from a header row and values from data
+// rows, so portal HTML drift makes them different lengths; indexing the longer
+// one panics. Scrapers run with no panic guard, so that takes down the process
+// rather than degrading one messenger.
 func TestFormattersTolerateMismatchedFieldCounts(t *testing.T) {
 	t.Parallel()
 

@@ -210,20 +210,14 @@ func TestTelegramInit(t *testing.T) {
 	}
 }
 
-// TestProcessTelegramPoisonKeyedOnConfiguredChatID pins which identifier the
-// SkipRecipients bookkeeping records once a chat has migrated to a supergroup.
+// TestProcessTelegramPoisonKeyedOnConfiguredChatID: after a migration the loop
+// sends to the new supergroup ID while the config — and so every later retry
+// list — still holds the original. Recording the migrated ID means the skip
+// never matches, and the requeued message re-attempts a recipient it has already
+// given up on, every cycle until MaxQueueAge.
 //
-// After a migration the loop sends to the *new* supergroup ID (u) while the
-// configuration — and therefore the recipient list on every later retry — still
-// holds the *original* ID. Recording the migrated ID in SkipRecipients means the
-// skip never matches on retry, so the requeued message re-attempts a recipient
-// it has already given up on, every cycle until MaxQueueAge.
-//
-// The migration is seeded directly and remapped to an unparseable ID so the
-// poison happens in strconv.ParseInt, with no client or network involved: the
-// point under test is the bookkeeping key, not how the failure arose. The second
-// recipient plus a cancelled context is what forces the requeue so there is
-// something to assert against.
+// The remap is seeded to an unparseable ID so the poison happens in ParseInt
+// with no client involved; the point is the bookkeeping key, not the failure.
 // NOTE: must not call t.Parallel() — writes the package-level telegramMigratedIDs.
 func TestProcessTelegramPoisonKeyedOnConfiguredChatID(t *testing.T) {
 	const configuredID = "123456789"

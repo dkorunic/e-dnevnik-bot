@@ -335,12 +335,11 @@ func TestLoggingMiddleware(t *testing.T) {
 	}
 }
 
-// TestSaveTokenPermissions pins the mode saveToken writes. The file holds the
-// OAuth refresh token — a long-lived credential granting read/write access to
-// the user's Google Calendar — so it must never be group- or world-readable.
-// maybe.WriteFile creates the file itself, meaning the mode argument is the
-// only thing standing between the token and a 0644 default; widening it is a
-// one-character change that no behavioural test would otherwise notice.
+// TestSaveTokenPermissions: the file holds the OAuth refresh token, a long-lived
+// credential for the user's calendar, so it must never be group- or
+// world-readable. maybe.WriteFile creates the file, so the mode argument is the
+// only thing between the token and a 0644 default — a one-character change no
+// behavioural test would otherwise notice.
 func TestSaveTokenPermissions(t *testing.T) {
 	t.Parallel()
 
@@ -365,17 +364,14 @@ func TestSaveTokenPermissions(t *testing.T) {
 	}
 }
 
-// TestGetTokenFromWebRejectsForgedState covers the CSRF guard on the OAuth
-// callback. The callback listens on loopback, so anything able to make an HTTP
-// request from the user's machine — another local process, or a web page the
-// user has open, which can issue a cross-origin GET to 127.0.0.1 — can hit it.
-// Without the state check the first caller wins: the bot exchanges the
-// *attacker's* authorization code and persists a token for the attacker's
-// Google account, then writes the user's exam schedule into a calendar they
-// control.
+// TestGetTokenFromWebRejectsForgedState covers the CSRF guard on the callback.
+// It listens on loopback, so any local process — or a web page issuing a
+// cross-origin GET to 127.0.0.1 — can reach it. Without the state check the
+// first caller wins: the bot exchanges the attacker's authorization code and
+// persists a token for the attacker's account.
 //
-// The comparison is constant-time to avoid leaking the expected state, but the
-// property under test is simply that a mismatched state is refused.
+// The comparison is constant-time to avoid leaking the expected state; the
+// property here is only that a mismatch is refused.
 // NOTE: not parallel — stubs the package-level browserOpen.
 func TestGetTokenFromWebRejectsForgedState(t *testing.T) {
 	origBrowser := browserOpen
@@ -424,12 +420,11 @@ func TestGetTokenFromWebRejectsForgedState(t *testing.T) {
 	}
 }
 
-// TestGetTokenFromWebRejectsMissingCode covers the callback that passes the
-// state check but carries neither an authorization code nor an error. Google
-// does not produce this, but a truncated redirect or a hand-typed URL does.
-// Without the guard the empty code is handed to config.Exchange, which fails
-// against the token endpoint with an opaque provider error instead of the local
-// diagnosis — and only after a network round trip.
+// TestGetTokenFromWebRejectsMissingCode: a callback that passes the state check
+// but carries neither code nor error. Google does not produce this; a truncated
+// redirect or hand-typed URL does. Without the guard the empty code reaches
+// config.Exchange and fails with an opaque provider error, after a round trip,
+// instead of being diagnosed locally.
 // NOTE: not parallel — stubs the package-level browserOpen.
 func TestGetTokenFromWebRejectsMissingCode(t *testing.T) {
 	origBrowser := browserOpen

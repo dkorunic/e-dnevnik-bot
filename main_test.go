@@ -219,12 +219,10 @@ func TestMsgDedupYearInferenceSameDayNotSuppressed(t *testing.T) {
 	}
 }
 
-// TestStoreOverflowSurvivesCancelledContext pins the detached write in
-// storeOverflow. The spill happens during fan-out, by which point msgDedup has
-// already flagged the event in the dedup store — so a write that fails because
-// the caller's context was cancelled loses the alert permanently: the portal
-// never re-offers a flagged event. context.WithoutCancel is what keeps a
-// SIGTERM arriving mid-cycle from turning a spill into a loss.
+// TestStoreOverflowSurvivesCancelledContext: the spill happens after msgDedup
+// has already flagged the event, so a write that fails on a cancelled context
+// loses the alert for good — the portal never re-offers a flagged event.
+// context.WithoutCancel is what stops a mid-cycle SIGTERM becoming a loss.
 func TestStoreOverflowSurvivesCancelledContext(t *testing.T) {
 	t.Parallel()
 
