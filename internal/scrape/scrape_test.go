@@ -413,6 +413,14 @@ func TestTrimAllSpace(t *testing.T) {
 		{"multiple spaces", "hello   world", "hello world"},
 		{"newlines", "hello\nworld", "hello world"},
 		{"mixed", "  hello \n world  ", "hello world"},
+		// A *single* trailing space is the only case the scanning loop cannot
+		// flag on its own: it sets inSpace without ever seeing a second space,
+		// so only the post-loop `!needsMod && inSpace` guard catches it. Left
+		// unnormalised, the same portal cell hashes two different ways and the
+		// grade re-alerts whenever the portal's whitespace shifts.
+		{"single trailing space", "hello ", "hello"},
+		{"single trailing space after words", "hello world ", "hello world"},
+		{"single trailing space only", "a ", "a"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

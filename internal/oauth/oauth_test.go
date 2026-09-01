@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"testing"
@@ -331,5 +332,128 @@ func TestLoggingMiddleware(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("LoggingMiddleware returned status %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+// TestSaveTokenPermissions pins the mode saveToken writes. The file holds the
+// OAuth refresh token — a long-lived credential granting read/write access to
+// the user's Google Calendar — so it must never be group- or world-readable.
+// maybe.WriteFile creates the file itself, meaning the mode argument is the
+// only thing standing between the token and a 0644 default; widening it is a
+// one-character change that no behavioural test would otherwise notice.
+func TestSaveTokenPermissions(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits are not enforced")
+	}
+
+	tokenPath := filepath.Join(t.TempDir(), "calendar_token.json")
+
+	if err := saveToken(tokenPath, &oauth2.Token{AccessToken: "secret"}); err != nil {
+		t.Fatalf("saveToken() failed: %v", err)
+	}
+
+	fi, err := os.Stat(tokenPath)
+	if err != nil {
+		t.Fatalf("stat after saveToken() failed: %v", err)
+	}
+
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("token file mode = %#o, want %#o — the OAuth refresh token must not be readable by group or other",
+			perm, 0o600)
+	}
+}
+
+// TestGetTokenFromWebRejectsForgedState covers the CSRF guard on the OAuth
+// callback. The callback listens on loopback, so anything able to make an HTTP
+// request from the user's machine — another local process, or a web page the
+// user has open, which can issue a cross-origin GET to 127.0.0.1 — can hit it.
+// Without the state check the first caller wins: the bot exchanges the
+// *attacker's* authorization code and persists a token for the attacker's
+// Google account, then writes the user's exam schedule into a calendar they
+// control.
+//
+// The comparison is constant-time to avoid leaking the expected state, but the
+// property under test is simply that a mismatched state is refused.
+// NOTE: not parallel — stubs the package-level browserOpen.
+func TestGetTokenFromWebRejectsForgedState(t *testing.T) {
+	origBrowser := browserOpen
+	defer func() { browserOpen = origBrowser }()
+
+	var cbPage string
+
+	browserOpen = func(rootURL string) error {
+		// Skip the consent page entirely: hit the callback with a state the
+		// server never issued, as a third party would have to.
+		resp, err := http.Get(rootURL + CallBackURL + "?state=forged-by-attacker&code=attacker-auth-code") //nolint:noctx // test-only
+		if err != nil {
+			t.Errorf("failed to drive callback: %v", err)
+
+			return nil
+		}
+
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+		cbPage = string(body)
+
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("forged callback status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+		}
+
+		return nil
+	}
+
+	cfg := &oauth2.Config{
+		ClientID:     "test-client",
+		ClientSecret: "test-secret",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.example.invalid/auth",
+			TokenURL: "https://accounts.example.invalid/token",
+		},
+	}
+
+	_, err := getTokenFromWeb(context.Background(), cfg)
+	if !errors.Is(err, ErrInvalidCallbackState) {
+		t.Fatalf("getTokenFromWeb() error = %v, want ErrInvalidCallbackState; a callback carrying a state the server never issued must never be exchanged", err)
+	}
+
+	if regexp.MustCompile(`Authentication complete`).MatchString(cbPage) {
+		t.Error("a forged callback rendered the success page")
+	}
+}
+
+// TestGetTokenFromWebRejectsMissingCode covers the callback that passes the
+// state check but carries neither an authorization code nor an error. Google
+// does not produce this, but a truncated redirect or a hand-typed URL does.
+// Without the guard the empty code is handed to config.Exchange, which fails
+// against the token endpoint with an opaque provider error instead of the local
+// diagnosis — and only after a network round trip.
+// NOTE: not parallel — stubs the package-level browserOpen.
+func TestGetTokenFromWebRejectsMissingCode(t *testing.T) {
+	origBrowser := browserOpen
+	defer func() { browserOpen = origBrowser }()
+
+	browserOpen = func(rootURL string) error {
+		// Correct state (driveCallback reads it from the consent page), but no
+		// code and no error parameter.
+		driveCallback(t, rootURL, "")
+
+		return nil
+	}
+
+	cfg := &oauth2.Config{
+		ClientID:     "test-client",
+		ClientSecret: "test-secret",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.example.invalid/auth",
+			TokenURL: "https://accounts.example.invalid/token",
+		},
+	}
+
+	_, err := getTokenFromWeb(context.Background(), cfg)
+	if !errors.Is(err, ErrInvalidCallbackState) {
+		t.Fatalf("getTokenFromWeb() error = %v, want ErrInvalidCallbackState for a callback with no code", err)
 	}
 }

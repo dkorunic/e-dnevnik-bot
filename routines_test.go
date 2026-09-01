@@ -473,3 +473,43 @@ func TestSpinnerStopsOnDone(t *testing.T) {
 		t.Fatal("spinner did not return after done was closed; it must select on done rather than sleep unconditionally")
 	}
 }
+
+// TestMsgSendClosesEveryMessengerChannel covers the fan-out teardown with more
+// than one sink attached. Each messenger drains its own channel with a range
+// loop, which exits only when that channel is closed — so closing just the
+// first sink leaves every later messenger blocked and wgInner.Wait() waiting on
+// it forever. The bug is invisible with a single messenger configured, which is
+// exactly why it needs two: it would first appear in production, on the machine
+// of the first user to enable a second backend.
+//
+// Discord is configured with an empty token on purpose: it drains its channel
+// into its own queue and returns, giving a second real sink without any
+// network I/O.
+// Not parallel: mutates package-level flag pointers and the exit latch.
+func TestMsgSendClosesEveryMessengerChannel(t *testing.T) {
+	setRetries(t, 1)
+	resetExitLatch(t)
+
+	eDB := openExistingDB(t, t.TempDir()+"/msgsend-multi.db")
+	defer eDB.Close() //nolint:errcheck
+
+	gradesMsg := make(chan msgtypes.Message, 1)
+	gradesMsg <- msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "multi-sink"}
+	close(gradesMsg)
+
+	var wg sync.WaitGroup
+
+	msgSend(t.Context(), eDB, &wg, gradesMsg, config.TomlConfig{
+		DiscordEnabled:   true,
+		CalendarDeferred: true,
+	})
+
+	waitOrFail(t, &wg)
+
+	for _, queueName := range [][]byte{messenger.DiscordQueueName, messenger.CalendarQueueName} {
+		got := queue.FetchFailedMsgs(t.Context(), eDB, queueName)
+		if len(got) != 1 || got[0].Msg.Subject != "multi-sink" {
+			t.Errorf("queue %s = %+v, want the message delivered to every configured sink", queueName, got)
+		}
+	}
+}

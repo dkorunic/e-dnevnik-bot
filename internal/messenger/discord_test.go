@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -434,5 +435,95 @@ func TestDiscordInit(t *testing.T) {
 	err := discordInit("test-token")
 	if err != nil {
 		t.Fatalf("discordInit() error = %v", err)
+	}
+}
+
+// TestProcessDiscordPoisonedRecipientIsSkippedOnRetry covers the *other* half
+// of the SkipRecipients merge: permanently-failed recipients, not just
+// successful ones.
+//
+// A 403 means the recipient will never accept the message (bot blocked, user
+// gone). The recipient is poison-dropped rather than requeued — but the message
+// itself still gets requeued when some *other* recipient failed transiently, so
+// the poisoned ID has to be recorded in SkipRecipients too. Omitting it makes
+// every retry re-attempt the dead recipient: a guaranteed 403 per message per
+// cycle, for the full 30 days of MaxQueueAge, against an API that rate-limits
+// and can ban for abuse.
+//
+// The mix matters — one permanent failure plus one transient — because that is
+// what forces a requeue while there is still a poisoned ID to carry.
+// NOTE: must not call t.Parallel() — discordCli and discordChannels are package-level globals.
+func TestProcessDiscordPoisonedRecipientIsSkippedOnRetry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "users/@me/channels") {
+			var body struct {
+				RecipientID string `json:"recipient_id"`
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&body)
+
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":"%s-chan"}`, body.RecipientID)
+
+			return
+		}
+
+		if strings.Contains(r.URL.Path, "messages") {
+			parts := strings.Split(r.URL.Path, "/")
+			ch := parts[len(parts)-2]
+
+			switch ch {
+			case "blocked-user-chan":
+				// Permanent: bot blocked by this user.
+				http.Error(w, `{"message":"cannot send messages to this user"}`, http.StatusForbidden)
+			case "flaky-user-chan":
+				// Transient: forces the message to be requeued.
+				http.Error(w, `{"message":"server error"}`, http.StatusInternalServerError)
+			default:
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"id":"1"}`)
+			}
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"1"}`)
+	}))
+
+	defer srv.Close()
+
+	s, err := discordgo.New("Bot test-token")
+	if err != nil {
+		t.Fatalf("unable to create Discord session: %v", err)
+	}
+
+	s.Client = discordTestClient(srv.URL)
+
+	origCli, origChannels := discordCli, discordChannels
+	discordCli = s
+	discordChannels = make(map[string]string)
+
+	t.Cleanup(func() { discordCli, discordChannels = origCli, origChannels })
+
+	eDB, err := sqlitedb.New(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer eDB.Close() //nolint:errcheck
+
+	g := msgtypes.Message{Username: "u", Subject: "s", Fields: []string{"A"}, Descriptions: []string{"D"}}
+
+	processDiscord(context.Background(), eDB, g, []string{"blocked-user", "flaky-user"}, ratelimit.New(1000), 1)
+
+	failed := queue.FetchFailedMsgs(context.Background(), eDB, DiscordQueueName)
+	if len(failed) != 1 {
+		t.Fatalf("expected the message requeued once for the transient failure, got %d", len(failed))
+	}
+
+	if !slices.Contains(failed[0].Msg.SkipRecipients, "blocked-user") {
+		t.Errorf("SkipRecipients = %v, want it to contain the poisoned recipient; otherwise every retry re-attempts a recipient that can never accept the message, for the whole of MaxQueueAge",
+			failed[0].Msg.SkipRecipients)
 	}
 }
