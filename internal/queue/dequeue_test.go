@@ -16,8 +16,17 @@ import (
 
 // storeLegacyAggregate writes msgs as a pre-redesign aggregate CBOR blob under
 // the bare queue key, emulating a database produced by an older release.
+//
+// It also clears queueKey from legacyChecked. That latch is keyed by queue name
+// and lives for the process lifetime — correct in production, where a process
+// has one database, but wrong across tests: a second test (or a second pass
+// under -count=2) planting a legacy row in a *fresh* database would find the
+// probe already latched from the earlier run and silently skip the migration.
+// Planting a legacy row is exactly the point at which the probe must be armed.
 func storeLegacyAggregate(t *testing.T, eDB *sqlitedb.Edb, queueKey []byte, msgs []msgtypes.Message) {
 	t.Helper()
+
+	legacyChecked.Delete(string(queueKey))
 
 	encoded, err := codec.EncodeMsgs(msgs)
 	if err != nil {

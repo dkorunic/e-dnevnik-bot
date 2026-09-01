@@ -135,3 +135,76 @@ func TestEncodeDecodEmptyRoundTrip(t *testing.T) {
 		t.Errorf("DecodeMsgs(EncodeMsgs(empty)) returned %d messages, want 0", len(decoded))
 	}
 }
+
+// TestEncodeDecodePreservesNanoseconds pins the reason EncOptions sets
+// TimeRFC3339Nano. CBOR's default time encoding is whole-second, which would
+// silently truncate Timestamp and QueuedAt on every queue round trip — quietly
+// shifting MaxQueueAge arithmetic and exam timestamps by up to a second. The
+// assertion is on sub-second digits specifically, so a regression to the
+// default option fails here with an obvious message rather than as a puzzling
+// equality failure elsewhere.
+func TestEncodeDecodePreservesNanoseconds(t *testing.T) {
+	t.Parallel()
+
+	// Round(0) strips the monotonic reading, which never survives serialisation
+	// and is not what this test is about.
+	ts := time.Date(2025, 4, 1, 8, 30, 15, 123456789, time.UTC).Round(0)
+
+	encoded, err := EncodeMsgs([]msgtypes.Message{{
+		Subject:   "Matematika",
+		Timestamp: ts,
+		QueuedAt:  ts.Add(500 * time.Millisecond),
+	}})
+	if err != nil {
+		t.Fatalf("EncodeMsgs() failed: %v", err)
+	}
+
+	decoded, err := DecodeMsgs(encoded)
+	if err != nil {
+		t.Fatalf("DecodeMsgs() failed: %v", err)
+	}
+
+	if len(decoded) != 1 {
+		t.Fatalf("DecodeMsgs() returned %d messages, want 1", len(decoded))
+	}
+
+	if got := decoded[0].Timestamp; !got.Equal(ts) {
+		t.Errorf("Timestamp = %v (ns %d), want %v (ns %d) — sub-second precision was lost, check EncOptions.Time",
+			got, got.Nanosecond(), ts, ts.Nanosecond())
+	}
+
+	if got := decoded[0].QueuedAt; !got.Equal(ts.Add(500 * time.Millisecond)) {
+		t.Errorf("QueuedAt = %v (ns %d), want ns %d", got, got.Nanosecond(), ts.Add(500*time.Millisecond).Nanosecond())
+	}
+}
+
+// TestDecodeMsgsRejectsGarbage: queue rows are read back from disk and can be
+// truncated or corrupted. Decoding must return an error rather than a partially
+// populated slice the messengers would try to deliver.
+func TestDecodeMsgsRejectsGarbage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input []byte
+	}{
+		{name: "random bytes", input: []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11}},
+		{name: "truncated cbor array header", input: []byte{0x9F}},
+		{name: "plain text", input: []byte("this is not cbor at all")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := DecodeMsgs(tt.input)
+			if err == nil {
+				t.Fatalf("DecodeMsgs(%q) = %+v, want an error", tt.input, got)
+			}
+
+			if len(got) != 0 {
+				t.Errorf("DecodeMsgs(%q) returned %d messages alongside an error, want none", tt.input, len(got))
+			}
+		})
+	}
+}
