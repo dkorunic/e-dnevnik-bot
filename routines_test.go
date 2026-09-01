@@ -513,3 +513,56 @@ func TestMsgSendClosesEveryMessengerChannel(t *testing.T) {
 		}
 	}
 }
+
+// TestDispatchSpillsInsteadOfBlocking pins the non-blocking property of the
+// fan-out: a messenger whose buffer is full must have the message spilled to its
+// queue, not have the whole fan-out wait on it.
+//
+// This is the isolation guarantee for the slowest messenger. Mail, for instance,
+// is rate-limited to twenty sends an hour, so a burst leaves it minutes behind
+// while Discord and Telegram are idle. Blocking on its channel would pace every
+// other messenger — and every later message in the cycle — behind it. The
+// trade-off the spill buys is deliberate: that messenger delivers a cycle late
+// and slightly out of order, rather than everyone stalling.
+//
+// The channel is deliberately full and never drained, so a blocking send would
+// hang here; the timeout is what turns that into a failure rather than a wedged
+// test binary.
+func TestDispatchSpillsInsteadOfBlocking(t *testing.T) {
+	t.Parallel()
+
+	eDB := openExistingDB(t, t.TempDir()+"/dispatch-spill.db")
+	defer eDB.Close() //nolint:errcheck
+
+	queueName := []byte("test-dispatch-spill-queue")
+
+	// Capacity one, already occupied: the next send cannot proceed.
+	s := messengerSink{ch: make(chan msgtypes.Message, 1), queue: queueName}
+	s.ch <- msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "already-buffered"}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		dispatch(t.Context(), eDB, s, msgtypes.Message{
+			Code: msgtypes.Exam, Username: "u", Subject: "spilled-not-blocked",
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(msgSendTimeout):
+		t.Fatal("dispatch blocked on a full messenger buffer; a messenger that has fallen behind must have its message spilled to the queue, never pace the rest of the fan-out")
+	}
+
+	got := queue.FetchFailedMsgs(t.Context(), eDB, queueName)
+	if len(got) != 1 || got[0].Msg.Subject != "spilled-not-blocked" {
+		t.Fatalf("FetchFailedMsgs = %+v, want the overflowed message spilled to the messenger's queue", got)
+	}
+
+	// The buffered message must be untouched — a spill replaces neither.
+	if first := <-s.ch; first.Subject != "already-buffered" {
+		t.Errorf("buffered message = %q, want it left in place", first.Subject)
+	}
+}

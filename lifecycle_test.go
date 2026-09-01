@@ -4,6 +4,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -363,5 +365,65 @@ func TestCheckCalendarDefersOnUnstatableToken(t *testing.T) {
 
 	if !cfg.CalendarDeferred {
 		t.Error("CalendarDeferred should be true so exams are preserved")
+	}
+}
+
+// TestRunPollCycleKeepsDBOpenForMessengers pins the teardown ordering inside
+// runPollCycle: the database must outlive every stage.
+//
+// msgDedup finishes as soon as the scrapers are done and gradesScraped closes,
+// but the messengers are still draining their fan-out channels and writing
+// undelivered messages to the failed-message queue. Closing the database on
+// wgFilter alone — before wgMsg — makes those writes fail against a closed
+// handle. The messages are already dedup-flagged by then, so they are lost for
+// good rather than retried next cycle.
+//
+// The scrape stage is stubbed because the real one talks to the portal: with no
+// events in flight nothing races the close, and the ordering bug is invisible.
+// Not parallel: mutates package-level flag pointers and the scrapeStage seam.
+func TestRunPollCycleKeepsDBOpenForMessengers(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+	setRetries(t, 1)
+	resetExitLatch(t)
+
+	dbPath := setDBFile(t, "poll-db-lifetime.db")
+
+	// Seed the database so it is not a first run: a fresh database seeds
+	// silently and forwards nothing, which would leave no writes to race the
+	// close.
+	openExistingDB(t, dbPath).Close() //nolint:errcheck
+
+	const events = 300
+
+	origStage := scrapeStage
+	scrapeStage = func(_ context.Context, wg *sync.WaitGroup, ch chan<- msgtypes.Message, _ config.TomlConfig) {
+		wg.Go(func() {
+			for i := range events {
+				ch <- msgtypes.Message{
+					Code:     msgtypes.Exam,
+					Username: "pero.peric",
+					Subject:  fmt.Sprintf("exam-%03d", i),
+				}
+			}
+		})
+	}
+
+	t.Cleanup(func() { scrapeStage = origStage })
+
+	// CalendarDeferred is a queue-only sink: every exam it receives is written
+	// to the database, so a premature close shows up as missing rows.
+	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
+		runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true})
+	})
+
+	// Reopen: runPollCycle closed its own handle on the way out.
+	eDB := openExistingDB(t, *dbFile)
+	defer eDB.Close() //nolint:errcheck
+
+	got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.CalendarQueueName)
+	if len(got) != events {
+		t.Fatalf("queue holds %d of %d exams; the database must stay open until every messenger has finished writing, or already-flagged events are lost for good",
+			len(got), events)
 	}
 }
