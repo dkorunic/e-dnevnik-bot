@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -206,5 +207,64 @@ func TestTelegramInit(t *testing.T) {
 	err = telegramInit("test-token")
 	if err != nil {
 		t.Fatalf("telegramInit() error = %v", err)
+	}
+}
+
+// TestProcessTelegramPoisonKeyedOnConfiguredChatID pins which identifier the
+// SkipRecipients bookkeeping records once a chat has migrated to a supergroup.
+//
+// After a migration the loop sends to the *new* supergroup ID (u) while the
+// configuration — and therefore the recipient list on every later retry — still
+// holds the *original* ID. Recording the migrated ID in SkipRecipients means the
+// skip never matches on retry, so the requeued message re-attempts a recipient
+// it has already given up on, every cycle until MaxQueueAge.
+//
+// The migration is seeded directly and remapped to an unparseable ID so the
+// poison happens in strconv.ParseInt, with no client or network involved: the
+// point under test is the bookkeeping key, not how the failure arose. The second
+// recipient plus a cancelled context is what forces the requeue so there is
+// something to assert against.
+// NOTE: must not call t.Parallel() — writes the package-level telegramMigratedIDs.
+func TestProcessTelegramPoisonKeyedOnConfiguredChatID(t *testing.T) {
+	const configuredID = "123456789"
+
+	telegramMigratedIDsMu.Lock()
+	orig := telegramMigratedIDs
+	telegramMigratedIDs = map[string]string{configuredID: "migrated-and-broken"}
+	telegramMigratedIDsMu.Unlock()
+
+	t.Cleanup(func() {
+		telegramMigratedIDsMu.Lock()
+		telegramMigratedIDs = orig
+		telegramMigratedIDsMu.Unlock()
+	})
+
+	eDB, err := sqlitedb.New(context.Background(), t.TempDir()+"/telegram-poison.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer eDB.Close() //nolint:errcheck
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	g := msgtypes.Message{
+		Username:     "u",
+		Subject:      "poison-after-migration",
+		Descriptions: []string{"D"},
+		Fields:       []string{"A"},
+	}
+
+	processTelegram(ctx, eDB, g, []string{configuredID, "987654321"}, ratelimit.New(1000), 1)
+
+	failed := queue.FetchFailedMsgs(context.Background(), eDB, TelegramQueueName)
+	if len(failed) != 1 {
+		t.Fatalf("FetchFailedMsgs = %+v, want the message requeued once", failed)
+	}
+
+	if !slices.Contains(failed[0].Msg.SkipRecipients, configuredID) {
+		t.Errorf("SkipRecipients = %v, want the *configured* chat ID %q; recording the migrated ID instead means the skip never matches the recipient list on retry",
+			failed[0].Msg.SkipRecipients, configuredID)
 	}
 }

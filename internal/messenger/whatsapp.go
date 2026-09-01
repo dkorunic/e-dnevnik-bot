@@ -118,6 +118,21 @@ func RequestShutdown() {
 	})
 }
 
+// whatsAppSender is the subset of *whatsmeow.Client the delivery path uses.
+// Narrowing it here lets the send path be driven with synthetic outcomes —
+// permanent versus transient failures, partial delivery — none of which are
+// reachable through a real client without a paired device and a live socket.
+type whatsAppSender interface {
+	SendMessage(ctx context.Context, to types.JID, message *waE2E.Message,
+		extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error)
+}
+
+// whatsAppGroupLister is the subset of *whatsmeow.Client used to resolve
+// configured group names to JIDs.
+type whatsAppGroupLister interface {
+	GetJoinedGroups(ctx context.Context) ([]*types.GroupInfo, error)
+}
+
 // WhatsAppConfig holds the per-messenger settings for the WhatsApp backend.
 type WhatsAppConfig struct {
 	UserIDs []string
@@ -222,7 +237,7 @@ func markWhatsAppPermanent(err error) error {
 // processWhatsApp renders g as plain text and sends it to each recipient JID,
 // re-queueing on partial or total failure. Invalid JIDs are skipped without
 // spending rate budget; recipients already in SkipRecipients are omitted.
-func processWhatsApp(ctx context.Context, cli *whatsmeow.Client, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	// PlainMsg avoids leaking Markdown metacharacters via Conversation rendering.
 	mRaw := truncateWithEllipsis(format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), WhatsAppMaxMessageChars)
 	m := waE2E.Message{Conversation: &mRaw}
@@ -358,7 +373,7 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
 // merges them into the static user IDs. Re-resolving on a TTL, rather than
 // caching for the process lifetime, is what lets a lost group membership stop
 // consuming sends. Cache state is guarded by whatsAppGroupsMu.
-func whatsAppEffectiveUserIDs(ctx context.Context, cli *whatsmeow.Client, userIDs, groups []string) []string {
+func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, userIDs, groups []string) []string {
 	if len(groups) == 0 {
 		return userIDs
 	}
@@ -430,7 +445,7 @@ func whatsAppGroupsNeedsResolution() bool {
 // whatsAppProcessGroups appends the JIDs of joined groups matching the given
 // names to userIDs. A lookup error leaves userIDs unchanged and is returned so
 // the caller can fall back to the cached resolution.
-func whatsAppProcessGroups(ctx context.Context, cli *whatsmeow.Client, userIDs, groups []string) ([]string, error) {
+func whatsAppProcessGroups(ctx context.Context, cli whatsAppGroupLister, userIDs, groups []string) ([]string, error) {
 	if len(groups) > 0 {
 		g, err := cli.GetJoinedGroups(ctx)
 		if err != nil {

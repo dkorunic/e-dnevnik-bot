@@ -34,10 +34,18 @@ var (
 	ErrSlackSendingMessage = errors.New("error sending Slack message")
 
 	SlackQueueName = []byte(SlackQueue)
-	slackCli       *slack.Client
+	slackCli       slackPoster
 	slackMu        sync.Mutex // guards slackCli initialisation
 	SlackVersion   = version.ReadVersion("github.com/slack-go/slack")
 )
+
+// slackPoster is the subset of *slack.Client the delivery path uses. Narrowing
+// it here lets the send path be driven with synthetic outcomes — permanent
+// API errors versus transient transport failures — which a real client cannot
+// produce without a live workspace.
+type slackPoster interface {
+	PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error)
+}
 
 // SlackConfig holds the per-messenger settings for the Slack backend.
 type SlackConfig struct {

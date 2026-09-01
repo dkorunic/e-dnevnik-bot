@@ -5,6 +5,7 @@ package messenger
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
+	"github.com/slack-go/slack"
 	"go.uber.org/ratelimit"
 )
 
@@ -184,5 +186,74 @@ func TestPoisonedRecipientsRecordedInSkipRecipients(t *testing.T) {
 					got[0].Msg.SkipRecipients, tt.wantSkipped)
 			}
 		})
+	}
+}
+
+// stubSlackPoster returns a scripted error per channel ID.
+type stubSlackPoster struct {
+	errs map[string]error
+}
+
+func (s *stubSlackPoster) PostMessageContext(_ context.Context, channelID string,
+	_ ...slack.MsgOption,
+) (string, string, error) {
+	return channelID, "", s.errs[channelID]
+}
+
+// TestSlackPoisonedRecipientRecordedInSkipRecipients closes the Slack half of
+// the poison bookkeeping.
+//
+// A SlackErrorResponse is an API-level rejection ("ok":false — channel_not_found,
+// not_in_channel), which will never succeed on retry, so the channel is dropped
+// rather than requeued. The message itself is still requeued because the second
+// channel failed transiently, and the dropped channel has to be recorded in
+// SkipRecipients or every retry re-attempts it until MaxQueueAge.
+// Not parallel: writes the package-level slackCli global.
+func TestSlackPoisonedRecipientRecordedInSkipRecipients(t *testing.T) {
+	const (
+		dead  = "C0000DEAD"
+		flaky = "C0000FLAK"
+	)
+
+	deadErr := &slack.SlackErrorResponse{Err: "channel_not_found"}
+
+	slackMu.Lock()
+	orig := slackCli
+	slackCli = &stubSlackPoster{errs: map[string]error{
+		dead:  deadErr,
+		flaky: errors.New("connection reset by peer"),
+	}}
+	slackMu.Unlock()
+
+	t.Cleanup(func() {
+		slackMu.Lock()
+		slackCli = orig
+		slackMu.Unlock()
+	})
+
+	eDB, err := sqlitedb.New(context.Background(), filepath.Join(t.TempDir(), "slack-poison.db.sqlite"))
+	if err != nil {
+		t.Fatalf("sqlitedb.New() failed: %v", err)
+	}
+
+	defer eDB.Close() //nolint:errcheck
+
+	g := msgtypes.Message{
+		Username:     "u",
+		Subject:      "slack-poison",
+		Descriptions: []string{"D"},
+		Fields:       []string{"A"},
+	}
+
+	processSlack(context.Background(), eDB, g, []string{dead, flaky}, ratelimit.New(1000), 1)
+
+	failed := queue.FetchFailedMsgs(context.Background(), eDB, SlackQueueName)
+	if len(failed) != 1 {
+		t.Fatalf("FetchFailedMsgs = %+v, want the message requeued for the transient failure", failed)
+	}
+
+	if !slices.Contains(failed[0].Msg.SkipRecipients, dead) {
+		t.Errorf("SkipRecipients = %v, want the permanently-failed channel recorded; otherwise it is re-attempted every cycle until MaxQueueAge",
+			failed[0].Msg.SkipRecipients)
 	}
 }

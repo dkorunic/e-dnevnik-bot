@@ -47,6 +47,11 @@ var (
 	formatHRDateOnly = "2.1."
 )
 
+// scrapeStage is a seam for tests: production runs the real scrapers. It exists
+// so a test can drive runPollCycle's teardown ordering with synthetic events,
+// which is otherwise only reachable by scraping the live portal.
+var scrapeStage = scrapers
+
 // scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI User and send grades/exams messages
 // to a channel.
 func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, cfg config.TomlConfig) {
@@ -98,19 +103,13 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 	wgMsg.Go(func() {
 		var wgInner sync.WaitGroup
 
-		// sink pairs a messenger's channel with its queue for full-buffer spills.
-		type sink struct {
-			ch    chan msgtypes.Message
-			queue []byte
-		}
-
-		var sinks []sink
+		var sinks []messengerSink
 
 		// start registers a messenger's buffered channel as a sink and drains it
 		// in a tracked goroutine.
 		start := func(queueName []byte, run func(ch <-chan msgtypes.Message)) {
 			ch := make(chan msgtypes.Message, messengerBufLen)
-			sinks = append(sinks, sink{ch: ch, queue: queueName})
+			sinks = append(sinks, messengerSink{ch: ch, queue: queueName})
 
 			wgInner.Add(1)
 
@@ -215,18 +214,35 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// Non-blocking: a full (behind) buffer spills to the queue, never blocks.
 		// gradesMsg close ends this on shutdown.
 		for g := range gradesMsg {
 			for _, s := range sinks {
-				select {
-				case s.ch <- g:
-				default:
-					storeOverflow(ctx, eDB, s.queue, g)
-				}
+				dispatch(ctx, eDB, s, g)
 			}
 		}
 	})
+}
+
+// messengerSink pairs a messenger's fan-out channel with the queue used to hold
+// messages it could not accept.
+type messengerSink struct {
+	ch    chan msgtypes.Message
+	queue []byte
+}
+
+// dispatch hands g to one messenger without ever blocking the fan-out.
+//
+// A messenger that has fallen behind — mail mid-retry, say — has a full buffer,
+// and blocking on it would pace every other messenger behind the slowest one.
+// Spilling to that messenger's queue instead keeps the failure domain isolated:
+// the slow messenger delivers a cycle late and slightly out of order, while the
+// rest of the fan-out proceeds at full speed.
+func dispatch(ctx context.Context, eDB *sqlitedb.Edb, s messengerSink, g msgtypes.Message) {
+	select {
+	case s.ch <- g:
+	default:
+		storeOverflow(ctx, eDB, s.queue, g)
+	}
 }
 
 // overflowStoreTimeout bounds the detached spill-to-queue write.

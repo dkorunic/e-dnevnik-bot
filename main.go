@@ -297,7 +297,7 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 
 	eDB := openDB(ctx, *dbFile)
 
-	scrapers(ctx, &wgScrape, gradesScraped, cfg)
+	scrapeStage(ctx, &wgScrape, gradesScraped, cfg)
 
 	msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg)
 
