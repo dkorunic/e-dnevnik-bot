@@ -5,11 +5,13 @@ package messenger
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -323,5 +325,205 @@ func TestGetCalendarIDListError(t *testing.T) {
 
 	if got := getCalendarID(t.Context(), svc, "e-Dnevnik"); got != "" {
 		t.Errorf("getCalendarID() = %q, want empty when the calendar list cannot be read", got)
+	}
+}
+
+// TestProcessCalendarAllDayEventSpansOneDay pins the shape of the inserted
+// all-day event. The Google Calendar API models an all-day event as a
+// half-open date range, so a single-day event must end on the *following*
+// date. Start == End is a zero-length range, which the API rejects with a 400 —
+// and a 400 is classified permanent, so the exam is poison-dropped rather than
+// retried. The alert is lost outright, silently, for every exam.
+//
+// The date fields are also what the user actually sees, so an off-by-one here
+// puts every exam on the wrong day of their calendar.
+func TestProcessCalendarAllDayEventSpansOneDay(t *testing.T) {
+	t.Parallel()
+
+	var inserted struct {
+		Start struct {
+			Date string `json:"date"`
+		} `json:"start"`
+		End struct {
+			Date string `json:"date"`
+		} `json:"end"`
+	}
+
+	captured := make(chan struct{}, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/events") {
+			_ = json.NewDecoder(r.Body).Decode(&inserted)
+
+			select {
+			case captured <- struct{}{}:
+			default:
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"evt"}`))
+	}))
+
+	t.Cleanup(srv.Close)
+
+	svc, err := calendar.NewService(t.Context(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("calendar.NewService() failed: %v", err)
+	}
+
+	exam := futureExam()
+
+	processCalendar(t.Context(), calendarTestDB(t), exam, ratelimit.New(1000), svc, "primary", 1)
+
+	select {
+	case <-captured:
+	default:
+		t.Fatal("no event was inserted")
+	}
+
+	wantStart := exam.Timestamp.Format(time.DateOnly)
+	wantEnd := exam.Timestamp.AddDate(0, 0, 1).Format(time.DateOnly)
+
+	if inserted.Start.Date != wantStart {
+		t.Errorf("start date = %q, want %q", inserted.Start.Date, wantStart)
+	}
+
+	if inserted.End.Date != wantEnd {
+		t.Errorf("end date = %q, want %q — an all-day event is a half-open range, so a single day must end on the next date; a zero-length range is a 400 and the exam is poison-dropped",
+			inserted.End.Date, wantEnd)
+	}
+}
+
+// TestProcessCalendarEventIDIgnoresFields pins what the deterministic event ID
+// is keyed on: (username, subject, exam date) — deliberately *not* g.Fields.
+//
+// The ID is what makes a retried insert idempotent: the second attempt collides
+// server-side and comes back 409, which processCalendar treats as success. Exam
+// notes are scraped free text and do change (a teacher edits "Pisana provjera"
+// to add a chapter), and they travel in g.Fields. Keying the hash on them would
+// mint a *new* ID for the same exam, so the retry no longer collides and the
+// user gets a second calendar entry for one exam — every time the note is
+// edited.
+//
+// The trade-off this pins is deliberate: an edited note is a 409 no-op and the
+// original entry stands. That is the documented choice, not an oversight.
+func TestProcessCalendarEventIDIgnoresFields(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu  sync.Mutex
+		ids []string
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/events") {
+			var body struct {
+				ID string `json:"id"`
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&body)
+
+			mu.Lock()
+			ids = append(ids, body.ID)
+			mu.Unlock()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"evt"}`))
+	}))
+
+	t.Cleanup(srv.Close)
+
+	svc, err := calendar.NewService(t.Context(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("calendar.NewService() failed: %v", err)
+	}
+
+	eDB := calendarTestDB(t)
+	rl := ratelimit.New(1000)
+
+	original := futureExam()
+	processCalendar(t.Context(), eDB, original, rl, svc, "primary", 1)
+
+	// Same exam, same date — only the teacher's note changed.
+	edited := futureExam()
+	edited.Fields = []string{"Matematika", edited.Fields[1], "Pisana provjera — poglavlja 1-4"}
+	processCalendar(t.Context(), eDB, edited, rl, svc, "primary", 1)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(ids) != 2 {
+		t.Fatalf("recorded %d inserts, want 2", len(ids))
+	}
+
+	if ids[0] != ids[1] {
+		t.Errorf("event ID changed when only the exam note changed (%q vs %q); the ID must be keyed on (user, subject, date) so an edited note collides as a 409 instead of creating a duplicate entry",
+			ids[0], ids[1])
+	}
+}
+
+// TestProcessCalendarShortFieldsNoDescription covers exam messages carrying
+// fewer than scrape's three fields (subject, date, note).
+//
+// Such rows are real: the failed-message queue persists messages across
+// releases, so a row written by an older layout can surface cycles later. The
+// bound must be >= 3 because the note is read from Fields[2] — accepting a
+// shorter row and indexing it panics, and processCalendar runs under the
+// messenger panic guard, so the visible symptom is not a crash but Calendar
+// quietly dropping its backlog to the queue and erroring out for the rest of
+// the cycle.
+//
+// The contract is: short rows insert with no description rather than a
+// mis-picked field or a panic.
+func TestProcessCalendarShortFieldsNoDescription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		fields []string
+		want   string
+	}{
+		{name: "one field", fields: []string{"Matematika"}, want: ""},
+		{name: "two fields", fields: []string{"Matematika", "01.09.2026."}, want: ""},
+		{name: "three fields", fields: []string{"Matematika", "01.09.2026.", "Pisana provjera"}, want: "Pisana provjera"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var inserted struct {
+				Description string `json:"description"`
+			}
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/events") {
+					_ = json.NewDecoder(r.Body).Decode(&inserted)
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"evt"}`))
+			}))
+
+			t.Cleanup(srv.Close)
+
+			svc, err := calendar.NewService(t.Context(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+			if err != nil {
+				t.Fatalf("calendar.NewService() failed: %v", err)
+			}
+
+			exam := futureExam()
+			exam.Fields = tt.fields
+
+			// A panic here fails the test; that is half the assertion.
+			processCalendar(t.Context(), calendarTestDB(t), exam, ratelimit.New(1000), svc, "primary", 1)
+
+			if inserted.Description != tt.want {
+				t.Errorf("description = %q, want %q — the note lives at Fields[2]; a shorter row must yield no description rather than a mis-picked field",
+					inserted.Description, tt.want)
+			}
+		})
 	}
 }

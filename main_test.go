@@ -218,3 +218,30 @@ func TestMsgDedupYearInferenceSameDayNotSuppressed(t *testing.T) {
 		t.Error("today's grade should NOT be suppressed (Bug 8B: >= instead of > treats today as last year)")
 	}
 }
+
+// TestStoreOverflowSurvivesCancelledContext pins the detached write in
+// storeOverflow. The spill happens during fan-out, by which point msgDedup has
+// already flagged the event in the dedup store — so a write that fails because
+// the caller's context was cancelled loses the alert permanently: the portal
+// never re-offers a flagged event. context.WithoutCancel is what keeps a
+// SIGTERM arriving mid-cycle from turning a spill into a loss.
+func TestStoreOverflowSurvivesCancelledContext(t *testing.T) {
+	t.Parallel()
+
+	eDB := openExistingDB(t, t.TempDir()+"/overflow-cancelled.db")
+	defer eDB.Close() //nolint:errcheck
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	queueName := []byte("test-overflow-cancelled-queue")
+	g := msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "spilled-during-shutdown"}
+
+	storeOverflow(ctx, eDB, queueName, g)
+
+	got := queue.FetchFailedMsgs(context.Background(), eDB, queueName)
+	if len(got) != 1 || got[0].Msg.Subject != "spilled-during-shutdown" {
+		t.Fatalf("FetchFailedMsgs = %+v, want the spill persisted despite a cancelled context; storeOverflow must detach via context.WithoutCancel or the flagged event is lost forever",
+			got)
+	}
+}

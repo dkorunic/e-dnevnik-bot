@@ -76,8 +76,17 @@ func TestRequestShutdownFiresOnce(t *testing.T) {
 		sigCh := make(chan os.Signal, 4)
 		signal.Notify(sigCh, syscall.SIGTERM)
 
+		// Spaced, not a tight loop: POSIX does not queue duplicate pending
+		// signals, so five SIGTERMs raised back-to-back coalesce into one
+		// delivery and an unguarded RequestShutdown would look identical to a
+		// guarded one. Spacing them past the handler lets each surplus signal
+		// actually land. This also matches how the real callers behave — the
+		// WhatsApp events that trigger a shutdown (LoggedOut, PairError) arrive
+		// seconds apart, which is exactly when a second SIGTERM would cut the
+		// graceful drain short.
 		for range 5 {
 			RequestShutdown()
+			time.Sleep(150 * time.Millisecond)
 		}
 
 		select {
