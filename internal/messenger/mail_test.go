@@ -65,21 +65,14 @@ func TestProcessMail(t *testing.T) {
 }
 
 // TestMailTransportSecurity pins the two settings that decide whether SMTP
-// credentials can ever cross the wire in the clear.
+// credentials can cross the wire in the clear. AUTH PLAIN sends the password
+// unencrypted, so TLSMandatory is what guarantees STARTTLS succeeded first;
+// under TLSOpportunistic the client continues in plaintext against a server that
+// does not advertise it, or one an attacker has stripped. The 587 fallback is
+// the same concern: 25 aims a credentialed login at the inter-MTA relay port.
 //
-// The client authenticates with AUTH PLAIN, which transmits the username and
-// password base64-encoded but unencrypted. TLSMandatory is what guarantees
-// STARTTLS succeeded before that happens: under TLSOpportunistic the client
-// silently continues in plaintext against a server that does not advertise
-// STARTTLS — or one that has been stripped of it by an active attacker — and
-// the mailbox password is disclosed.
-//
-// The port fallback matters for the same reason: 587 is the submission port,
-// where authentication and STARTTLS are expected. Falling back to 25 aims a
-// credentialed login at the inter-MTA relay port instead.
-//
-// Both are single-token changes with no behavioural symptom — mail still sends
-// — so nothing but an explicit assertion will notice them.
+// Both are single-token changes with no behavioural symptom — mail still sends —
+// so nothing but an explicit assertion notices.
 // Not parallel: writes the package-level mailCli global.
 func TestMailTransportSecurity(t *testing.T) {
 	origCli := mailCli

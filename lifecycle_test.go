@@ -368,18 +368,13 @@ func TestCheckCalendarDefersOnUnstatableToken(t *testing.T) {
 	}
 }
 
-// TestRunPollCycleKeepsDBOpenForMessengers pins the teardown ordering inside
-// runPollCycle: the database must outlive every stage.
-//
-// msgDedup finishes as soon as the scrapers are done and gradesScraped closes,
-// but the messengers are still draining their fan-out channels and writing
-// undelivered messages to the failed-message queue. Closing the database on
-// wgFilter alone — before wgMsg — makes those writes fail against a closed
-// handle. The messages are already dedup-flagged by then, so they are lost for
-// good rather than retried next cycle.
+// TestRunPollCycleKeepsDBOpenForMessengers: msgDedup finishes as soon as
+// gradesScraped closes, but the messengers are still draining and writing
+// undelivered messages. Closing the database on wgFilter alone fails those
+// writes, and the messages are already dedup-flagged, so they are lost for good.
 //
 // The scrape stage is stubbed because the real one talks to the portal: with no
-// events in flight nothing races the close, and the ordering bug is invisible.
+// events in flight nothing races the close and the bug is invisible.
 // Not parallel: mutates package-level flag pointers and the scrapeStage seam.
 func TestRunPollCycleKeepsDBOpenForMessengers(t *testing.T) {
 	setRelevancePeriod(t, 0)

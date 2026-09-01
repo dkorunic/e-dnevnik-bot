@@ -328,15 +328,11 @@ func TestGetCalendarIDListError(t *testing.T) {
 	}
 }
 
-// TestProcessCalendarAllDayEventSpansOneDay pins the shape of the inserted
-// all-day event. The Google Calendar API models an all-day event as a
-// half-open date range, so a single-day event must end on the *following*
-// date. Start == End is a zero-length range, which the API rejects with a 400 —
-// and a 400 is classified permanent, so the exam is poison-dropped rather than
-// retried. The alert is lost outright, silently, for every exam.
-//
-// The date fields are also what the user actually sees, so an off-by-one here
-// puts every exam on the wrong day of their calendar.
+// TestProcessCalendarAllDayEventSpansOneDay: the API models an all-day event as
+// a half-open range, so a single day must end on the *following* date.
+// Start == End is zero-length, rejected with a 400 — and a 400 is classified
+// permanent, so the exam is poison-dropped rather than retried. These dates are
+// also what the user sees, so an off-by-one moves every exam a day.
 func TestProcessCalendarAllDayEventSpansOneDay(t *testing.T) {
 	t.Parallel()
 
@@ -395,19 +391,14 @@ func TestProcessCalendarAllDayEventSpansOneDay(t *testing.T) {
 	}
 }
 
-// TestProcessCalendarEventIDIgnoresFields pins what the deterministic event ID
-// is keyed on: (username, subject, exam date) — deliberately *not* g.Fields.
+// TestProcessCalendarEventIDIgnoresFields pins what the deterministic ID is
+// keyed on: (username, subject, date) — deliberately not g.Fields. The ID is
+// what makes a retried insert a 409, which processCalendar treats as success.
+// Exam notes are scraped free text and do change, so keying on them would mint a
+// new ID for the same exam and leave the user a second calendar entry per edit.
 //
-// The ID is what makes a retried insert idempotent: the second attempt collides
-// server-side and comes back 409, which processCalendar treats as success. Exam
-// notes are scraped free text and do change (a teacher edits "Pisana provjera"
-// to add a chapter), and they travel in g.Fields. Keying the hash on them would
-// mint a *new* ID for the same exam, so the retry no longer collides and the
-// user gets a second calendar entry for one exam — every time the note is
-// edited.
-//
-// The trade-off this pins is deliberate: an edited note is a 409 no-op and the
-// original entry stands. That is the documented choice, not an oversight.
+// The trade-off is deliberate: an edited note is a 409 no-op and the original
+// entry stands.
 func TestProcessCalendarEventIDIgnoresFields(t *testing.T) {
 	t.Parallel()
 
@@ -464,19 +455,12 @@ func TestProcessCalendarEventIDIgnoresFields(t *testing.T) {
 	}
 }
 
-// TestProcessCalendarShortFieldsNoDescription covers exam messages carrying
-// fewer than scrape's three fields (subject, date, note).
-//
-// Such rows are real: the failed-message queue persists messages across
-// releases, so a row written by an older layout can surface cycles later. The
-// bound must be >= 3 because the note is read from Fields[2] — accepting a
-// shorter row and indexing it panics, and processCalendar runs under the
-// messenger panic guard, so the visible symptom is not a crash but Calendar
-// quietly dropping its backlog to the queue and erroring out for the rest of
-// the cycle.
-//
-// The contract is: short rows insert with no description rather than a
-// mis-picked field or a panic.
+// TestProcessCalendarShortFieldsNoDescription: the queue persists messages
+// across releases, so a row written by an older layout can surface cycles later
+// with fewer than scrape's three fields. The note is read from Fields[2], so a
+// looser bound panics — and under the messenger panic guard the symptom is not a
+// crash but Calendar quietly dumping its backlog and erroring for the rest of
+// the cycle. Short rows must insert with no description instead.
 func TestProcessCalendarShortFieldsNoDescription(t *testing.T) {
 	t.Parallel()
 

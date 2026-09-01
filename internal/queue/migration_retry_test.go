@@ -12,20 +12,14 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
-// TestLegacyMigrationRetriedAfterFailure pins the coupling between
-// migrateLegacyQueue's return value and the legacyChecked latch.
+// TestLegacyMigrationRetriedAfterFailure: legacyChecked may only latch once the
+// legacy row is provably gone. Latching after a failed migration strands it for
+// the process lifetime — the row sits under the bare queue key, so the
+// per-message prefix scan never sees it and the probe never runs again, leaving
+// an upgrading user's whole queue unreachable.
 //
-// The latch exists to stop a per-queue probe transaction running on every fetch
-// forever, so it must only be set once the legacy row is provably gone —
-// migrated, undecodable, or absent. Latching after a *failed* migration strands
-// the aggregate row permanently: it is invisible to the per-message prefix scan
-// (it sits under the bare queue key, with no 0x00 separator), and the probe that
-// would find it never runs again for the life of the process. Every message an
-// upgrading user had queued is then silently unreachable.
-//
-// The failure is injected by closing the database, which makes the probe's
-// transaction fail while leaving the on-disk row intact — the same shape as a
-// transient lock timeout or a full disk in production.
+// Closing the database fails the probe while leaving the row on disk, matching a
+// lock timeout or a full disk.
 func TestLegacyMigrationRetriedAfterFailure(t *testing.T) {
 	t.Parallel()
 

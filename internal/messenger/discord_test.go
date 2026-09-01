@@ -438,20 +438,14 @@ func TestDiscordInit(t *testing.T) {
 	}
 }
 
-// TestProcessDiscordPoisonedRecipientIsSkippedOnRetry covers the *other* half
-// of the SkipRecipients merge: permanently-failed recipients, not just
-// successful ones.
+// TestProcessDiscordPoisonedRecipientIsSkippedOnRetry: a 403 means the recipient
+// will never accept the message, so it is dropped rather than requeued — but it
+// must still be recorded in SkipRecipients. Omitting it costs a guaranteed 403
+// per message per cycle for the 30 days of MaxQueueAge, against an API that
+// rate-limits and bans for abuse.
 //
-// A 403 means the recipient will never accept the message (bot blocked, user
-// gone). The recipient is poison-dropped rather than requeued — but the message
-// itself still gets requeued when some *other* recipient failed transiently, so
-// the poisoned ID has to be recorded in SkipRecipients too. Omitting it makes
-// every retry re-attempt the dead recipient: a guaranteed 403 per message per
-// cycle, for the full 30 days of MaxQueueAge, against an API that rate-limits
-// and can ban for abuse.
-//
-// The mix matters — one permanent failure plus one transient — because that is
-// what forces a requeue while there is still a poisoned ID to carry.
+// The mix matters: the transient failure is what forces the requeue while there
+// is still a poisoned ID to carry.
 // NOTE: must not call t.Parallel() — discordCli and discordChannels are package-level globals.
 func TestProcessDiscordPoisonedRecipientIsSkippedOnRetry(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

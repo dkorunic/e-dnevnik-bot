@@ -103,13 +103,12 @@ var (
 	shutdownOnce sync.Once
 )
 
-// RequestShutdown signals SIGTERM to the current process so that the main
-// loop's signal.NotifyContext catches it and runs the normal graceful
-// shutdown path — including draining the failed-message queue. This replaces
-// the logger.Fatal()/os.Exit() pattern, which bypasses queue persistence and
-// deferred cleanup. Used for unrecoverable WhatsApp events (LoggedOut,
-// PairError with nil device) and exported for other unrecoverable-but-not-
-// worth-crashing conditions such as a broken dedup database in main.
+// RequestShutdown raises SIGTERM against this process so main's
+// signal.NotifyContext runs the normal graceful shutdown, draining the
+// failed-message queue on the way out. logger.Fatal()/os.Exit() would bypass
+// both. Used for unrecoverable conditions that are not worth crashing on:
+// WhatsApp LoggedOut and PairError with a nil device, and a broken dedup
+// database in main.
 func RequestShutdown() {
 	shutdownOnce.Do(func() {
 		if p, err := os.FindProcess(os.Getpid()); err == nil {
@@ -118,10 +117,8 @@ func RequestShutdown() {
 	})
 }
 
-// whatsAppSender is the subset of *whatsmeow.Client the delivery path uses.
-// Narrowing it here lets the send path be driven with synthetic outcomes —
-// permanent versus transient failures, partial delivery — none of which are
-// reachable through a real client without a paired device and a live socket.
+// whatsAppSender is the subset of *whatsmeow.Client the send path uses, so
+// tests can drive delivery outcomes without a paired device.
 type whatsAppSender interface {
 	SendMessage(ctx context.Context, to types.JID, message *waE2E.Message,
 		extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error)
@@ -145,8 +142,7 @@ type WhatsAppConfig struct {
 // groups. On init failure it drains ch into the queue so already-dedup-flagged
 // events are not lost.
 func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg WhatsAppConfig) (err error) {
-	// A send-path panic must drain ch and degrade, not crash the process.
-	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -189,9 +185,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	userIDs = whatsAppEffectiveUserIDs(ctx, cli, userIDs, groups)
 
-	// Resend queued failures first. Rows are only removed after processing, so
-	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
-	// rows simply stay queued for the next run.
+	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
 	for _, q := range queue.FetchFailedMsgs(ctx, eDB, WhatsAppQueueName) {
 		if ctx.Err() != nil {
 			break

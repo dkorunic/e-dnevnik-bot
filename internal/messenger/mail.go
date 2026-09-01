@@ -57,8 +57,7 @@ type MailConfig struct {
 // Mail resends any queued failures, then delivers live messages from ch to the
 // configured recipients. An invalid port falls back to 587.
 func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg MailConfig) (err error) {
-	// A send-path panic must drain ch and degrade, not crash the process.
-	// inflight: nil on the resend path (queue row persists); set only while draining ch.
+	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -85,9 +84,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
-	// Resend queued failures first. Rows are only removed after processing, so
-	// a crash mid-loop re-delivers instead of losing; on shutdown, unprocessed
-	// rows simply stay queued for the next run.
+	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
 	for _, q := range queue.FetchFailedMsgs(ctx, eDB, MailQueueName) {
 		if ctx.Err() != nil {
 			break
