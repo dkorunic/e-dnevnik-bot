@@ -124,7 +124,7 @@ func TestWhatsAppEffectiveUserIDsDropsCacheOnZeroMatches(t *testing.T) {
 
 	// Joined, but not one the configuration names.
 	other := types.JID{User: "9990001", Server: types.GroupServer}
-	cli := &stubGroupLister{groups: []*types.GroupInfo{{JID: other, GroupName: types.GroupName{Name: "Some Other Group"}}}}
+	cli := &stubGroupLister{groups: []*types.GroupInfo{{JID: other, Name: "Some Other Group"}}}
 
 	got := whatsAppEffectiveUserIDs(context.Background(), cli, userIDs, []string{"Razred 5.a"})
 

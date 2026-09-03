@@ -13,8 +13,8 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/go-chi/chi/v5 v5.3.2
-	github.com/go-telegram/bot v1.24.0
-	github.com/google/go-github/v90 v90.0.0
+	github.com/go-telegram/bot v1.25.0
+	github.com/google/go-github/v91 v91.0.0
 	github.com/google/renameio/v2 v2.0.2
 	github.com/google/uuid v1.6.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
@@ -29,11 +29,11 @@ require (
 	github.com/slack-go/slack v0.29.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20260828224850-0fadda796019
+	go.mau.fi/whatsmeow v0.0.0-20260903111606-de26b4ab6499
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.36.0
-	google.golang.org/api v0.296.0
-	modernc.org/sqlite v1.57.0
+	google.golang.org/api v0.297.0
+	modernc.org/sqlite v1.58.0
 )
 
 require (
@@ -69,7 +69,7 @@ require (
 	go.opentelemetry.io/otel v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
@@ -79,7 +79,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	modernc.org/libc v1.75.6 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	rsc.io/qr v0.2.0 // indirect

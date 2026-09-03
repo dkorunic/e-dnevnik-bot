@@ -40,11 +40,7 @@ func TestCheckAndFlagTTLIsExclusivePerKey(t *testing.T) {
 	)
 
 	for range goroutines {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			<-start
 
 			found, err := eDB.CheckAndFlagTTL(context.Background(), "pero.peric", "Matematika", []string{"5", "odlican"})
@@ -61,7 +57,7 @@ func TestCheckAndFlagTTLIsExclusivePerKey(t *testing.T) {
 			if !found {
 				newCount++
 			}
-		}()
+		})
 	}
 
 	close(start)
