@@ -14,13 +14,19 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// drain collects everything buffered on ch without blocking.
+// drain collects everything buffered on ch without blocking. The ok check is
+// load-bearing: a closed channel is always ready to receive, so ignoring it
+// spins forever appending zero values.
 func drain(ch chan msgtypes.Message) []msgtypes.Message {
 	var out []msgtypes.Message
 
 	for {
 		select {
-		case m := <-ch:
+		case m, ok := <-ch:
+			if !ok {
+				return out
+			}
+
 			out = append(out, m)
 		default:
 			return out

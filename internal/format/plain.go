@@ -54,14 +54,23 @@ func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, g
 	return sb.String()
 }
 
-// plainFormatGrades formats grade descriptions and values.
+// plainFormatGrades renders description/value pairs, skipping columns the row
+// left blank. The scraper pads those to keep the two slices aligned, so they
+// are placeholders rather than content.
 func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
+	// Reslicing to the common length, rather than bounding the loop with n, is
+	// what makes the paired index provably in range for gosec.
 	n := min(len(descriptions), len(grade))
+	descriptions, grade = descriptions[:n], grade[:n]
 
-	for i := range n {
+	for i, value := range grade {
+		if value == "" {
+			continue
+		}
+
 		sb.WriteString(descriptions[i])
 		sb.WriteString(": ")
-		sb.WriteString(grade[i])
+		sb.WriteString(value)
 		sb.WriteString("\n")
 	}
 }

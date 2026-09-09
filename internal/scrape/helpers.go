@@ -52,10 +52,14 @@ func trimPutBuilder(b *strings.Builder) {
 	trimBuilderPool.Put(b)
 }
 
+// Course-page tables sit inside div.tab-content, so the descendant combinator
+// is required here: "div.content >" reaches none of them, and finds nothing
+// rather than failing.
 var (
-	selNewGradesTable             = cascadia.MustCompile("div.content > div.flex-table.new-grades-table")
-	selRowHeaderCellSpan          = cascadia.MustCompile("div.row.header div.cell > span")
+	selNewGradesTable             = cascadia.MustCompile("div.content div.flex-table.new-grades-table")
+	selRowHeaderNotFirstCell      = cascadia.MustCompile("div.row.header:not(.first) div.cell")
 	selRowNotHeader               = cascadia.MustCompile("div.row:not(.header)")
+	selCell                       = cascadia.MustCompile("div.cell")
 	selCellSpan                   = cascadia.MustCompile("div.cell > span")
 	selStudentListClasses         = cascadia.MustCompile("div.student-list > div.classes")
 	selClassMenuVerticalClassInfo = cascadia.MustCompile("div.class-menu-vertical:not(div.past-schoolyear) > div.class-info")
@@ -64,10 +68,10 @@ var (
 	selSchoolSpanSchoolName       = cascadia.MustCompile("div.school > div > span.school-name")
 	selContentUlListLiA           = cascadia.MustCompile("div.content > ul.list > li > a")
 	selCourseInfoSpan             = cascadia.MustCompile("div.course-info > span")
-	selNationalExamTable          = cascadia.MustCompile("div.content > div.flex-table.national-exam-table")
+	selNationalExamTable          = cascadia.MustCompile("div.content div.flex-table.national-exam-table")
 	selRowHeaderNotFirstCellSpan  = cascadia.MustCompile("div.row.header:not(.first) div.cell > span")
-	selReadingsTable              = cascadia.MustCompile("div.content > div.flex-table.readings-table")
-	selFinalGradeRow              = cascadia.MustCompile("div.content > div.flex-table.s.grades-table > div.row.final-grade")
+	selReadingsTable              = cascadia.MustCompile("div.content div.flex-table.readings-table")
+	selFinalGradeRow              = cascadia.MustCompile("div.content div.flex-table.s.grades-table > div.row.final-grade")
 	selCellBoldFirstSpan          = cascadia.MustCompile("div.cell.bold.first > span")
 	selCellNotBoldFirstSpan       = cascadia.MustCompile("div.cell:not(.bold.first) > span")
 )
@@ -99,7 +103,9 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				subject += " / " + className
 			}
 
-			headerCells := table.FindMatcher(selRowHeaderCellSpan)
+			// :not(.first) drops the title row, whose lone subject-name cell
+			// would offset every column.
+			headerCells := table.FindMatcher(selRowHeaderNotFirstCell)
 			descriptions := make([]string, 0, headerCells.Length())
 
 			headerCells.Each(func(_ int, column *goquery.Selection) {
@@ -113,20 +119,10 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						return
 					}
 
-					spanCells := row.FindMatcher(selCellSpan)
-					spans := make([]string, 0, spanCells.Length())
-
-					spanCells.Each(func(_ int, column *goquery.Selection) {
-						txt := strings.TrimSpace(column.Text())
-						if len(txt) > 0 {
-							txt = trimAllSpace(txt)
-						}
-
-						spans = append(spans, txt)
-					})
+					fields, hasValue := cellValues(row)
 
 					// Skip contentless rows (mirrors parseCourse) — no fieldless alert.
-					if len(spans) == 0 || len(descriptions) == 0 {
+					if !hasValue || len(descriptions) == 0 {
 						return
 					}
 
@@ -136,7 +132,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						Username:     username,
 						Subject:      subject,
 						Descriptions: descriptions,
-						Fields:       spans,
+						Fields:       fields,
 					}:
 						parsedGrades++
 					case <-ctx.Done():
@@ -466,6 +462,35 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 	}
 
 	return nil
+}
+
+// cellValues returns one entry per div.cell in row, in column order, reporting
+// whether any cell carried text.
+//
+// Cell text rather than a child <span>: the "Bilješka" column holds a <pre>, so
+// a span-only read omits it and slides every later value left of its header.
+// Empty cells are kept as padding so Fields[i] stays aligned with
+// Descriptions[i]; formatters drop the empty pairs when rendering. That padding
+// is also why callers need the bool — an all-empty row is still a non-empty
+// slice, so len() cannot decide whether a row is worth alerting on.
+func cellValues(row *goquery.Selection) ([]string, bool) {
+	cells := row.FindMatcher(selCell)
+	values := make([]string, 0, cells.Length())
+
+	var hasValue bool
+
+	cells.Each(func(_ int, cell *goquery.Selection) {
+		txt := strings.TrimSpace(cell.Text())
+		if len(txt) > 0 {
+			// <pre> note cells arrive with newlines.
+			txt = trimAllSpace(txt)
+			hasValue = true
+		}
+
+		values = append(values, txt)
+	})
+
+	return values, hasValue
 }
 
 // trimAllSpace removes all leading, trailing, and repeated spaces from the input string.

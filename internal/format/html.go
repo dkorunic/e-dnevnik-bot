@@ -35,14 +35,20 @@ func htmlAddHeader(sb *strings.Builder, user, subject string, code msgtypes.Even
 	sb.WriteString("</b>\n")
 }
 
-// htmlFormatGrades formats grade descriptions and values with HTML escaping.
+// htmlFormatGrades renders escaped description/value pairs, skipping blank
+// columns as plainFormatGrades does.
 func htmlFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 	n := min(len(descriptions), len(grade))
+	descriptions, grade = descriptions[:n], grade[:n]
 
-	for i := range n {
+	for i, value := range grade {
+		if value == "" {
+			continue
+		}
+
 		sb.WriteString(html.EscapeString(descriptions[i]))
 		sb.WriteString(": ")
-		sb.WriteString(html.EscapeString(grade[i]))
+		sb.WriteString(html.EscapeString(value))
 		sb.WriteString("\n")
 	}
 }
