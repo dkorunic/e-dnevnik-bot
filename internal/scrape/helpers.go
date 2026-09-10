@@ -74,7 +74,25 @@ var (
 	selFinalGradeRow              = cascadia.MustCompile("div.content div.flex-table.s.grades-table > div.row.final-grade")
 	selCellBoldFirstSpan          = cascadia.MustCompile("div.cell.bold.first > span")
 	selCellNotBoldFirstSpan       = cascadia.MustCompile("div.cell:not(.bold.first) > span")
+
+	// selNoRecords matches the portal's explicit empty state, e.g. /grade/all
+	// rendering "Učenik nema upisanih ocjena.".
+	selNoRecords = cascadia.MustCompile("div.content.no-records")
 )
+
+// logEmptyResult separates the portal's own empty state from selectors that
+// stopped matching. Both yield zero rows, but conflating them is how a drifted
+// scrape stays invisible: it reads as a quiet school day.
+func logEmptyResult(doc *goquery.Document, username, what string) {
+	if doc.FindMatcher(selNoRecords).Length() > 0 {
+		logger.Debug().Msgf("Portal reports no %v recorded for user %v", what, username)
+
+		return
+	}
+
+	logger.Warn().Msgf("No %v parsed for user %v, and the portal did not flag an empty record set: possible portal HTML drift",
+		what, username)
+}
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
@@ -146,7 +164,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 	}
 
 	if parsedGrades == 0 {
-		logger.Info().Msgf("No grades found in the scraped content for user %v", username)
+		logEmptyResult(doc, username, "grades")
 	}
 
 	return nil
@@ -264,7 +282,7 @@ func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
 
 // parseCourses takes a raw HTML string of all courses a user is enrolled in, extracts
 // the course name, teacher name, and URL, and returns a slice of fetch.Course objects.
-func parseCourses(rawCourses []byte) (fetch.Courses, error) {
+func parseCourses(username string, rawCourses []byte) (fetch.Courses, error) {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawCourses))
 	if err != nil {
 		return fetch.Courses{}, err
@@ -293,6 +311,12 @@ func parseCourses(rawCourses []byte) (fetch.Courses, error) {
 				})
 			}
 		})
+
+	// Every course page is reached through this list, so an empty result silences
+	// national exams, readings and final grades at once.
+	if len(courses) == 0 {
+		logEmptyResult(doc, username, "courses")
+	}
 
 	return courses, nil
 }

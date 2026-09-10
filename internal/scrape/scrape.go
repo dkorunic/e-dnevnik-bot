@@ -26,6 +26,9 @@ const scrapeMaxAttempts = 100
 //     POST and re-trips the portal's rate limiter.
 //   - ErrBodyTooLarge: response exceeded MaxBodySize — a deterministic
 //     server/content condition, not a transient network fault.
+//
+// fetch.ErrSessionExpired is absent by design: withRetry recovers it by
+// re-authenticating.
 func markPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -67,7 +70,22 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			retry.Context(budgetCtx),
 			retry.DelayType(retry.BackOffDelay),
 			retry.MaxJitter(scrapeRetryMaxJitter),
-		).Do(fn)
+		).Do(func() error {
+			err := fn()
+
+			// A lapsed session fails every endpoint identically, so a plain retry
+			// would burn the remaining attempts on the same redirect. markPermanent
+			// on the re-login keeps bad credentials from hammering the portal.
+			if errors.Is(err, fetch.ErrSessionExpired) {
+				logger.Warn().Msgf("Portal session expired for user %v, re-authenticating", username)
+
+				if lerr := client.Login(); lerr != nil {
+					return markPermanent(lerr)
+				}
+			}
+
+			return err
+		})
 	}
 
 	err = withRetry(func() error {
@@ -147,7 +165,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 		var subjects fetch.Courses
 
-		subjects, err = parseCourses(rawCourses)
+		subjects, err = parseCourses(username, rawCourses)
 		if err != nil {
 			return err
 		}

@@ -137,7 +137,7 @@ func TestParseCourses(t *testing.T) {
 		</ul>
 	</div>`
 
-	courses, err := parseCourses([]byte(html))
+	courses, err := parseCourses("user@skole.hr", []byte(html))
 	if err != nil {
 		t.Fatalf("parseCourses failed: %v", err)
 	}

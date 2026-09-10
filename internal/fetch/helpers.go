@@ -21,6 +21,7 @@ import (
 const (
 	BaseURL        = "https://ocjene.skole.hr"
 	LoginURL       = "https://ocjene.skole.hr/login"
+	LoginPath      = "/login" // compared against post-redirect URLs
 	ClassURL       = "https://ocjene.skole.hr/class"
 	ClassActionURL = "https://ocjene.skole.hr/class_action/%v/course"
 	GradeAllURL    = "https://ocjene.skole.hr/grade/all"
@@ -38,6 +39,7 @@ var (
 	ErrCSRFToken        = errors.New("could not find CSRF token")
 	ErrNilBody          = errors.New("client body is nil")
 	ErrInvalidLogin     = errors.New("unable to login")
+	ErrSessionExpired   = errors.New("portal session expired")
 	ErrBodyTooLarge     = errors.New("response body exceeds size limit")
 	ErrInvalidClassID   = errors.New("invalid class ID — refusing to construct URL")
 	ErrInvalidHost      = errors.New("portal href resolves to non-portal host — refusing to fetch")
@@ -48,6 +50,35 @@ var (
 	// reClassID rejects non-URL-safe class IDs to block path-injection via a tampered portal.
 	reClassID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
+
+// loggedInMarker sits on the user chrome of every authenticated HTML page; the
+// login page never carries it.
+var loggedInMarker = []byte("logged-in-user")
+
+// bouncedToLogin reports whether a request ended at the login page, which is how
+// a lapsed session surfaces: the portal 302s data endpoints to /login and
+// http.Client follows, so callers would otherwise see a plain 200 of login HTML
+// and read it as a quiet school day.
+//
+// Data endpoints only — the login POST targets LoginPath either way.
+func bouncedToLogin(resp *http.Response) bool {
+	return resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.Path == LoginPath
+}
+
+// hasAuthMarker catches a login page served in place of content rather than
+// redirected to, which bouncedToLogin cannot see.
+//
+// Substring test, not a parse: it can only err toward "authenticated", and that
+// is the safe direction — a false "expired" would trigger a re-login storm.
+// Non-HTML is exempt because a live calendar response carries no markers; that
+// costs no coverage, since a lapsed session redirects even /exam/ical to HTML.
+func hasAuthMarker(resp *http.Response, body []byte) bool {
+	if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+		return true
+	}
+
+	return bytes.Contains(body, loggedInMarker)
+}
 
 // getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
 // security cookie.
@@ -141,8 +172,14 @@ func (c *Client) doSAMLRequest() error {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	// Cap input; matches getGeneric's MaxBodySize ceiling.
-	doc, err := goquery.NewDocumentFromReader(io.LimitReader(resp.Body, MaxBodySize))
+	// Buffered, not streamed: read twice, for the alert selector and the marker
+	// probe. Cap matches getGeneric's ceiling.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodySize))
+	if err != nil {
+		return err
+	}
+
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -151,6 +188,16 @@ func (c *Client) doSAMLRequest() error {
 	alertSel := doc.FindMatcher(selLoginAlert)
 	if alertSel.Length() > 0 {
 		return fmt.Errorf("%w: %v", ErrInvalidLogin, alertSel.Text())
+	}
+
+	// A rejected login is a 302 back to /login, not a 4xx, so the status check
+	// above never fires and the alert markup is the only other guard — one markup
+	// drift away from a wrong password looking like an empty scrape.
+	//
+	// ErrInvalidLogin, not ErrSessionExpired, so markPermanent stops the cycle
+	// rather than retrying bad credentials into the portal's rate limiter.
+	if !hasAuthMarker(resp, body) {
+		return fmt.Errorf("%w: portal returned the login page without an error message", ErrInvalidLogin)
 	}
 
 	return nil
@@ -186,7 +233,10 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
+	// No StatusFound: http.Client resolves redirects before this point, so a bare
+	// 302 is anomalous. Accepting it only read as if redirects were handled, which
+	// is what hid the expired-session path below.
+	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
 
 		return nil, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
@@ -203,6 +253,11 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 		_, _ = io.Copy(io.Discard, resp.Body)
 
 		return nil, fmt.Errorf("%w: %v", ErrBodyTooLarge, resp.Request.URL)
+	}
+
+	// Transient by design: withRetry re-authenticates and runs the step again.
+	if bouncedToLogin(resp) || !hasAuthMarker(resp, body) {
+		return nil, fmt.Errorf("%w: %v served the login page", ErrSessionExpired, dest)
 	}
 
 	return body, nil

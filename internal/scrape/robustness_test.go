@@ -296,7 +296,7 @@ func TestParseCoursesSkipsLinksWithoutHref(t *testing.T) {
 		<li><a href="/course/123"><div class="course-info"><span>Matematika</span><span>Nastavnik</span></div></a></li>
 	</ul></div>`
 
-	courses, err := parseCourses([]byte(html))
+	courses, err := parseCourses("user@skole.hr", []byte(html))
 	if err != nil {
 		t.Fatalf("parseCourses() = %v, want nil", err)
 	}
@@ -323,7 +323,7 @@ func TestParseCoursesToleratesExtraInfoSpans(t *testing.T) {
 		</div></a></li>
 	</ul></div>`
 
-	courses, err := parseCourses([]byte(html))
+	courses, err := parseCourses("user@skole.hr", []byte(html))
 	if err != nil {
 		t.Fatalf("parseCourses() = %v, want nil", err)
 	}

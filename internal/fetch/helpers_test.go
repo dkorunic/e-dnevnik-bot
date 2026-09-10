@@ -302,7 +302,8 @@ func TestGetGenericStatusHandling(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "200 OK", status: http.StatusOK, body: "payload"},
-		{name: "302 Found is accepted", status: http.StatusFound, body: "redirect body"},
+		// http.Client resolves real redirects before getGeneric sees them.
+		{name: "302 Found is rejected", status: http.StatusFound, body: "", wantErr: true},
 		{name: "301 is rejected", status: http.StatusMovedPermanently, body: "", wantErr: true},
 		{name: "404 is rejected", status: http.StatusNotFound, body: "", wantErr: true},
 		{name: "500 is rejected", status: http.StatusInternalServerError, body: "", wantErr: true},
@@ -827,6 +828,157 @@ func TestExportedGettersHitTheirEndpoints(t *testing.T) {
 
 			if string(body) != "body" {
 				t.Errorf("%v() body = %q, want %q", tt.name, body, "body")
+			}
+		})
+	}
+}
+
+// respondWith records finalURL on resp.Request, mimicking http.Client rewriting
+// it to the last hop after following a redirect.
+func respondWith(t *testing.T, status int, ctype, body, finalURL string) *http.Response {
+	t.Helper()
+
+	u, err := url.Parse(finalURL)
+	if err != nil {
+		t.Fatalf("url.Parse(%q) = %v", finalURL, err)
+	}
+
+	h := make(http.Header)
+	if ctype != "" {
+		h.Set("Content-Type", ctype)
+	}
+
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     h,
+		Request:    &http.Request{URL: u},
+	}
+}
+
+const (
+	authedPage = `<html><body><div class="logged-in-user">Ime Prezime</div><div class="content">x</div></body></html>`
+	loginPage  = `<html><body><form><input name="csrf_token" value="t"></form></body></html>`
+)
+
+// TestGetGenericDetectsExpiredSession pins the portal's silent failure mode: a
+// lapsed session 302s every data endpoint to /login, which http.Client follows,
+// so the caller would otherwise get login HTML as a 200 with no error.
+func TestGetGenericDetectsExpiredSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		ctype    string
+		body     string
+		finalURL string
+		wantErr  bool
+	}{
+		{
+			name:     "redirected to login page",
+			ctype:    "text/html; charset=UTF-8",
+			body:     loginPage,
+			finalURL: LoginURL,
+			wantErr:  true,
+		},
+		{
+			name:     "html served in place without the auth marker",
+			ctype:    "text/html; charset=UTF-8",
+			body:     loginPage,
+			finalURL: GradeAllURL,
+			wantErr:  true,
+		},
+		{
+			name:     "authenticated html passes",
+			ctype:    "text/html; charset=UTF-8",
+			body:     authedPage,
+			finalURL: GradeAllURL,
+		},
+		{
+			// Live calendar responses carry no HTML markers.
+			name:     "live ICS without html markers passes",
+			ctype:    "text/calendar; charset=utf-8",
+			body:     "BEGIN:VCALENDAR\nEND:VCALENDAR",
+			finalURL: CalendarURL,
+		},
+		{
+			// So gating on Content-Type loses no coverage.
+			name:     "expired ICS request still caught via redirect",
+			ctype:    "text/html; charset=UTF-8",
+			body:     loginPage,
+			finalURL: LoginURL,
+			wantErr:  true,
+		},
+		{
+			// Only the portal's own text/html is known to carry the marker.
+			name:     "missing content-type stays permissive",
+			ctype:    "",
+			body:     "payload",
+			finalURL: GradeAllURL,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newStubClient(t.Context(), roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return respondWith(t, http.StatusOK, tt.ctype, tt.body, tt.finalURL), nil
+			}))
+
+			_, err := c.getGeneric(GradeAllURL)
+
+			if tt.wantErr {
+				if !errors.Is(err, ErrSessionExpired) {
+					t.Fatalf("getGeneric() = %v, want ErrSessionExpired", err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("getGeneric() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+// TestDoSAMLRequestRequiresAuthMarker covers the positive login assertion: if
+// the portal's alert markup drifts, a wrong password must still not pass as a
+// successful but empty scrape.
+func TestDoSAMLRequestRequiresAuthMarker(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr bool
+	}{
+		{name: "authenticated chrome is a successful login", body: authedPage},
+		{name: "login page without an alert is still a failure", body: loginPage, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newStubClient(t.Context(), roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				// LoginPath either way, hence the marker rather than the URL.
+				return respondWith(t, http.StatusOK, "text/html; charset=UTF-8", tt.body, LoginURL), nil
+			}))
+
+			err := c.doSAMLRequest()
+
+			if tt.wantErr {
+				if !errors.Is(err, ErrInvalidLogin) {
+					t.Fatalf("doSAMLRequest() = %v, want ErrInvalidLogin", err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("doSAMLRequest() = %v, want nil", err)
 			}
 		})
 	}

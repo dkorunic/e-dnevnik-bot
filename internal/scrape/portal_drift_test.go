@@ -4,11 +4,15 @@
 package scrape
 
 import (
+	"bytes"
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/rs/zerolog"
 )
 
 // gradesTableWithNotes mirrors the live /grade/all markup after the portal
@@ -191,5 +195,90 @@ func TestParseCourseFindsTablesUnderTabContent(t *testing.T) {
 
 	if !reflect.DeepEqual(msgs[0].Fields, []string{"5"}) {
 		t.Errorf("Fields = %q, want [\"5\"]", msgs[0].Fields)
+	}
+}
+
+// captureLogs swaps the global logger for the duration of fn. It mutates global
+// state, hence no t.Parallel() in its callers.
+func captureLogs(t *testing.T, fn func()) string {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	saved := logger.Logger
+	savedLevel := zerolog.GlobalLevel()
+
+	logger.Logger = zerolog.New(&buf)
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+
+	t.Cleanup(func() {
+		logger.Logger = saved
+		zerolog.SetGlobalLevel(savedLevel)
+	})
+
+	fn()
+
+	return buf.String()
+}
+
+// TestEmptyResultDistinguishesDriftFromNoRecords covers the portal's own empty
+// state (div.content.no-records) versus selectors that stopped matching. Both
+// yield zero rows; only the second warrants a warning.
+func TestEmptyResultDistinguishesDriftFromNoRecords(t *testing.T) {
+	const (
+		noRecords = `<html><body><div class="content no-records">` +
+			`<div class="section-text no-title">Učenik nema upisanih ocjena.</div></div></body></html>`
+		driftedAway = `<html><body><div class="content"><div class="flex-table renamed-table">` +
+			`<div class="row"><div class="cell">4</div></div></div></div></body></html>`
+	)
+
+	tests := []struct {
+		name     string
+		html     string
+		wantWarn bool
+	}{
+		{name: "grades, portal reports no records", html: noRecords, wantWarn: false},
+		{name: "grades, selectors no longer match", html: driftedAway, wantWarn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := make(chan msgtypes.Message, 1)
+
+			out := captureLogs(t, func() {
+				if err := parseGrades(t.Context(), ch, "user@skole.hr", []byte(tt.html), false, "1.a"); err != nil {
+					t.Fatalf("parseGrades() = %v, want nil", err)
+				}
+			})
+
+			if got := strings.Contains(out, `"level":"warn"`); got != tt.wantWarn {
+				t.Errorf("warning logged = %v, want %v\nlog output: %s", got, tt.wantWarn, out)
+			}
+
+			if tt.wantWarn && !strings.Contains(out, "drift") {
+				t.Errorf("drift warning does not name drift, so an operator cannot act on it\nlog output: %s", out)
+			}
+		})
+	}
+}
+
+// TestParseCoursesWarnsOnUnexplainedEmpty pins the same distinction for the
+// course list, which gates national exams, readings and final grades at once.
+func TestParseCoursesWarnsOnUnexplainedEmpty(t *testing.T) {
+	const empty = `<html><body><div class="content"><ul class="list"></ul></div></body></html>`
+
+	out := captureLogs(t, func() {
+		courses, err := parseCourses("user@skole.hr", []byte(empty))
+		if err != nil {
+			t.Fatalf("parseCourses() = %v, want nil", err)
+		}
+
+		if len(courses) != 0 {
+			t.Fatalf("parseCourses() = %d courses, want 0", len(courses))
+		}
+	})
+
+	if !strings.Contains(out, `"level":"warn"`) {
+		t.Errorf("an empty course list with no no-records marker must warn\nlog output: %s", out)
 	}
 }

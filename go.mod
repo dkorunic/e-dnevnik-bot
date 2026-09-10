@@ -20,7 +20,6 @@ require (
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/iguanesolutions/go-systemd/v6 v6.0.0
 	github.com/jordic/goics v0.0.0-20210404174824-5a0337b716a0
-	github.com/lib4u/fake-useragent v1.0.6
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
