@@ -7,11 +7,12 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"testing"
+
+	http "github.com/enetx/http"
 )
 
 // roundTripFunc adapts a function to http.RoundTripper. The portal URLs are
@@ -23,16 +24,26 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-// newStubClient builds a Client wired to rt, bypassing NewClientWithContext's
-// real transport. Fields are unexported, hence the white-box package.
+// newStubClient builds a Client wired to rt, bypassing the real transport but
+// keeping surf's impersonation pipeline: the profile's headers and ordering are
+// applied by request middleware, so they still reach rt. Fields are unexported,
+// hence the white-box package.
 func newStubClient(ctx context.Context, rt http.RoundTripper) *Client {
-	return &Client{
-		httpClient: &http.Client{Transport: rt},
-		ctx:        ctx,
-		username:   "user@skole.hr",
-		password:   "s3cret",
-		userAgent:  ChromeUA,
+	c := &Client{
+		ctx:      ctx,
+		username: "user@skole.hr",
+		password: "s3cret",
 	}
+
+	cli, err := newSurfClient(c)
+	if err != nil {
+		panic(err)
+	}
+
+	cli.GetClient().Transport = rt
+	c.httpClient = cli
+
+	return c
 }
 
 // stringResponse builds a canned 200-style response with the given status.
@@ -289,9 +300,9 @@ func TestDoSAMLRequestInvalidLoginIncludesAlertText(t *testing.T) {
 	}
 }
 
-// TestGetGenericStatusHandling pins the accepted status set. 302 is accepted
-// because the portal redirects after a class switch; anything else must error
-// rather than hand a login page back to the parser as if it were grades.
+// TestGetGenericStatusHandling pins 200 as the only accepted status. Redirects
+// are already resolved by the time the response arrives, so a bare 302 is
+// anomalous and must error rather than reach the parser as if it were grades.
 func TestGetGenericStatusHandling(t *testing.T) {
 	t.Parallel()
 

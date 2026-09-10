@@ -493,10 +493,9 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 //
 // Cell text rather than a child <span>: the "Bilješka" column holds a <pre>, so
 // a span-only read omits it and slides every later value left of its header.
-// Empty cells are kept as padding so Fields[i] stays aligned with
-// Descriptions[i]; formatters drop the empty pairs when rendering. That padding
-// is also why callers need the bool — an all-empty row is still a non-empty
-// slice, so len() cannot decide whether a row is worth alerting on.
+// Empty cells stay as padding to keep Fields[i] aligned with Descriptions[i],
+// which is why callers need the bool — an all-empty row is still a non-empty
+// slice, so len() cannot decide whether it is worth alerting on.
 func cellValues(row *goquery.Selection) ([]string, bool) {
 	cells := row.FindMatcher(selCell)
 	values := make([]string, 0, cells.Length())

@@ -15,6 +15,8 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/cascadia"
+	"github.com/enetx/g"
+	"github.com/enetx/surf"
 	"github.com/jordic/goics"
 )
 
@@ -55,67 +57,97 @@ var (
 // login page never carries it.
 var loggedInMarker = []byte("logged-in-user")
 
-// bouncedToLogin reports whether a request ended at the login page, which is how
-// a lapsed session surfaces: the portal 302s data endpoints to /login and
-// http.Client follows, so callers would otherwise see a plain 200 of login HTML
-// and read it as a quiet school day.
+// bouncedToLogin reports whether a request ended at the login page — how a
+// lapsed session surfaces, since callers would otherwise read a 200 of login
+// HTML as a quiet school day.
 //
-// Data endpoints only — the login POST targets LoginPath either way.
-func bouncedToLogin(resp *http.Response) bool {
-	return resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.Path == LoginPath
+// Data endpoints only: the login POST targets LoginPath either way.
+func bouncedToLogin(resp *surf.Response) bool {
+	return resp.URL != nil && resp.URL.Path == LoginPath
 }
 
 // hasAuthMarker catches a login page served in place of content rather than
 // redirected to, which bouncedToLogin cannot see.
 //
-// Substring test, not a parse: it can only err toward "authenticated", and that
-// is the safe direction — a false "expired" would trigger a re-login storm.
-// Non-HTML is exempt because a live calendar response carries no markers; that
-// costs no coverage, since a lapsed session redirects even /exam/ical to HTML.
-func hasAuthMarker(resp *http.Response, body []byte) bool {
-	if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+// Substring test, not a parse: it can only err toward "authenticated", the safe
+// direction, since a false "expired" would trigger a re-login storm. Non-HTML is
+// exempt because the ICS calendar carries no markers, and a lapsed session
+// redirects even that to HTML.
+func hasAuthMarker(resp *surf.Response, body []byte) bool {
+	if !strings.Contains(resp.Headers.Get("Content-Type").Std(), "text/html") {
 		return true
 	}
 
 	return bytes.Contains(body, loggedInMarker)
 }
 
-// getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
-// security cookie.
-func (c *Client) getCSRFToken() error {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, LoginURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Accept-Language", AcceptLanguageHR)
-
-	resp, err := c.httpClient.Do(req)
+// do issues req with the session's context. Headers are chromeNavigationMW's job.
+func (c *Client) do(req *surf.Request) (*surf.Response, error) {
+	resp, err := req.
+		WithContext(c.ctx).
+		Do().
+		Result()
 	if err != nil {
 		select {
 		case <-c.ctx.Done():
-			return c.ctx.Err()
+			return nil, c.ctx.Err()
 		default:
-			return err
+			return nil, err
 		}
 	}
 
 	if resp == nil || resp.Body == nil {
-		return fmt.Errorf("%w", ErrNilBody)
+		return nil, fmt.Errorf("%w", ErrNilBody)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
+	return resp, nil
+}
 
+// readBody returns the response body, capped at MaxBodySize.
+//
+// The limit sits one byte high because surf's Limit truncates silently: reading
+// MaxBodySize+1 is what separates a body at the ceiling from one that overran it.
+func readBody(resp *surf.Response) ([]byte, error) {
+	body, err := resp.Body.Limit(MaxBodySize + 1).Bytes().Result()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(body) > MaxBodySize {
+		return nil, fmt.Errorf("%w: %v", ErrBodyTooLarge, resp.URL)
+	}
+
+	return body, nil
+}
+
+// rememberURL records where the response actually landed, so the next request's
+// Referer reflects redirects the way a browser's would.
+func (c *Client) rememberURL(resp *surf.Response) {
+	if resp.URL != nil {
+		c.lastURL = resp.URL.String()
+	}
+}
+
+// getCSRFToken extracts CSRF Token value hidden in the input form, optionally also getting initial value of cnOcjene
+// security cookie.
+func (c *Client) getCSRFToken() error {
+	resp, err := c.do(c.httpClient.Get(g.String(LoginURL)))
+	if err != nil {
+		return err
+	}
+
+	if int(resp.StatusCode) != http.StatusOK {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	// Cap input; matches getGeneric's MaxBodySize ceiling.
-	doc, err := goquery.NewDocumentFromReader(io.LimitReader(resp.Body, MaxBodySize))
+	body, err := readBody(resp)
+	if err != nil {
+		return err
+	}
+
+	c.rememberURL(resp)
+
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -133,51 +165,38 @@ func (c *Client) getCSRFToken() error {
 // doSAMLRequest goes through SSO/SAML authentication, getting SimpleSAMLSessionID SSO cookie and refreshing cnOcjene
 // security cookie set in getCSRFToken() step.
 func (c *Client) doSAMLRequest() error {
-	data := url.Values{
+	form := url.Values{
 		"username":   {c.username},
 		"password":   {c.password},
 		"csrf_token": {c.csrfToken},
+	}.Encode()
+
+	req := c.httpClient.Post(g.String(LoginURL)).Body(form)
+
+	// surf sets Body but not GetBody, leaving the request unable to replay. The
+	// Chrome ClientHello offers h2 while this portal negotiates no ALPN, so surf
+	// retries over HTTP/1.1 — possible only for a request it can rewind. Bodyless
+	// GETs replay regardless, so without this the login POST alone fails, as an
+	// opaque retry loop.
+	req.GetRequest().GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(form)), nil
 	}
 
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, LoginURL, strings.NewReader(data.Encode()))
+	resp, err := c.do(req)
 	if err != nil {
 		return err
 	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", LoginURL)
-	req.Header.Set("Accept-Language", AcceptLanguageHR)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		select {
-		case <-c.ctx.Done():
-			return c.ctx.Err()
-		default:
-			return err
-		}
-	}
-
-	if resp == nil || resp.Body == nil {
-		return fmt.Errorf("%w", ErrNilBody)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		_, _ = io.Copy(io.Discard, resp.Body)
-
+	if int(resp.StatusCode) >= http.StatusBadRequest {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	// Buffered, not streamed: read twice, for the alert selector and the marker
-	// probe. Cap matches getGeneric's ceiling.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodySize))
+	body, err := readBody(resp)
 	if err != nil {
 		return err
 	}
+
+	c.rememberURL(resp)
 
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
@@ -191,11 +210,11 @@ func (c *Client) doSAMLRequest() error {
 	}
 
 	// A rejected login is a 302 back to /login, not a 4xx, so the status check
-	// above never fires and the alert markup is the only other guard — one markup
-	// drift away from a wrong password looking like an empty scrape.
+	// never fires and the alert markup is the only other guard — one markup drift
+	// from a wrong password looking like an empty scrape.
 	//
-	// ErrInvalidLogin, not ErrSessionExpired, so markPermanent stops the cycle
-	// rather than retrying bad credentials into the portal's rate limiter.
+	// ErrInvalidLogin, not ErrSessionExpired: markPermanent must stop the cycle
+	// rather than retry bad credentials into the portal's rate limiter.
 	if !hasAuthMarker(resp, body) {
 		return fmt.Errorf("%w: portal returned the login page without an error message", ErrInvalidLogin)
 	}
@@ -203,62 +222,30 @@ func (c *Client) doSAMLRequest() error {
 	return nil
 }
 
-// getGeneric GETs dest with the session's headers and returns the body,
-// capped at MaxBodySize (ErrBodyTooLarge past that). Non-2xx/302 responses and
-// context cancellation return an error.
+// getGeneric GETs dest and returns the body, capped at MaxBodySize.
 func (c *Client) getGeneric(dest string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, dest, nil)
+	resp, err := c.do(c.httpClient.Get(g.String(dest)))
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", LoginURL)
-	req.Header.Set("Accept-Language", AcceptLanguageHR)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		select {
-		case <-c.ctx.Done():
-			return nil, c.ctx.Err()
-		default:
-			return nil, err
-		}
-	}
-
-	if resp == nil || resp.Body == nil {
-		return nil, fmt.Errorf("%w", ErrNilBody)
-	}
-	defer resp.Body.Close()
-
-	// No StatusFound: http.Client resolves redirects before this point, so a bare
-	// 302 is anomalous. Accepting it only read as if redirects were handled, which
-	// is what hid the expired-session path below.
-	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
-
+	// Redirects are already resolved here, so a bare 302 is anomalous. Accepting
+	// it merely looked like redirect handling, and that is what hid session expiry.
+	if int(resp.StatusCode) != http.StatusOK {
 		return nil, fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	// +1 byte lets us detect truncation without reading the whole body.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodySize+1))
+	body, err := readBody(resp)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(body) > MaxBodySize {
-		// Drain remainder so the connection can be reused.
-		_, _ = io.Copy(io.Discard, resp.Body)
-
-		return nil, fmt.Errorf("%w: %v", ErrBodyTooLarge, resp.Request.URL)
 	}
 
 	// Transient by design: withRetry re-authenticates and runs the step again.
 	if bouncedToLogin(resp) || !hasAuthMarker(resp, body) {
 		return nil, fmt.Errorf("%w: %v served the login page", ErrSessionExpired, dest)
 	}
+
+	c.rememberURL(resp)
 
 	return body, nil
 }

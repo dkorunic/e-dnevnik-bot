@@ -5,20 +5,21 @@ package fetch
 
 import (
 	"context"
-	"net/http"
 	"time"
+
+	"github.com/enetx/surf"
 )
 
 // Client structure holds all HTTP Client related fields.
 //
 //nolint:containedctx
 type Client struct {
-	httpClient *http.Client
+	httpClient *surf.Client
 	ctx        context.Context
 	username   string
 	password   string
 	csrfToken  string
-	userAgent  string
+	lastURL    string
 }
 
 // Event structure holds ICS event-related fields.

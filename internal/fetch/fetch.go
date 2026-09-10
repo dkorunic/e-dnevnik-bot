@@ -5,54 +5,33 @@ package fetch
 
 import (
 	"context"
-	"net/http"
-	"net/http/cookiejar"
 	"time"
 )
 
-const (
-	Timeout = 120 * time.Second // site can get really slow sometimes
+const Timeout = 120 * time.Second // site can get really slow sometimes
 
-	// ChromeUA is fixed, not randomised per session. Rotating it via
-	// lib4u/fake-useragent bought nothing — the portal accepts any user agent,
-	// including none — while costing ~18ms and ~18MB per Login() and 3.5MB of
-	// binary. A stable string is also less anomalous than one that rotates.
-	ChromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
-)
-
-// NewClientWithContext creates new *Client, initializing HTTP Cookie Jar, context and username with password.
+// NewClientWithContext creates a *Client backed by the impersonating HTTP client.
 func NewClientWithContext(ctx context.Context, username, password string) (*Client, error) {
-	// Cookie jar required for SSO and security cookies.
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Own transport so CloseConnections isolates per client, not the shared default pool.
-	// Comma-ok: instrumentation may swap DefaultTransport for a non-*Transport wrapper.
-	var transport http.RoundTripper
-	if dt, ok := http.DefaultTransport.(*http.Transport); ok {
-		transport = dt.Clone()
-	}
-
+	// Built before the HTTP client because the client's header middleware closes
+	// over c to read the navigation chain.
 	c := &Client{
-		httpClient: &http.Client{
-			Timeout:   Timeout,
-			Jar:       jar,
-			Transport: transport,
-		},
 		ctx:      ctx,
 		username: username,
 		password: password,
 	}
+
+	cli, err := newSurfClient(c)
+	if err != nil {
+		return nil, err
+	}
+
+	c.httpClient = cli
 
 	return c, nil
 }
 
 // Login attempts get CSRF Token and do SSO/SAML authentication.
 func (c *Client) Login() error {
-	c.userAgent = ChromeUA
-
 	if err := c.getCSRFToken(); err != nil {
 		return err
 	}

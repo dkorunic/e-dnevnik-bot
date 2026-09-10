@@ -69,8 +69,8 @@
 ### `internal/fetch/`
 
 **Responsibility:** HTTP client for e-Dnevnik: CSRF token extraction, SAML/SSO auth, class/grades/ICS calendar retrieval.
-**Key deps:** `lib4u/fake-useragent` (random Chrome UA per session), standard `net/http` with cookie jar
-**Patterns:** Cookie-jar-managed SSO sessions, 120-second timeout (portal is slow), per-session random User-Agent to prevent bot blocking.
+**Key deps:** `enetx/surf` (Chrome 152 impersonation: user agent, client hints, header order, TLS ClientHello, HTTP/2 SETTINGS) with cookie jar
+**Patterns:** Cookie-jar-managed SSO sessions, 120-second timeout (portal is slow), and a fixed impersonated Chrome identity rather than a rotating User-Agent — the portal sits behind F5 BIG-IP, and a stable, internally consistent browser fingerprint is less anomalous than one that changes every session. See the browser impersonation contract in CLAUDE.md.
 
 ### `internal/scrape/`
 

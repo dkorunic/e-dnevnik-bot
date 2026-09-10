@@ -13,7 +13,7 @@ All sub-packages live under `internal/` (enforced by the Go toolchain — nothin
 | Package | Role |
 |---|---|
 | `internal/msgtypes` | Canonical domain event: `Message` struct + `EventCode` enum. No deps. |
-| `internal/fetch` | Raw HTTP client for e-Dnevnik (SAML/SSO auth, cookie jar). |
+| `internal/fetch` | Chrome-impersonating HTTP client for e-Dnevnik (`enetx/surf`, SAML/SSO auth, cookie jar). |
 | `internal/scrape` | Parses `fetch/` HTML into `msgtypes.Message` events. |
 | `internal/sqlitedb` | SQLite KV dedup store. |
 | `internal/codec` | CBOR (`fxamacker/cbor/v2`) encode/decode for `[]Message` queue persistence. |
@@ -42,6 +42,7 @@ Root-level files in the `main` package:
 
 - **Go 1.27+ is mandatory** — `go.mod` pins `go 1.27`; older local toolchains will trigger an auto-download via `GOTOOLCHAIN` or fail to build. The oldest language features actually used are `sync.WaitGroup.Go` (Go 1.25) and `context.WithoutCancel` (Go 1.21), so the pin — not the source — is what sets the floor.
 - Build system: [Task](https://taskfile.dev/) via `Taskfile.yml`. `CGO_ENABLED=0` is set at the taskfile level; do not override — the whole point of `modernc.org/sqlite` is a static binary.
+- `enetx/surf` links the HTTP/3 stack and `enetx/g`'s generic instantiations unconditionally — it has no build tags — which is ~15 MB of the binary. Weigh that before adding anything else in that family.
 
 ## Commands
 
@@ -117,6 +118,21 @@ Long-running background goroutines (the systemd watchdog) are tracked in a dedic
 ### `math/rand/v2` continuous jitter — `main.go:durationRandJitter`
 
 Factor drawn from a continuous `[0.9, 1.1)` distribution via `rand.Float64()`. Do not replace with a discrete-step variant — concurrent daemons would alias on a small number of wake times.
+
+### Browser impersonation contract — `internal/fetch/chrome.go`
+
+The portal sits behind F5 BIG-IP, so `internal/fetch` impersonates Chrome 152 via `enetx/surf`, and **one profile owns every browser-identifying signal**: user agent, client hints, per-method header order, the TLS ClientHello behind JA3/JA4, and the HTTP/2 SETTINGS. Never hand-set any of them. They are only coherent because they come from a single source, and a value contradicting the fingerprint beneath it is a louder signal than sending nothing at all.
+
+What the profile cannot know about *this* portal is corrected in `chromeNavigationMW`, registered at `overrideMWPriority = 999`. surf runs middleware **lowest priority first** and its own header pipeline registers at 0, so a lower number here loses every override silently. The rules living there:
+
+- **`Accept-Language` stays `AcceptLanguageHR`.** surf defaults to en-US; the login alert matcher and the subject names both depend on Croatian responses.
+- **`Priority` is deleted on GET *and* POST.** It is an HTTP/2 header that surf inserts unconditionally, and this portal is Apache negotiating no ALPN at all — real Chrome cannot send it on this connection.
+- **`Connection: keep-alive` is prepended to `HeaderOrderKey`.** surf's order map has no slot for it, so it otherwise lands last rather than directly after `Host`.
+- **The login POST is a navigation, not an XHR.** surf models POSTs as XHR (`Accept: */*`, `Sec-Fetch-Mode: cors`, plus the no-cache pair); a form submit carries the navigation `Accept`, an `Origin`, and no cache-busting headers.
+
+**Any request with a body must set `GetBody`** (see `doSAMLRequest`). surf sets `Body` but never `GetBody`, and because the Chrome ClientHello offers h2 while the portal negotiates none, surf retries over HTTP/1.1 — which only works for a request it can rewind. Bodyless GETs replay regardless, so omitting it breaks authentication outright while leaving unauthenticated fetches working, and no GET-only test will catch it.
+
+Verify header changes by diffing against a real capture, never from memory: load the portal in Chrome, read the request over the DevTools protocol, and compare against `req.Write` output from a stub transport. The `Priority` and `Connection` rules above were both found that way. Tests reach the stub via `newStubClient`, which swaps `GetClient().Transport` so surf's middleware still runs.
 
 ### Messenger implementation contract — `internal/messenger/*.go`
 
