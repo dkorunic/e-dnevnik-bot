@@ -29,7 +29,7 @@ require (
 	github.com/slack-go/slack v0.29.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20260909093947-9ec8f76db5f1
+	go.mau.fi/whatsmeow v0.0.0-20260909164725-b25a56d63729
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.37.0
 	google.golang.org/api v0.297.0
@@ -51,7 +51,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.21 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.22 // indirect
 	github.com/googleapis/gax-go/v2 v2.24.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
