@@ -344,11 +344,11 @@ func TestProcessDiscordStaleChannelRefreshed(t *testing.T) {
 	}
 }
 
-// TestProcessDiscordEmptyFieldsPlaceholders verifies that empty scraped cells
-// are replaced with a placeholder — Discord 400s on empty embed field
-// name/value, which would otherwise poison-drop the whole alert.
+// TestProcessDiscordOmitsAllPaddingFields covers an all-blank message: the embed
+// carries no fields rather than a row of "-" placeholders, and the send still
+// succeeds. A title-only embed is valid; an empty name or value is not.
 // NOTE: must not call t.Parallel() — discordCli and discordChannels are package-level globals.
-func TestProcessDiscordEmptyFieldsPlaceholders(t *testing.T) {
+func TestProcessDiscordOmitsAllPaddingFields(t *testing.T) {
 	var (
 		mu      sync.Mutex
 		payload []byte
@@ -411,12 +411,22 @@ func TestProcessDiscordEmptyFieldsPlaceholders(t *testing.T) {
 		embed = sent.Embeds[0]
 	}
 
-	if embed == nil || len(embed.Fields) != 1 {
-		t.Fatalf("expected 1 embed field, got %+v", embed)
+	// A value-less column is cellValues' alignment padding, so it is skipped
+	// rather than rendered as "-" — matching every other backend. A title-only
+	// embed is valid Discord; what it must never contain is a field with an
+	// empty name or value, which 400s and poison-drops the whole alert.
+	if embed == nil {
+		t.Fatalf("no embed sent")
 	}
 
-	if embed.Fields[0].Name == "" || embed.Fields[0].Value == "" {
-		t.Errorf("empty embed field would be rejected by Discord: %+v", embed.Fields[0])
+	if len(embed.Fields) != 0 {
+		t.Errorf("expected no embed fields for an all-padding message, got %+v", embed.Fields)
+	}
+
+	for _, f := range embed.Fields {
+		if f.Name == "" || f.Value == "" {
+			t.Errorf("empty embed field would be rejected by Discord: %+v", f)
+		}
 	}
 
 	if failed := queue.FetchFailedMsgs(context.Background(), eDB, DiscordQueueName); len(failed) != 0 {
@@ -519,5 +529,69 @@ func TestProcessDiscordPoisonedRecipientIsSkippedOnRetry(t *testing.T) {
 	if !slices.Contains(failed[0].Msg.SkipRecipients, "blocked-user") {
 		t.Errorf("SkipRecipients = %v, want it to contain the poisoned recipient; otherwise every retry re-attempts a recipient that can never accept the message, for the whole of MaxQueueAge",
 			failed[0].Msg.SkipRecipients)
+	}
+}
+
+// TestProcessDiscordSkipsPaddingCells keeps Discord in step with the other
+// backends: cellValues pads blank cells for alignment and the formatters skip
+// them, but Discord rendered them as "-" fields. The substitution still guards
+// the name, which Discord also 400s on.
+func TestProcessDiscordSkipsPaddingCells(t *testing.T) {
+	t.Parallel()
+
+	g := msgtypes.Message{
+		Code:         msgtypes.Grade,
+		Username:     "testuser",
+		Subject:      "Matematika",
+		Descriptions: []string{"Datum", "Bilješka", "Element vrednovanja", "Ocjena"},
+		Fields:       []string{"9.9.", "Treba pisati postupak", "", ""},
+	}
+
+	fields := discordEmbedFields(g, "Nova ocjena")
+
+	if len(fields) != 2 {
+		got := make([]string, 0, len(fields))
+		for _, f := range fields {
+			got = append(got, f.Name+"="+f.Value)
+		}
+
+		t.Fatalf("embed carried %d fields (%v), want only the 2 columns the portal filled", len(fields), got)
+	}
+
+	for _, f := range fields {
+		if f.Value == "-" {
+			t.Errorf("field %q rendered a padding placeholder", f.Name)
+		}
+	}
+}
+
+// TestDiscordEmbedFieldCapCountsEmittedFields pins what DiscordMaxFields counts.
+// Spending cap budget on skipped padding loses real values that had room.
+func TestDiscordEmbedFieldCapCountsEmittedFields(t *testing.T) {
+	t.Parallel()
+
+	var desc, vals []string
+
+	// 30 columns, every even one blank padding: 15 real values, cap is 25.
+	for i := range 30 {
+		desc = append(desc, fmt.Sprintf("col%02d", i))
+
+		if i%2 == 0 {
+			vals = append(vals, "")
+		} else {
+			vals = append(vals, fmt.Sprintf("v%02d", i))
+		}
+	}
+
+	g := msgtypes.Message{
+		Code: msgtypes.Grade, Username: "u", Subject: "s",
+		Descriptions: desc, Fields: vals,
+	}
+
+	fields := discordEmbedFields(g, "title")
+
+	if len(fields) != 15 {
+		t.Errorf("emitted %d fields, want all 15 non-blank values — %d cap slots were free",
+			len(fields), DiscordMaxFields)
 	}
 }

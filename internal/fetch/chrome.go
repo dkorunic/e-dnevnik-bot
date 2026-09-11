@@ -5,6 +5,7 @@ package fetch
 
 import (
 	"net/http"
+	"slices"
 
 	ehttp "github.com/enetx/http"
 	"github.com/enetx/surf"
@@ -39,8 +40,9 @@ func (c *Client) chromeNavigationMW(r *surf.Request) error {
 	// order map has no slot for it, so it would otherwise land last.
 	h.Set("Connection", "keep-alive")
 
-	if order, ok := h[ehttp.HeaderOrderKey]; ok {
-		h[ehttp.HeaderOrderKey] = append([]string{"connection"}, order...)
+	order, ordered := h[ehttp.HeaderOrderKey]
+	if ordered {
+		order = append([]string{"connection"}, order...)
 	}
 
 	// surf models POSTs as XHR; this one is a form submission, which Chrome sends
@@ -59,6 +61,17 @@ func (c *Client) chromeNavigationMW(r *surf.Request) error {
 		// Chrome pairs these only on a hard reload.
 		h.Del("Cache-Control")
 		h.Del("Pragma")
+
+		// surf's POST order map lists neither (its GET map does), and unlisted
+		// keys sort after every listed one — both would land past Cookie.
+		if ordered {
+			order = insertHeaderOrder(order, "upgrade-insecure-requests", "user-agent")
+			order = insertHeaderOrder(order, "sec-fetch-user", "sec-fetch-dest")
+		}
+	}
+
+	if ordered {
+		h[ehttp.HeaderOrderKey] = order
 	}
 
 	// A cold navigation has no predecessor, so no Referer.
@@ -71,6 +84,22 @@ func (c *Client) chromeNavigationMW(r *surf.Request) error {
 	}
 
 	return nil
+}
+
+// insertHeaderOrder slots name ahead of before, leaving order untouched if
+// name is already listed or before is absent; appending instead would recreate
+// the trailing-header bug this prevents.
+func insertHeaderOrder(order []string, name, before string) []string {
+	if slices.Contains(order, name) {
+		return order
+	}
+
+	at := slices.Index(order, before)
+	if at < 0 {
+		return order
+	}
+
+	return slices.Insert(slices.Clone(order), at, name)
 }
 
 // newSurfClient builds c's impersonating HTTP client. One Chrome 152 profile

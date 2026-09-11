@@ -30,13 +30,24 @@ func NewClientWithContext(ctx context.Context, username, password string) (*Clie
 	return c, nil
 }
 
-// Login attempts get CSRF Token and do SSO/SAML authentication.
+// Login gets a CSRF token and performs SSO/SAML authentication, then re-applies
+// any previously selected class: a fresh session starts on the portal default,
+// and callers retrying a single step would otherwise read the wrong class's
+// data under the previous class's name.
 func (c *Client) Login() error {
 	if err := c.getCSRFToken(); err != nil {
 		return err
 	}
 
-	return c.doSAMLRequest()
+	if err := c.doSAMLRequest(); err != nil {
+		return err
+	}
+
+	if c.activeClass == "" {
+		return nil
+	}
+
+	return c.doClassAction(c.activeClass)
 }
 
 // GetClassEvents attempts to fetch all subjects and their grades, as well as all calendar events for exams in ICS

@@ -37,14 +37,15 @@ const (
 )
 
 var (
-	ErrUnexpectedStatus = errors.New("unexpected status code")
-	ErrCSRFToken        = errors.New("could not find CSRF token")
-	ErrNilBody          = errors.New("client body is nil")
-	ErrInvalidLogin     = errors.New("unable to login")
-	ErrSessionExpired   = errors.New("portal session expired")
-	ErrBodyTooLarge     = errors.New("response body exceeds size limit")
-	ErrInvalidClassID   = errors.New("invalid class ID — refusing to construct URL")
-	ErrInvalidHost      = errors.New("portal href resolves to non-portal host — refusing to fetch")
+	ErrUnexpectedStatus  = errors.New("unexpected status code")
+	ErrCSRFToken         = errors.New("could not find CSRF token")
+	ErrNilBody           = errors.New("client body is nil")
+	ErrInvalidLogin      = errors.New("unable to login")
+	ErrAuthMarkerMissing = errors.New("login page carried no error and no auth marker")
+	ErrSessionExpired    = errors.New("portal session expired")
+	ErrBodyTooLarge      = errors.New("response body exceeds size limit")
+	ErrInvalidClassID    = errors.New("invalid class ID — refusing to construct URL")
+	ErrInvalidHost       = errors.New("portal href resolves to non-portal host — refusing to fetch")
 
 	selCsrfToken  = cascadia.MustCompile(`form > input[name="csrf_token"]`)
 	selLoginAlert = cascadia.MustCompile("#page-wrapper > div.flash-messages > div.alert > p")
@@ -136,6 +137,10 @@ func (c *Client) getCSRFToken() error {
 		return err
 	}
 
+	// surf closes a body only as a side effect of reading it, so paths returning
+	// before readBody strand the connection. Close drains and is once-guarded.
+	defer resp.Body.Close()
+
 	if int(resp.StatusCode) != http.StatusOK {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
@@ -187,6 +192,8 @@ func (c *Client) doSAMLRequest() error {
 		return err
 	}
 
+	defer resp.Body.Close()
+
 	if int(resp.StatusCode) >= http.StatusBadRequest {
 		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
 	}
@@ -209,14 +216,16 @@ func (c *Client) doSAMLRequest() error {
 		return fmt.Errorf("%w: %v", ErrInvalidLogin, alertSel.Text())
 	}
 
-	// A rejected login is a 302 back to /login, not a 4xx, so the status check
-	// never fires and the alert markup is the only other guard — one markup drift
-	// from a wrong password looking like an empty scrape.
+	// A rejected login 302s back to /login rather than 4xx-ing, so the alert
+	// markup above is the only guard that can name a cause. Reaching here is
+	// ambiguous: drifted alert markup with bad credentials, or a drifted marker
+	// on a successful login.
 	//
-	// ErrInvalidLogin, not ErrSessionExpired: markPermanent must stop the cycle
-	// rather than retry bad credentials into the portal's rate limiter.
+	// Its own sentinel, not ErrInvalidLogin — both are permanent, but reporting
+	// a marker rename as "unable to login" points at the wrong problem.
 	if !hasAuthMarker(resp, body) {
-		return fmt.Errorf("%w: portal returned the login page without an error message", ErrInvalidLogin)
+		return fmt.Errorf("%w: credentials may be wrong, or %q may have been renamed",
+			ErrAuthMarkerMissing, loggedInMarker)
 	}
 
 	return nil
@@ -228,6 +237,8 @@ func (c *Client) getGeneric(dest string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	defer resp.Body.Close()
 
 	// Redirects are already resolved here, so a bare 302 is anomalous. Accepting
 	// it merely looked like redirect handling, and that is what hid session expiry.
@@ -316,7 +327,12 @@ func (c *Client) doClassAction(classID string) error {
 		return fmt.Errorf("%w: %q", ErrInvalidClassID, classID)
 	}
 
-	_, err := c.getGeneric(fmt.Sprintf(ClassActionURL, url.PathEscape(classID)))
+	if _, err := c.getGeneric(fmt.Sprintf(ClassActionURL, url.PathEscape(classID))); err != nil {
+		return err
+	}
 
-	return err
+	// On success only: Login must not re-apply a rejected selection.
+	c.activeClass = classID
+
+	return nil
 }

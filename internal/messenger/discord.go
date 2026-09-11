@@ -140,42 +140,39 @@ func markDiscordPermanent(err error) error {
 	return err
 }
 
-// processDiscord renders g as an embed (field count and sizes capped to
-// Discord's limits) and sends it to each user ID via a lazily-resolved,
-// cached DM channel, re-queueing on partial or total failure. Recipients
-// already in SkipRecipients are omitted.
-func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
-	// Cap field count and truncate strings so Discord does not reject the embed.
+// discordEmbedFields renders g's description/value pairs as embed fields within
+// Discord's per-field, per-name and total-embed caps. title is passed in
+// because it draws on the same total-embed budget.
+func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEmbedField {
 	available := min(len(g.Fields), len(g.Descriptions))
-	count := min(available, DiscordMaxFields)
-
-	if available > count {
-		logger.Debug().Msgf("Discord: dropping %d of %d fields to fit per-embed field cap (%d)",
-			available-count, available, DiscordMaxFields)
-	}
-
-	title := truncateWithEllipsis(format.PlainSubject(g.Username, g.Subject, g.Code), DiscordMaxTitleChars)
-
-	// Total-embed-chars cap rejects otherwise-valid messages.
 	budget := DiscordMaxEmbedChars - utf8.RuneCountInString(title)
 
-	fields := make([]*discordgo.MessageEmbedField, 0, count)
+	fields := make([]*discordgo.MessageEmbedField, 0, min(available, DiscordMaxFields))
 
 	droppedAt := -1
 	truncatedValues := 0
+	overCap := 0
 
-	for ii := range count {
+	for ii := range available {
+		// cellValues' alignment padding, not content; every other backend skips it.
+		if g.Fields[ii] == "" {
+			continue
+		}
+
+		// Cap counts emitted fields — bounding the loop index instead would spend
+		// slots on skipped padding and drop real values that had room.
+		if len(fields) >= DiscordMaxFields {
+			overCap++
+
+			continue
+		}
+
 		name := truncateWithEllipsis(g.Descriptions[ii], DiscordMaxFieldNameChars)
 		value := truncateWithEllipsis(g.Fields[ii], DiscordMaxFieldValChars)
 
-		// Discord 400s on empty field name/value, which would poison-drop
-		// the whole alert; a blank portal cell must not kill delivery.
+		// Discord 400s on an empty name, poison-dropping the whole alert.
 		if name == "" {
 			name = "-"
-		}
-
-		if value == "" {
-			value = "-"
 		}
 
 		nameLen := utf8.RuneCountInString(name)
@@ -203,15 +200,32 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		})
 	}
 
+	if overCap > 0 {
+		logger.Debug().Msgf("Discord: dropped %d field(s) past the per-embed field cap (%d)",
+			overCap, DiscordMaxFields)
+	}
+
 	if droppedAt >= 0 {
-		logger.Debug().Msgf("Discord: embed total-size cap (%d) reached; dropped %d of %d fields",
-			DiscordMaxEmbedChars, count-droppedAt, count)
+		logger.Debug().Msgf("Discord: embed total-size cap (%d) reached at field %d of %d",
+			DiscordMaxEmbedChars, droppedAt, available)
 	}
 
 	if truncatedValues > 0 {
 		logger.Debug().Msgf("Discord: truncated %d field value(s) to fit embed total-size cap (%d)",
 			truncatedValues, DiscordMaxEmbedChars)
 	}
+
+	return fields
+}
+
+// processDiscord renders g as an embed (field count and sizes capped to
+// Discord's limits) and sends it to each user ID via a lazily-resolved,
+// cached DM channel, re-queueing on partial or total failure. Recipients
+// already in SkipRecipients are omitted.
+func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+	title := truncateWithEllipsis(format.PlainSubject(g.Username, g.Subject, g.Code), DiscordMaxTitleChars)
+
+	fields := discordEmbedFields(g, title)
 
 	msg := discordgo.MessageEmbed{
 		Title:  title,

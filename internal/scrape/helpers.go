@@ -60,7 +60,6 @@ var (
 	selRowHeaderNotFirstCell      = cascadia.MustCompile("div.row.header:not(.first) div.cell")
 	selRowNotHeader               = cascadia.MustCompile("div.row:not(.header)")
 	selCell                       = cascadia.MustCompile("div.cell")
-	selCellSpan                   = cascadia.MustCompile("div.cell > span")
 	selStudentListClasses         = cascadia.MustCompile("div.student-list > div.classes")
 	selClassMenuVerticalClassInfo = cascadia.MustCompile("div.class-menu-vertical:not(div.past-schoolyear) > div.class-info")
 	selClassSpanBold              = cascadia.MustCompile("div.class > span.bold")
@@ -69,7 +68,6 @@ var (
 	selContentUlListLiA           = cascadia.MustCompile("div.content > ul.list > li > a")
 	selCourseInfoSpan             = cascadia.MustCompile("div.course-info > span")
 	selNationalExamTable          = cascadia.MustCompile("div.content div.flex-table.national-exam-table")
-	selRowHeaderNotFirstCellSpan  = cascadia.MustCompile("div.row.header:not(.first) div.cell > span")
 	selReadingsTable              = cascadia.MustCompile("div.content div.flex-table.readings-table")
 	selFinalGradeRow              = cascadia.MustCompile("div.content div.flex-table.s.grades-table > div.row.final-grade")
 	selCellBoldFirstSpan          = cascadia.MustCompile("div.cell.bold.first > span")
@@ -78,7 +76,38 @@ var (
 	// selNoRecords matches the portal's explicit empty state, e.g. /grade/all
 	// rendering "Učenik nema upisanih ocjena.".
 	selNoRecords = cascadia.MustCompile("div.content.no-records")
+
+	selTabContent       = cascadia.MustCompile("div.tab-content")
+	selTabContentActive = cascadia.MustCompile("div.tab-content.active")
 )
+
+// tabScope keeps tables to the school year on screen. The descendant
+// combinators above are needed to reach through div.tab-content at all, but
+// they also match inactive years — a past closing grade would then alert under
+// the current class's name.
+//
+// Fails open on both no tabs and no .active: a silent empty scrape reads as a
+// quiet school day, which is worse than a duplicate.
+type tabScope struct {
+	enforce bool
+}
+
+func newTabScope(doc *goquery.Document) tabScope {
+	return tabScope{enforce: doc.FindMatcher(selTabContentActive).Length() > 0}
+}
+
+func (s tabScope) includes(sel *goquery.Selection) bool {
+	if !s.enforce {
+		return true
+	}
+
+	tab := sel.ClosestMatcher(selTabContent)
+	if tab.Length() == 0 {
+		return true
+	}
+
+	return tab.HasClass("active")
+}
 
 // logEmptyResult separates the portal's own empty state from selectors that
 // stopped matching. Both yield zero rows, but conflating them is how a drifted
@@ -104,11 +133,13 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 	var parsedGrades int
 
+	scope := newTabScope(doc)
+
 	var cancelled bool
 
 	doc.FindMatcher(selNewGradesTable).
 		Each(func(_ int, table *goquery.Selection) {
-			if cancelled {
+			if cancelled || !scope.includes(table) {
 				return
 			}
 
@@ -128,6 +159,12 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 			headerCells.Each(func(_ int, column *goquery.Selection) {
 				txt := strings.TrimSpace(column.Text())
+				if len(txt) > 0 {
+					// Whole-cell .Text() carries whitespace between nested
+					// elements; cellValues normalises values the same way.
+					txt = trimAllSpace(txt)
+				}
+
 				descriptions = append(descriptions, txt)
 			})
 
@@ -333,19 +370,28 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 		subject += " / " + className
 	}
 
+	scope := newTabScope(doc)
+
 	var cancelled bool
 
 	doc.FindMatcher(selNationalExamTable).
 		Each(func(_ int, table *goquery.Selection) {
-			if cancelled {
+			if cancelled || !scope.includes(table) {
 				return
 			}
 
-			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
+			// Whole cells, matching cellValues: a `> span` read would miscount.
+			headerCells := table.FindMatcher(selRowHeaderNotFirstCell)
 			descriptions := make([]string, 0, headerCells.Length())
 
 			headerCells.Each(func(_ int, column *goquery.Selection) {
 				txt := strings.TrimSpace(column.Text())
+				if len(txt) > 0 {
+					// Whole-cell .Text() carries whitespace between nested
+					// elements; cellValues normalises values the same way.
+					txt = trimAllSpace(txt)
+				}
+
 				descriptions = append(descriptions, txt)
 			})
 
@@ -355,25 +401,15 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						return
 					}
 
-					spanCells := row.FindMatcher(selCellSpan)
-					spans := make([]string, 0, spanCells.Length())
+					fields, hasValue := cellValues(row)
 
-					spanCells.Each(func(_ int, column *goquery.Selection) {
-						txt := strings.TrimSpace(column.Text())
-						if len(txt) > 0 {
-							txt = trimAllSpace(txt)
-						}
-
-						spans = append(spans, txt)
-					})
-
-					if len(spans) > 0 && len(descriptions) > 0 {
+					if hasValue && len(descriptions) > 0 {
 						select {
 						case ch <- msgtypes.Message{
 							Code:         msgtypes.NationalExam,
 							Username:     username,
 							Subject:      subject,
-							Fields:       spans,
+							Fields:       fields,
 							Descriptions: descriptions,
 						}:
 						case <-ctx.Done():
@@ -385,15 +421,22 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 	doc.FindMatcher(selReadingsTable).
 		Each(func(_ int, table *goquery.Selection) {
-			if cancelled {
+			if cancelled || !scope.includes(table) {
 				return
 			}
 
-			headerCells := table.FindMatcher(selRowHeaderNotFirstCellSpan)
+			// Whole cells, matching cellValues: a `> span` read would miscount.
+			headerCells := table.FindMatcher(selRowHeaderNotFirstCell)
 			descriptions := make([]string, 0, headerCells.Length())
 
 			headerCells.Each(func(_ int, column *goquery.Selection) {
 				txt := strings.TrimSpace(column.Text())
+				if len(txt) > 0 {
+					// Whole-cell .Text() carries whitespace between nested
+					// elements; cellValues normalises values the same way.
+					txt = trimAllSpace(txt)
+				}
+
 				descriptions = append(descriptions, txt)
 			})
 
@@ -403,25 +446,15 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 						return
 					}
 
-					spanCells := row.FindMatcher(selCellSpan)
-					spans := make([]string, 0, spanCells.Length())
+					fields, hasValue := cellValues(row)
 
-					spanCells.Each(func(_ int, column *goquery.Selection) {
-						txt := strings.TrimSpace(column.Text())
-						if len(txt) > 0 {
-							txt = trimAllSpace(txt)
-						}
-
-						spans = append(spans, txt)
-					})
-
-					if len(spans) > 0 && len(descriptions) > 0 {
+					if hasValue && len(descriptions) > 0 {
 						select {
 						case ch <- msgtypes.Message{
 							Code:         msgtypes.Reading,
 							Username:     username,
 							Subject:      subject,
-							Fields:       spans,
+							Fields:       fields,
 							Descriptions: descriptions,
 						}:
 						case <-ctx.Done():
@@ -442,7 +475,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 	doc.FindMatcher(selFinalGradeRow).
 		Each(func(_ int, row *goquery.Selection) {
-			if cancelled {
+			if cancelled || !scope.includes(row) {
 				return
 			}
 

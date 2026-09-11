@@ -20,6 +20,9 @@ type Client struct {
 	password   string
 	csrfToken  string
 	lastURL    string
+
+	// activeClass is server-side session state, so Login must re-apply it.
+	activeClass string
 }
 
 // Event structure holds ICS event-related fields.

@@ -8,8 +8,10 @@ import (
 	"errors"
 	"io"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	http "github.com/enetx/http"
@@ -966,7 +968,7 @@ func TestDoSAMLRequestRequiresAuthMarker(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "authenticated chrome is a successful login", body: authedPage},
-		{name: "login page without an alert is still a failure", body: loginPage, wantErr: true},
+		{name: "login page without an alert or marker is still a failure", body: loginPage, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -981,8 +983,8 @@ func TestDoSAMLRequestRequiresAuthMarker(t *testing.T) {
 			err := c.doSAMLRequest()
 
 			if tt.wantErr {
-				if !errors.Is(err, ErrInvalidLogin) {
-					t.Fatalf("doSAMLRequest() = %v, want ErrInvalidLogin", err)
+				if !errors.Is(err, ErrAuthMarkerMissing) {
+					t.Fatalf("doSAMLRequest() = %v, want ErrAuthMarkerMissing", err)
 				}
 
 				return
@@ -990,6 +992,209 @@ func TestDoSAMLRequestRequiresAuthMarker(t *testing.T) {
 
 			if err != nil {
 				t.Fatalf("doSAMLRequest() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+// trackedBody reports whether Close was called.
+type trackedBody struct {
+	io.Reader
+
+	closed *atomic.Bool
+}
+
+func (b trackedBody) Close() error {
+	b.closed.Store(true)
+
+	return nil
+}
+
+// TestErrorStatusClosesResponseBody pins the leak the surf migration opened.
+// surf closes a body only when read, and an abandoned one pins its persistConn
+// and read goroutine for the process lifetime — CloseIdleConnections cannot
+// reclaim it, since it never goes idle.
+func TestErrorStatusClosesResponseBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		call   func(*Client) error
+		status int
+	}{
+		{
+			name:   "getCSRFToken non-200",
+			status: http.StatusInternalServerError,
+			call:   func(c *Client) error { return c.getCSRFToken() },
+		},
+		{
+			name:   "doSAMLRequest 4xx",
+			status: http.StatusBadRequest,
+			call:   func(c *Client) error { return c.doSAMLRequest() },
+		},
+		{
+			name:   "getGeneric non-200",
+			status: http.StatusServiceUnavailable,
+			call:   func(c *Client) error { _, err := c.getGeneric(GradeAllURL); return err },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var closed atomic.Bool
+
+			c := newStubClient(t.Context(), roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: tt.status,
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Body:       trackedBody{Reader: strings.NewReader(authedPage), closed: &closed},
+					Request:    req,
+				}, nil
+			}))
+
+			if err := tt.call(c); err == nil {
+				t.Fatalf("status %d returned no error", tt.status)
+			}
+
+			if !closed.Load() {
+				t.Errorf("response body left open on the %d path — leaks the connection", tt.status)
+			}
+		})
+	}
+}
+
+// TestLoginRestoresActiveClass pins what scrape.go's expiry recovery depends on:
+// class selection is server-side session state, and GetCourses/GetCourse retry
+// without re-issuing doClassAction. A re-login would otherwise return the
+// default class's data under the previous class's name.
+func TestLoginRestoresActiveClass(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu    sync.Mutex
+		paths []string
+	)
+
+	c := newStubClient(t.Context(), roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		paths = append(paths, req.Method+" "+req.URL.Path)
+
+		if req.Method == http.MethodGet && req.URL.Path == LoginPath {
+			return stringResponse(req, http.StatusOK, loginPageWithToken), nil
+		}
+
+		return stringResponse(req, http.StatusOK, authedPage), nil
+	}))
+
+	if err := c.doClassAction("42"); err != nil {
+		t.Fatalf("doClassAction: %v", err)
+	}
+
+	if err := c.Login(); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	want := []string{
+		"GET /class_action/42/course",
+		"GET " + LoginPath,
+		"POST " + LoginPath,
+		"GET /class_action/42/course",
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !slices.Equal(paths, want) {
+		t.Errorf("request sequence =\n %v\nwant\n %v", paths, want)
+	}
+}
+
+// TestLoginWithoutActiveClassSkipsClassAction: the first login of a scrape has
+// no class to restore and must not invent one.
+func TestLoginWithoutActiveClassSkipsClassAction(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu    sync.Mutex
+		paths []string
+	)
+
+	c := newStubClient(t.Context(), roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		paths = append(paths, req.URL.Path)
+
+		if req.Method == http.MethodGet {
+			return stringResponse(req, http.StatusOK, loginPageWithToken), nil
+		}
+
+		return stringResponse(req, http.StatusOK, authedPage), nil
+	}))
+
+	if err := c.Login(); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !slices.Equal(paths, []string{LoginPath, LoginPath}) {
+		t.Errorf("request paths = %v, want two %v hops only", paths, LoginPath)
+	}
+}
+
+// TestDoSAMLRequestDistinguishesMarkerDriftFromBadCredentials separates the two
+// failures the login page can present. An alert names a credential rejection; a
+// silent page with no marker is ambiguous. Reporting the ambiguous case as
+// ErrInvalidLogin makes a marker rename abort every cycle with "unable to
+// login" while credentials are fine. Both stay permanent.
+func TestDoSAMLRequestDistinguishesMarkerDriftFromBadCredentials(t *testing.T) {
+	t.Parallel()
+
+	const alertPage = `<html><body><div id="page-wrapper"><div class="flash-messages">` +
+		`<div class="alert"><p>Neispravna lozinka</p></div></div></div></body></html>`
+
+	tests := []struct {
+		name    string
+		body    string
+		want    error
+		notWant error
+	}{
+		{
+			name: "portal names the rejection",
+			body: alertPage,
+			want: ErrInvalidLogin,
+		},
+		{
+			name:    "silent login page is marker drift, not a credential verdict",
+			body:    loginPage,
+			want:    ErrAuthMarkerMissing,
+			notWant: ErrInvalidLogin,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newStubClient(t.Context(), roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return respondWith(t, http.StatusOK, "text/html; charset=UTF-8", tt.body, LoginURL), nil
+			}))
+
+			err := c.doSAMLRequest()
+
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("doSAMLRequest() = %v, want %v", err, tt.want)
+			}
+
+			if tt.notWant != nil && errors.Is(err, tt.notWant) {
+				t.Errorf("doSAMLRequest() = %v, must not also match %v — that is the conflation being removed",
+					err, tt.notWant)
 			}
 		})
 	}

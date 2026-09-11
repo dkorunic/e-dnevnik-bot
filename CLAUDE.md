@@ -107,6 +107,14 @@ A fresh DB (`!eDB.Existing()`) causes `msgDedup` to store hashes but forward not
 
 `DefaultEntryTTL = 9000h`. Expired rows are treated as absent and re-inserted. Long-lived installs will re-alert on stale events. Do not shorten this TTL without coordinating with the relevance-period filter in `msgDedup`.
 
+### `Message.Fields` is the dedup identity — `internal/scrape/helpers.go:cellValues`
+
+`msgDedup` hashes `(Username, Subject, Fields)`, so `Fields` is identity, not presentation: **any change to which cells `cellValues` emits re-alerts every stored event once**, bounded only by the relevance period. Moving to one entry per `div.cell` did that, and folded the note column into the identity — a teacher editing a note now re-alerts an old grade. Intended, but user-visible: ship such a change with a release note.
+
+`cellValues` is the single reader for grades, national exams and readings. Keep it that way — these were once three separate `div.cell > span` reads, and fixing only the grades one left the others dropping span-less cells and shifting later values a column left. The final-grade row is deliberately off this path: a single label/value row that compacts empty cells on purpose.
+
+Course pages wrap tables in `div.tab-content` (observed: one, `.active`, with `data-schoolyear`); `/grade/all` has no wrapper. Reaching through it needs a descendant combinator, which would also reach inactive years, so every table reader is gated on `tabScope.includes`. It fails open on both no tabs and no `.active` — a silent empty scrape reads as a quiet school day, which is worse than a duplicate.
+
 ### Bounded version check — `routines.go:versionCheck`
 
 `versionCheckTimeout = 30s`. A stalled GitHub Releases endpoint must not hold the goroutine past the poll interval. When modifying `versionCheck`, keep the timeout in place.

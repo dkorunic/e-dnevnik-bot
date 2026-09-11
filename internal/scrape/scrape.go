@@ -20,21 +20,70 @@ const scrapeRetryMaxJitter = 500 * time.Millisecond
 // scrapeMaxAttempts caps retries so attempts*fetch.Timeout cannot overflow int64 nanoseconds.
 const scrapeMaxAttempts = 100
 
+// maxSessionRecoveries caps consecutive re-logins per scrape. A drifted auth
+// marker makes every endpoint report expiry, which without a ceiling becomes a
+// login POST per attempt per step — the rate limiter markPermanent avoids.
+//
+// Consecutive rather than total: -r up to 100 lets budgetCtx span hours and
+// outlive several sessions legitimately.
+const maxSessionRecoveries = 2
+
+// recoverSession re-authenticates on a lapsed session and re-runs fn in place,
+// so recovery survives retry-go's final attempt (-r 1 makes every attempt the
+// final one). budget spans the whole scrape; see maxSessionRecoveries.
+func recoverSession(fn, login func() error, budget *int, username string) error {
+	for {
+		err := fn()
+
+		if err == nil {
+			// Progress proves the session live; only unbroken failure means drift.
+			*budget = maxSessionRecoveries
+
+			return nil
+		}
+
+		if !errors.Is(err, fetch.ErrSessionExpired) {
+			return err
+		}
+
+		if *budget <= 0 {
+			logger.Error().Msgf("Portal keeps reporting an expired session for user %v after %d consecutive "+
+				"re-authentications; giving up this cycle rather than retrying into the login rate limiter",
+				username, maxSessionRecoveries)
+
+			return retry.Unrecoverable(err)
+		}
+
+		*budget--
+
+		logger.Warn().Msgf("Portal session expired for user %v, re-authenticating", username)
+
+		if lerr := login(); lerr != nil {
+			return markPermanent(lerr)
+		}
+	}
+}
+
 // markPermanent wraps fetch-level errors that cannot succeed on retry in
 // retry.Unrecoverable so retry-go short-circuits the remaining attempts:
 //   - ErrInvalidLogin: bad credentials — retrying just re-submits the same
 //     POST and re-trips the portal's rate limiter.
+//   - ErrAuthMarkerMissing: login page named no error and carried no marker —
+//     either drifted alert markup with bad credentials, or a drifted marker on a
+//     successful login. Retrying fixes neither.
 //   - ErrBodyTooLarge: response exceeded MaxBodySize — a deterministic
 //     server/content condition, not a transient network fault.
 //
-// fetch.ErrSessionExpired is absent by design: withRetry recovers it by
-// re-authenticating.
+// fetch.ErrSessionExpired is absent by design: recoverSession re-authenticates,
+// and marks it unrecoverable once its budget is spent.
 func markPermanent(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	if errors.Is(err, fetch.ErrInvalidLogin) || errors.Is(err, fetch.ErrBodyTooLarge) {
+	if errors.Is(err, fetch.ErrInvalidLogin) ||
+		errors.Is(err, fetch.ErrAuthMarkerMissing) ||
+		errors.Is(err, fetch.ErrBodyTooLarge) {
 		return retry.Unrecoverable(err)
 	}
 
@@ -63,6 +112,8 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	defer client.CloseConnections()
 
+	recoveries := maxSessionRecoveries
+
 	// Every scrape step shares one retry policy; close over attempts/budgetCtx.
 	withRetry := func(fn func() error) error {
 		return retry.New(
@@ -71,20 +122,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			retry.DelayType(retry.BackOffDelay),
 			retry.MaxJitter(scrapeRetryMaxJitter),
 		).Do(func() error {
-			err := fn()
-
-			// A lapsed session fails every endpoint identically, so a plain retry
-			// would burn the remaining attempts on the same redirect. markPermanent
-			// on the re-login keeps bad credentials from hammering the portal.
-			if errors.Is(err, fetch.ErrSessionExpired) {
-				logger.Warn().Msgf("Portal session expired for user %v, re-authenticating", username)
-
-				if lerr := client.Login(); lerr != nil {
-					return markPermanent(lerr)
-				}
-			}
-
-			return err
+			return recoverSession(fn, client.Login, &recoveries, username)
 		})
 	}
 

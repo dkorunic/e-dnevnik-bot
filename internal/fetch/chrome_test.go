@@ -250,3 +250,56 @@ func TestConnectionHeaderSitsAfterHost(t *testing.T) {
 		t.Errorf("wire order starts %v, want Host then Connection", order[:min(2, len(order))])
 	}
 }
+
+// TestPostHeaderOrderMatchesChrome covers the gap that let correct-valued
+// headers land in wrong slots — TestHeaderOrderMatchesChrome only exercises GET.
+// surf's POST order map carries neither Sec-Fetch-User nor
+// Upgrade-Insecure-Requests, and unlisted keys sort last, pushing both past
+// Cookie. Slots mirror surf's GET profile.
+func TestPostHeaderOrderMatchesChrome(t *testing.T) {
+	t.Parallel()
+
+	c, seen := captureRequests(t, authedBody)
+	c.csrfToken = "tok"
+	c.lastURL = LoginURL
+
+	if err := c.doSAMLRequest(); err != nil {
+		t.Fatalf("doSAMLRequest: %v", err)
+	}
+
+	got := wireHeaderOrder(t, (*seen)[0])
+
+	want := []string{
+		"Host",
+		"Connection",
+		"Content-Length",
+		"Sec-Ch-Ua-Platform",
+		"Upgrade-Insecure-Requests",
+		"User-Agent",
+		"Sec-Ch-Ua",
+		"Content-Type",
+		"Sec-Ch-Ua-Mobile",
+		"Accept",
+		"Origin",
+		"Sec-Fetch-Site",
+		"Sec-Fetch-Mode",
+		"Sec-Fetch-User",
+		"Sec-Fetch-Dest",
+		"Referer",
+		"Accept-Encoding",
+		"Accept-Language",
+	}
+
+	idx := 0
+
+	for _, name := range got {
+		if idx < len(want) && strings.EqualFold(name, want[idx]) {
+			idx++
+		}
+	}
+
+	if idx != len(want) {
+		t.Errorf("POST header order mismatch: matched %d/%d (first unmatched: %q)\n got: %v\nwant order: %v",
+			idx, len(want), want[idx], got, want)
+	}
+}
