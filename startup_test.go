@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -275,7 +276,7 @@ func TestAwaitShutdownIsBounded(t *testing.T) {
 func TestFatalIfErrorsSucceedsWhenClean(t *testing.T) {
 	resetExitLatch(t)
 
-	fatalIfErrors()
+	fatalIfErrors(func() {})
 }
 
 // startupCaseEnv names the subprocess case to run.
@@ -287,7 +288,7 @@ const startupCaseEnv = "EDNEVNIK_MAIN_STARTUP_CASE"
 func TestFatalIfErrorsExitsWhenLatched(t *testing.T) {
 	if os.Getenv(startupCaseEnv) == "fatal-if-errors" {
 		exitWithError.Store(true)
-		fatalIfErrors()
+		fatalIfErrors(func() {})
 
 		os.Exit(0)
 	}
@@ -473,5 +474,53 @@ func TestParseFlagsHelpExitsZero(t *testing.T) {
 				t.Fatalf("%v exited non-zero (%v); informational flags must exit cleanly\noutput:\n%s", flag, err, out)
 			}
 		})
+	}
+}
+
+// profileCaseEnv carries the temp directory a profiling subprocess writes into.
+const profileCaseEnv = "EDNEVNIK_MAIN_PROFILE_DIR"
+
+// TestFatalIfErrorsFlushesProfilesBeforeExit: logger.Fatal is os.Exit and skips
+// defers, so a flush left to one lost the profiles of exactly the runs worth
+// profiling — the failed ones.
+func TestFatalIfErrorsFlushesProfilesBeforeExit(t *testing.T) {
+	if dir := os.Getenv(profileCaseEnv); dir != "" {
+		cpu := filepath.Join(dir, "cpu.pprof")
+		mem := filepath.Join(dir, "mem.pprof")
+		cpuProfile, memProfile = &cpu, &mem
+
+		flush := startProfiling()
+
+		exitWithError.Store(true)
+		fatalIfErrors(flush)
+
+		os.Exit(0)
+	}
+
+	dir := t.TempDir()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestFatalIfErrorsFlushesProfilesBeforeExit") //nolint:gosec // re-exec of this test binary
+	cmd.Env = append(os.Environ(), profileCaseEnv+"="+dir)
+
+	out, err := cmd.CombinedOutput()
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() == 0 {
+		t.Fatalf("a latched error did not exit non-zero (err %v)\noutput:\n%s", err, out)
+	}
+
+	// A finalised pprof profile is gzipped protobuf; an unflushed one is not.
+	for _, name := range []string{"cpu.pprof", "mem.pprof"} {
+		b, rerr := os.ReadFile(filepath.Join(dir, name))
+		if rerr != nil {
+			t.Errorf("%v: %v", name, rerr)
+
+			continue
+		}
+
+		if len(b) < 2 || b[0] != 0x1f || b[1] != 0x8b {
+			t.Errorf("%v is %d bytes and does not start with the gzip magic; the profile was never flushed before os.Exit",
+				name, len(b))
+		}
 	}
 }

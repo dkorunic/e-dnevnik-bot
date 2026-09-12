@@ -104,13 +104,10 @@ func TestPlainSubjectMatchesFormatter(t *testing.T) {
 	}
 }
 
-// TestPlainSubjectPoolReuseDoesNotCorrupt is the real risk in a sync.Pool of
-// strings.Builder: String() shares the builder's backing array via
-// unsafe.String, so a returned string could be clobbered when the builder is
-// reused. Reset() drops the buffer rather than reusing it, which is what keeps
-// earlier results intact — this test would catch a switch to a reuse-in-place
-// scheme. Run with -race for the concurrent half to be meaningful.
-func TestPlainSubjectPoolReuseDoesNotCorrupt(t *testing.T) {
+// TestPlainSubjectResultsAreIndependent: String() aliases the builder's buffer,
+// so reusing a builder across calls would clobber results the caller still
+// holds. Run with -race for the concurrent half to mean anything.
+func TestPlainSubjectResultsAreIndependent(t *testing.T) {
 	t.Parallel()
 
 	// Sequential: hold every result, then re-check after many pool cycles.
@@ -127,11 +124,11 @@ func TestPlainSubjectPoolReuseDoesNotCorrupt(t *testing.T) {
 
 	for i := range n {
 		if got[i] != want[i] {
-			t.Fatalf("result %d was corrupted by later pool reuse: got %q, want %q", i, got[i], want[i])
+			t.Fatalf("result %d was corrupted by a later call: got %q, want %q", i, got[i], want[i])
 		}
 	}
 
-	// Concurrent: many goroutines contending for the same pool.
+	// Concurrent: many goroutines formatting at once.
 	var wg sync.WaitGroup
 
 	for range 16 {
@@ -151,21 +148,21 @@ func TestPlainSubjectPoolReuseDoesNotCorrupt(t *testing.T) {
 	wg.Wait()
 }
 
-// TestPlainSubjectOversizedIsNotPooled exercises the maxPooledBuilderCap guard:
-// a builder grown past the cap is dropped rather than returned to the pool, so
-// one outlier message cannot bloat the pool for the process lifetime. The
-// result itself must still be correct.
-func TestPlainSubjectOversizedIsNotPooled(t *testing.T) {
+// oversizedInput exceeds the formatters' Grow hint, forcing a mid-render realloc.
+const oversizedInput = 128 * 1024
+
+// TestPlainSubjectOversizedInput: an oversized subject must render whole and
+// leave the next call unaffected.
+func TestPlainSubjectOversizedInput(t *testing.T) {
 	t.Parallel()
 
-	huge := strings.Repeat("z", maxPooledBuilderCap*2)
+	huge := strings.Repeat("z", oversizedInput)
 
 	got := PlainSubject("user", huge, msgtypes.Grade)
 	if got != GradePrefix+"user / "+huge {
 		t.Errorf("PlainSubject() mangled an oversized subject (len %d)", len(got))
 	}
 
-	// A normal call afterwards must still work — i.e. the pool was left usable.
 	if s := PlainSubject("user", "Matematika", msgtypes.Grade); s != GradePrefix+"user / Matematika" {
 		t.Errorf("PlainSubject() after an oversized call = %q, want the normal rendering", s)
 	}

@@ -40,6 +40,17 @@ var fatalCases = []struct {
 		run:  func() { checkMailConf(&TomlConfig{Mail: Mail{Server: "smtp.example.com"}}) },
 	},
 	{
+		// An empty From poison-drops every recipient in processMail, losing
+		// already dedup-flagged alerts. It has to stop at load time.
+		name: "mail server without from address",
+		run: func() {
+			checkMailConf(&TomlConfig{Mail: Mail{
+				Server: "smtp.example.com",
+				To:     []string{"pero@example.com"},
+			}})
+		},
+	},
+	{
 		name: "mail from address is not an address",
 		run: func() {
 			checkMailConf(&TomlConfig{Mail: Mail{
@@ -54,6 +65,7 @@ var fatalCases = []struct {
 		run: func() {
 			checkMailConf(&TomlConfig{Mail: Mail{
 				Server: "smtp.example.com",
+				From:   "bot@example.com",
 				To:     []string{"pero@example.com", "bogus"},
 			}})
 		},

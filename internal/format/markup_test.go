@@ -91,3 +91,35 @@ func TestMarkupEscapeStringSpecialChars(t *testing.T) {
 		})
 	}
 }
+
+// TestMarkupMsgEscapesBody: Slack's mrkdwn reads <...|...> as a link and ``` as
+// a fence terminator even inside a code block, so portal-derived body content
+// needs escaping, not just the header.
+func TestMarkupMsgEscapesBody(t *testing.T) {
+	t.Parallel()
+
+	result := MarkupMsg("pero@skole.hr", "Matematika", msgtypes.Grade,
+		[]string{`<b>Bilješka</b>`},
+		[]string{`see <http://evil.example|here> & *bold*`})
+
+	for _, forbidden := range []string{
+		`<b>Bilješka</b>`,
+		`<http://evil.example|here>`,
+		`*bold*`,
+	} {
+		if strings.Contains(result, forbidden) {
+			t.Errorf("MarkupMsg leaked unescaped input %q in output: %q", forbidden, result)
+		}
+	}
+
+	for _, expected := range []string{
+		`&lt;b&gt;Bilješka&lt;/b&gt;`,
+		`&lt;http://evil.example|here&gt;`,
+		`&amp;`,
+		`\*bold\*`,
+	} {
+		if !strings.Contains(result, expected) {
+			t.Errorf("MarkupMsg output missing escaped form %q: %q", expected, result)
+		}
+	}
+}

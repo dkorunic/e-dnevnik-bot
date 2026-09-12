@@ -5,14 +5,9 @@ package format
 
 import (
 	"strings"
-	"sync"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
-
-var builderPool = sync.Pool{
-	New: func() any { return new(strings.Builder) },
-}
 
 const (
 	GradePrefix        = "💯 Nova ocjena: "
@@ -20,71 +15,30 @@ const (
 	ReadingPrefix      = "📚 Lektira: "
 	FinalGradePrefix   = "🎓 ZAKLJUČNA OCJENA: "
 	NationalExamPrefix = "✍️ Nacionalni ispit: "
-
-	// maxPooledBuilderCap caps pooled builder capacity so one outlier message can't bloat the pool.
-	maxPooledBuilderCap = 64 * 1024
 )
 
-// putBuilder returns sb to the pool after Reset. Builders whose backing buffer
-// has grown beyond maxPooledBuilderCap are dropped on the floor so that one
-// outlier message cannot bloat the pool indefinitely. Calling sb.String()
-// before Reset is safe — strings.Builder.String shares the underlying byte
-// slice via unsafe.String, so the returned string keeps the data alive even
-// after Reset clears the builder.
-func putBuilder(sb *strings.Builder) {
-	if sb.Cap() > maxPooledBuilderCap {
-		return
-	}
-
-	sb.Reset()
-	builderPool.Put(sb)
-}
+// Formatters build into a local builder, never a pooled one: String() aliases
+// the builder's buffer, so reuse would overwrite results callers still hold.
 
 // PlainMsg formats grade report as cleartext block in a string.
 func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := builderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
-	defer putBuilder(sb)
+	var sb strings.Builder
 
-	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
 
-	plainAddHeader(sb, username, subject, code)
-	plainFormatGrades(sb, descriptions, grade)
+	plainAddHeader(&sb, username, subject, code)
+	formatGrades(&sb, descriptions, grade, noEscape)
 
 	return sb.String()
 }
 
-// plainFormatGrades renders description/value pairs, skipping columns the row
-// left blank — the scraper pads those for alignment, so they are placeholders.
-func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
-	// Reslicing to the common length, rather than bounding the loop with n, is
-	// what makes the paired index provably in range for gosec.
-	n := min(len(descriptions), len(grade))
-	descriptions, grade = descriptions[:n], grade[:n]
-
-	for i, value := range grade {
-		if value == "" {
-			continue
-		}
-
-		sb.WriteString(descriptions[i])
-		sb.WriteString(": ")
-		sb.WriteString(value)
-		sb.WriteString("\n")
-	}
-}
-
-// PlainSubject returns the prefix + user + " / " + subject header as a
-// string, using the package builder pool so callers do not pay a per-call
-// strings.Builder allocation in hot paths (e.g. per-message embed titles).
+// PlainSubject returns the prefix + user + " / " + subject header as a string.
 func PlainSubject(user, subject string, code msgtypes.EventCode) string {
-	sb := builderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
-	defer putBuilder(sb)
+	var sb strings.Builder
 
-	sb.Reset()
 	sb.Grow(len(user) + len(subject) + 40)
 
-	PlainFormatSubject(sb, user, subject, code)
+	PlainFormatSubject(&sb, user, subject, code)
 
 	return sb.String()
 }

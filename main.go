@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -28,7 +29,7 @@ import (
 )
 
 const (
-	chanBufLen       = 500              // broadcast channel buffer length
+	chanBufLen       = 500              // scrape→dedup and dedup→fan-out channel buffer
 	exitDelay        = 10 * time.Second // sleep time before giving up on cancellation
 	statusInterval   = 1 * time.Minute  // cadence of sysd status countdown updates between runs
 	testUsername     = "korisnik@test.domena"
@@ -54,12 +55,75 @@ var (
 
 // fatalIfErrors exits non-zero (via Fatal) if any cycle set exitWithError,
 // otherwise logs success. Terminal call — does not return on the error path.
-func fatalIfErrors() {
+//
+// flush runs first: logger.Fatal is os.Exit, which skips defers, so leaving
+// pprof teardown to one loses the profile of every failed run.
+func fatalIfErrors(flush func()) {
+	flush()
+
 	if exitWithError.Load() {
 		logger.Fatal().Msg("Exiting, during run some errors were encountered.")
 	}
 
 	logger.Info().Msg("Exiting with a success.")
+}
+
+// startProfiling honours -c/-m and returns the flush that finalises them. Not a
+// defer (see fatalIfErrors); once-guarded because both callers invoke it, and
+// reverse-ordered to match the defers it replaces.
+func startProfiling() func() {
+	var flushes []func()
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			logger.Fatal().Msgf("Error creating CPU profile: %v", err)
+		}
+
+		if err := pprof.StartCPUProfile(f); err != nil {
+			_ = f.Close()
+
+			logger.Fatal().Msgf("Error starting CPU profile: %v", err)
+		}
+
+		flushes = append(flushes, func() {
+			pprof.StopCPUProfile()
+
+			if err := f.Close(); err != nil {
+				logger.Error().Msgf("Error closing CPU profile: %v", err)
+			}
+		})
+	}
+
+	if *memProfile != "" {
+		f, err := os.Create(*memProfile)
+		if err != nil {
+			logger.Fatal().Msgf("Error trying to create memory profile: %v", err)
+		}
+
+		flushes = append(flushes, func() {
+			runtime.GC()
+
+			// Error, not Fatal: a Fatal here would pre-empt fatalIfErrors' exit.
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				logger.Error().Msgf("Error writing memory profile: %v", err)
+			}
+
+			if err := f.Close(); err != nil {
+				logger.Error().Msgf("Error closing memory profile: %v", err)
+			}
+		})
+	}
+
+	var once sync.Once
+
+	return func() {
+		once.Do(func() {
+			for _, flush := range slices.Backward(flushes) {
+				flush()
+			}
+		})
+	}
 }
 
 // main wires up config, logging, memory limits, signal handling, and profiling,
@@ -107,34 +171,8 @@ func main() {
 	// Pass config path to messengers that reload credentials on token refresh.
 	ctx = context.WithValue(ctx, messenger.ConfFileKey, *confFile)
 
-	if *cpuProfile != "" {
-		f, err := os.Create(*cpuProfile)
-		if err != nil {
-			logger.Fatal().Msgf("Error creating CPU profile: %v", err)
-		}
-		defer f.Close()
-
-		if err := pprof.StartCPUProfile(f); err != nil {
-			logger.Fatal().Msgf("Error starting CPU profile: %v", err)
-		}
-		defer pprof.StopCPUProfile()
-	}
-
-	if *memProfile != "" {
-		f, err := os.Create(*memProfile)
-		if err != nil {
-			logger.Fatal().Msgf("Error trying to create memory profile: %v", err)
-		}
-		defer f.Close()
-
-		defer func() {
-			runtime.GC()
-
-			if err := pprof.WriteHeapProfile(f); err != nil {
-				logger.Fatal().Msgf("Error writing memory profile: %v", err)
-			}
-		}()
-	}
+	flushProfiles := startProfiling()
+	defer flushProfiles()
 
 	// Interactive OAuth flow must run on the main goroutine.
 	if cfg.CalendarEnabled {
@@ -148,7 +186,7 @@ func main() {
 
 	if *emulation {
 		testSingleRun(ctx, cfg)
-		fatalIfErrors()
+		fatalIfErrors(flushProfiles)
 
 		return
 	}
@@ -185,7 +223,7 @@ func main() {
 		select {
 		case <-ctx.Done():
 			awaitShutdown(stop, ticker, statusTicker)
-			fatalIfErrors()
+			fatalIfErrors(flushProfiles)
 
 			return
 		case <-statusTicker.C:
@@ -216,7 +254,7 @@ func main() {
 			runPollCycle(ctx, cfg)
 
 			if !*daemon {
-				fatalIfErrors()
+				fatalIfErrors(flushProfiles)
 
 				return
 			}

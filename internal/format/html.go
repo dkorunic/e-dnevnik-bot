@@ -12,16 +12,14 @@ import (
 
 // HTMLMsg formats grade report as preformatted HTML block in a string.
 func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
-	sb := builderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
-	defer putBuilder(sb)
+	var sb strings.Builder
 
-	sb.Reset()
 	sb.Grow(len(username) + len(subject) + 256)
 
-	htmlAddHeader(sb, username, subject, code)
+	htmlAddHeader(&sb, username, subject, code)
 
 	sb.WriteString("<pre>\n")
-	htmlFormatGrades(sb, descriptions, grade)
+	formatGrades(&sb, descriptions, grade, html.EscapeString)
 	sb.WriteString("</pre>\n")
 
 	return sb.String()
@@ -33,22 +31,4 @@ func htmlAddHeader(sb *strings.Builder, user, subject string, code msgtypes.Even
 	sb.WriteString("<b>")
 	PlainFormatSubject(sb, html.EscapeString(user), html.EscapeString(subject), code)
 	sb.WriteString("</b>\n")
-}
-
-// htmlFormatGrades renders escaped description/value pairs, skipping blank
-// columns as plainFormatGrades does.
-func htmlFormatGrades(sb *strings.Builder, descriptions, grade []string) {
-	n := min(len(descriptions), len(grade))
-	descriptions, grade = descriptions[:n], grade[:n]
-
-	for i, value := range grade {
-		if value == "" {
-			continue
-		}
-
-		sb.WriteString(html.EscapeString(descriptions[i]))
-		sb.WriteString(": ")
-		sb.WriteString(html.EscapeString(value))
-		sb.WriteString("\n")
-	}
 }

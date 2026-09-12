@@ -385,21 +385,19 @@ func TestParseCourseSkipsContentlessRows(t *testing.T) {
 	}
 }
 
-// TestTrimPutBuilderDropsOversizedBuilders covers the pool guard: a builder
-// grown past the cap is dropped instead of returned, so one outlier page cannot
-// pin a large buffer in the pool for the process lifetime. The observable
-// contract is that trimming still works correctly afterwards.
-func TestTrimPutBuilderDropsOversizedBuilders(t *testing.T) {
+// TestTrimAllSpaceOversizedInput: an input far past the Grow hint forces the
+// builder to reallocate mid-rewrite. It must still normalise correctly, and
+// must not disturb the call that follows it.
+func TestTrimAllSpaceOversizedInput(t *testing.T) {
 	t.Parallel()
 
-	huge := strings.Repeat("a b ", trimMaxPooledBuilderCap)
+	huge := strings.Repeat("a b ", 64*1024)
 
 	got := trimAllSpace(huge)
 	if strings.Contains(got, "  ") {
 		t.Error("trimAllSpace left a double space in an oversized input")
 	}
 
-	// The pool must still be usable for normal input afterwards.
 	if got := trimAllSpace("  Matematika   5  "); got != "Matematika 5" {
 		t.Errorf("trimAllSpace() = %q after an oversized call, want %q", got, "Matematika 5")
 	}

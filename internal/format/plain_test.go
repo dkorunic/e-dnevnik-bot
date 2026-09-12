@@ -26,19 +26,22 @@ func TestPlainMsg(t *testing.T) {
 	}
 }
 
-func TestPlainFormatGrades(t *testing.T) {
+// TestPlainMsgBodyIsVerbatim pins the escaper this call site wires in;
+// TestFormatGrades covers the renderer itself. The wrong escaper here is how
+// portal content once reached Slack unescaped.
+func TestPlainMsgBodyIsVerbatim(t *testing.T) {
 	t.Parallel()
-	var sb strings.Builder
-	descriptions := []string{"desc1", "desc2"}
-	grade := []string{"grade1", "grade2"}
 
-	plainFormatGrades(&sb, descriptions, grade)
+	descriptions := []string{"<desc>", "desc2"}
+	grade := []string{"5 & 4", "grade2"}
 
-	expected := "desc1: grade1\ndesc2: grade2\n"
-	result := sb.String()
+	result := PlainMsg("user", "subject", msgtypes.Grade, descriptions, grade)
 
-	if result != expected {
-		t.Errorf("plainFormatGrades() = %q, want %q", result, expected)
+	// Plain text escapes nothing.
+	for _, want := range []string{"<desc>: 5 & 4\n", "desc2: grade2\n"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("PlainMsg() = %q, want it to contain %q verbatim", result, want)
+		}
 	}
 }
 

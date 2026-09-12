@@ -244,20 +244,20 @@ func whatsappPairingEventHandler(rawEvt any) {
 		}
 	case *events.PairError:
 		// Always a failure, regardless of any stale Store.ID.
-		_ = os.Remove(messenger.WhatsAppDBName)
+		messenger.RemoveWhatsAppSession()
 
 		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
 	case *events.PairSuccess:
 		// A success without a stored device ID is really a failure.
 		if whatsAppPairingCli.Store.ID == nil {
-			_ = os.Remove(messenger.WhatsAppDBName)
+			messenger.RemoveWhatsAppSession()
 
 			logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
 		}
 
 		logger.Info().Msg("WhatsApp device successfully paired")
 	case *events.LoggedOut:
-		_ = os.Remove(messenger.WhatsAppDBName)
+		messenger.RemoveWhatsAppSession()
 
 		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppLoggedout)
 	case *events.Disconnected, *events.StreamReplaced, *events.KeepAliveTimeout:

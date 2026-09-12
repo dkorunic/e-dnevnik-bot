@@ -124,15 +124,22 @@ func checkCalendarConf(config *TomlConfig) {
 	}
 }
 
-// checkMailConf validates the mail block (recipients, optional From, optional
-// port) and enables the messenger. Fatal on any invalid entry.
+// checkMailConf validates the mail block (recipients, From, optional port) and
+// enables the messenger. Fatal on any invalid entry.
 func checkMailConf(config *TomlConfig) {
 	if config.Mail.Server != "" {
 		if len(config.Mail.To) == 0 {
 			logger.Fatal().Msg("Configuration error: no mail to addresses defined")
 		}
 
-		if config.Mail.From != "" && !isValidMail(config.Mail.From) {
+		// Mandatory, unlike Subject: go-mail rejects the empty address and
+		// processMail poison-drops every recipient for it, silently losing
+		// alerts that dedup has already flagged.
+		if config.Mail.From == "" {
+			logger.Fatal().Msg("Configuration error: no mail from address defined")
+		}
+
+		if !isValidMail(config.Mail.From) {
 			logger.Fatal().Msgf("Configuration error: mail from %v is not in mail format", config.Mail.From)
 		}
 

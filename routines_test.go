@@ -555,3 +555,94 @@ func TestDispatchSpillsInsteadOfBlocking(t *testing.T) {
 		t.Errorf("buffered message = %q, want it left in place", first.Subject)
 	}
 }
+
+// TestMsgSendDeferredCalendarOverflowDropsNonExams: the deferred stub only
+// writes its queue, so a non-exam spilled there by the fan-out is unconsumable
+// until MaxQueueAge. Traffic is grade-heavy with periodic exams — the exam
+// writes are what slow the sink into the spill branch.
+func TestMsgSendDeferredCalendarOverflowDropsNonExams(t *testing.T) {
+	t.Parallel()
+
+	const (
+		total       = messengerBufLen * 3
+		examEvery   = 10
+		wantedExams = total / examEvery
+	)
+
+	eDB := openExistingDB(t, t.TempDir()+"/msgsend-overflow-nonexam.db")
+	defer eDB.Close() //nolint:errcheck
+
+	gradesMsg := make(chan msgtypes.Message, total)
+
+	for i := range total {
+		if i%examEvery == 0 {
+			gradesMsg <- msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: fmt.Sprintf("exam-%03d", i)}
+
+			continue
+		}
+
+		gradesMsg <- msgtypes.Message{Code: msgtypes.Grade, Username: "u", Subject: fmt.Sprintf("grade-%03d", i)}
+	}
+
+	close(gradesMsg)
+
+	var wg sync.WaitGroup
+
+	msgSend(t.Context(), eDB, &wg, gradesMsg, config.TomlConfig{CalendarDeferred: true})
+
+	waitOrFail(t, &wg)
+
+	got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.CalendarQueueName)
+
+	var spilledGrades []string
+
+	for _, q := range got {
+		if q.Msg.Code != msgtypes.Exam {
+			spilledGrades = append(spilledGrades, q.Msg.Subject)
+		}
+	}
+
+	if len(spilledGrades) > 0 {
+		t.Errorf("overflow spilled %d non-exam message(s) into the Calendar queue; nothing reads that queue while Calendar is deferred, so these rows sit until MaxQueueAge: %v",
+			len(spilledGrades), spilledGrades)
+	}
+
+	// Exams must still all survive — the filter must not become a general drop.
+	if len(got)-len(spilledGrades) != wantedExams {
+		t.Errorf("queued %d exams, want %d; the overflow filter must drop only what Calendar would discard",
+			len(got)-len(spilledGrades), wantedExams)
+	}
+}
+
+// TestDispatchSkipsUnqueueableOverflow pins the filter deterministically; the
+// msgSend test above only reaches the spill branch by racing the fan-out
+// against a slow sink.
+func TestDispatchSkipsUnqueueableOverflow(t *testing.T) {
+	t.Parallel()
+
+	eDB := openExistingDB(t, t.TempDir()+"/dispatch-queueable.db")
+	defer eDB.Close() //nolint:errcheck
+
+	queueName := []byte("test-dispatch-queueable-queue")
+
+	// Capacity one, already occupied: every further send takes the spill branch.
+	s := messengerSink{
+		ch:        make(chan msgtypes.Message, 1),
+		queue:     queueName,
+		queueable: isExamMsg,
+	}
+	s.ch <- msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "already-buffered"}
+
+	dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Grade, Username: "u", Subject: "dropped-grade"})
+
+	if got := queue.FetchFailedMsgs(t.Context(), eDB, queueName); len(got) != 0 {
+		t.Fatalf("FetchFailedMsgs = %+v, want nothing queued: this messenger discards non-exams, so the row would be unconsumable", got)
+	}
+
+	dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "spilled-exam"})
+
+	got := queue.FetchFailedMsgs(t.Context(), eDB, queueName)
+	if len(got) != 1 || got[0].Msg.Subject != "spilled-exam" {
+		t.Fatalf("FetchFailedMsgs = %+v, want only the exam spilled; the filter must not become a general drop", got)
+	}
+}

@@ -102,10 +102,10 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		var sinks []messengerSink
 
 		// start registers a messenger's buffered channel as a sink and drains it
-		// in a tracked goroutine.
-		start := func(queueName []byte, run func(ch <-chan msgtypes.Message)) {
+		// in a tracked goroutine. queueable gates overflow spills; nil accepts all.
+		start := func(queueName []byte, queueable func(msgtypes.Message) bool, run func(ch <-chan msgtypes.Message)) {
 			ch := make(chan msgtypes.Message, messengerBufLen)
-			sinks = append(sinks, messengerSink{ch: ch, queue: queueName})
+			sinks = append(sinks, messengerSink{ch: ch, queue: queueName, queueable: queueable})
 
 			wgInner.Add(1)
 
@@ -126,7 +126,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}()
 
 		if cfg.DiscordEnabled {
-			start(messenger.DiscordQueueName, func(ch <-chan msgtypes.Message) {
+			start(messenger.DiscordQueueName, nil, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Discord(ctx, eDB, ch, messenger.DiscordConfig{
 					Token:   cfg.Discord.Token,
 					UserIDs: cfg.Discord.UserIDs,
@@ -138,7 +138,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.TelegramEnabled {
-			start(messenger.TelegramQueueName, func(ch <-chan msgtypes.Message) {
+			start(messenger.TelegramQueueName, nil, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Telegram(ctx, eDB, ch, messenger.TelegramConfig{
 					Token:   cfg.Telegram.Token,
 					ChatIDs: cfg.Telegram.ChatIDs,
@@ -150,7 +150,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.SlackEnabled {
-			start(messenger.SlackQueueName, func(ch <-chan msgtypes.Message) {
+			start(messenger.SlackQueueName, nil, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Slack(ctx, eDB, ch, messenger.SlackConfig{
 					Token:   cfg.Slack.Token,
 					ChatIDs: cfg.Slack.ChatIDs,
@@ -162,7 +162,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.MailEnabled {
-			start(messenger.MailQueueName, func(ch <-chan msgtypes.Message) {
+			start(messenger.MailQueueName, nil, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Mail(ctx, eDB, ch, messenger.MailConfig{
 					Server:   cfg.Mail.Server,
 					Port:     cfg.Mail.Port,
@@ -179,7 +179,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.CalendarEnabled {
-			start(messenger.CalendarQueueName, func(ch <-chan msgtypes.Message) {
+			start(messenger.CalendarQueueName, isExamMsg, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Calendar(ctx, eDB, ch, messenger.CalendarConfig{
 					Name:    cfg.Calendar.Name,
 					TokFile: *calTokFile,
@@ -193,13 +193,13 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		// Calendar configured but not yet initializable: queue-only stub
 		// preserves exams. Mutually exclusive with CalendarEnabled.
 		if cfg.CalendarDeferred {
-			start(messenger.CalendarQueueName, func(ch <-chan msgtypes.Message) {
+			start(messenger.CalendarQueueName, isExamMsg, func(ch <-chan msgtypes.Message) {
 				messenger.CalendarDeferred(ctx, eDB, ch)
 			})
 		}
 
 		if cfg.WhatsAppEnabled {
-			start(messenger.WhatsAppQueueName, func(ch <-chan msgtypes.Message) {
+			start(messenger.WhatsAppQueueName, nil, func(ch <-chan msgtypes.Message) {
 				if err := messenger.WhatsApp(ctx, eDB, ch, messenger.WhatsAppConfig{
 					UserIDs: cfg.WhatsApp.UserIDs,
 					Groups:  cfg.WhatsApp.Groups,
@@ -221,8 +221,18 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 // messengerSink is a messenger's fan-out channel plus the queue for spills.
 type messengerSink struct {
-	ch    chan msgtypes.Message
-	queue []byte
+	// queueable gates overflow spills; nil accepts every code. A spill is only
+	// worth making if something reads it back — Calendar takes exams alone and
+	// its deferred stub never reads its queue, so anything else sits there
+	// unconsumable until MaxQueueAge.
+	queueable func(msgtypes.Message) bool
+	ch        chan msgtypes.Message
+	queue     []byte
+}
+
+// isExamMsg reports whether g is an exam — the only code Calendar delivers.
+func isExamMsg(g msgtypes.Message) bool {
+	return g.Code == msgtypes.Exam
 }
 
 // dispatch delivers g to one messenger, never blocking the fan-out: a full
@@ -233,6 +243,11 @@ func dispatch(ctx context.Context, eDB *sqlitedb.Edb, s messengerSink, g msgtype
 	select {
 	case s.ch <- g:
 	default:
+		// A row this messenger would discard is one nothing can consume.
+		if s.queueable != nil && !s.queueable(g) {
+			return
+		}
+
 		storeOverflow(ctx, eDB, s.queue, g)
 	}
 }

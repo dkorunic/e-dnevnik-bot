@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"sync"
@@ -586,7 +587,7 @@ func whatsAppEventHandler(rawEvt any) {
 		// Fatal only when unpaired: a healthy paired client can see a spurious
 		// PairError (e.g. a stale pairing attempt) and must not self-logout.
 		if cli.Store.ID == nil {
-			_ = os.Remove(WhatsAppDBName)
+			RemoveWhatsAppSession()
 
 			logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
 			RequestShutdown()
@@ -595,7 +596,7 @@ func whatsAppEventHandler(rawEvt any) {
 		}
 	case *events.PairSuccess:
 		if cli.Store.ID == nil {
-			_ = os.Remove(WhatsAppDBName)
+			RemoveWhatsAppSession()
 
 			logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppFailLinkDevice)
 			RequestShutdown()
@@ -603,7 +604,7 @@ func whatsAppEventHandler(rawEvt any) {
 			logger.Debug().Msg("WhatsApp device successfully paired")
 		}
 	case *events.LoggedOut:
-		_ = os.Remove(WhatsAppDBName)
+		RemoveWhatsAppSession()
 
 		logger.Error().Msgf("%v — requesting shutdown", ErrWhatsAppLoggedout)
 		RequestShutdown()
@@ -624,6 +625,26 @@ func whatsAppEventHandler(rawEvt any) {
 		logger.Error().Msgf("%v: code %v / expire %v", ErrWhatsAppBan, evt.Code, duration)
 	default:
 	}
+}
+
+// RemoveWhatsAppSession deletes the paired-device store so the next run links
+// from scratch. A silent failure would leave callers telling the operator to
+// re-link while the dead session persists, looping on the same fatal event.
+func RemoveWhatsAppSession() {
+	if err := removeWhatsAppSession(WhatsAppDBName); err != nil {
+		logger.Error().Msgf("Unable to remove the WhatsApp session store %q: %v — delete it manually before restarting, or the next run will reuse the dead session",
+			WhatsAppDBName, err)
+	}
+}
+
+// removeWhatsAppSession is the testable core. An absent store is success:
+// repeated fatal events race each other through here.
+func removeWhatsAppSession(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	return nil
 }
 
 // isWriteable reports whether path can be opened for writing.

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"strings"
-	"sync"
 	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
@@ -29,27 +28,6 @@ var eventDescriptions = []string{
 	EventSummary,
 	DateDescription,
 	EventDescription,
-}
-
-var trimBuilderPool = sync.Pool{
-	New: func() any { return new(strings.Builder) },
-}
-
-// trimMaxPooledBuilderCap caps pooled builder capacity so one outlier input can't bloat the pool.
-const trimMaxPooledBuilderCap = 64 * 1024
-
-// trimPutBuilder returns b to the pool after Reset. Resetting on Put (not just
-// on Get) keeps every pooled entry in a clean state so callers cannot observe
-// leftover content from a prior borrower. Builders whose backing buffer has
-// grown beyond trimMaxPooledBuilderCap are dropped so one outlier input cannot
-// bloat the pool indefinitely.
-func trimPutBuilder(b *strings.Builder) {
-	if b.Cap() > trimMaxPooledBuilderCap {
-		return
-	}
-
-	b.Reset()
-	trimBuilderPool.Put(b)
 }
 
 // Course-page tables sit inside div.tab-content, so the descendant combinator
@@ -585,10 +563,10 @@ func trimAllSpace(s string) string {
 		return s
 	}
 
-	b := trimBuilderPool.Get().(*strings.Builder) //nolint:forcetypeassert // package-private pool; New returns this type
-	defer trimPutBuilder(b)
+	// Local, never pooled: String() aliases this buffer, and the result becomes
+	// part of Message.Fields — the dedup identity.
+	var b strings.Builder
 
-	// No Reset needed: trimPutBuilder Resets before Put, so every Get yields a clean builder.
 	b.Grow(len(s))
 
 	inSpace = false
