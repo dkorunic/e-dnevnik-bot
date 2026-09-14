@@ -58,15 +58,25 @@ func (c *Client) chromeNavigationMW(r *surf.Request) error {
 		// Chrome attaches Origin to form submissions, same-origin included.
 		h.Set("Origin", BaseURL)
 
-		// Chrome pairs these only on a hard reload.
-		h.Del("Cache-Control")
+		// A form submit is a reload-like navigation, so it carries max-age=0
+		// where a link click does not (CLAUDE.md). Pragma is surf's XHR
+		// profile leaking: Chrome sends none on any hop.
+		h.Set("Cache-Control", "max-age=0")
 		h.Del("Pragma")
 
 		// surf's POST order map lists neither (its GET map does), and unlisted
 		// keys sort after every listed one — both would land past Cookie.
+		// Inert on surf v1.0.206, which lists both; kept so a profile that
+		// drops them again cannot fail silently.
 		if ordered {
 			order = insertHeaderOrder(order, "upgrade-insecure-requests", "user-agent")
 			order = insertHeaderOrder(order, "sec-fetch-user", "sec-fetch-dest")
+
+			// Three deltas against a Chrome 152 capture: corrections to surf's
+			// list, never a declared order.
+			order = moveHeaderOrderBefore(order, chromePostClientHints, "upgrade-insecure-requests")
+			order = moveHeaderOrderBefore(order, []string{"content-type"}, "user-agent")
+			order = moveHeaderOrderBefore(order, []string{"origin"}, "accept")
 		}
 	}
 
@@ -88,7 +98,14 @@ func (c *Client) chromeNavigationMW(r *surf.Request) error {
 
 // postOnlyHeaderOrder belong to a request with a body. A hop rewritten to GET
 // inherits them because the redirect copier strips only Content-Type.
-var postOnlyHeaderOrder = []string{"content-length", "content-type", "pragma", "cache-control", "origin"}
+//
+// cache-control is absent: the redirect inherits the POST's max-age=0, as
+// Chrome's does.
+var postOnlyHeaderOrder = []string{"content-length", "content-type", "pragma", "origin"}
+
+// chromePostClientHints are grouped on a form submit, where surf's POST profile
+// splits them. Same names as the redirect case, a different destination.
+var chromePostClientHints = []string{"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform"}
 
 // chromeRedirectClientHints move as a block: a Chrome 152 capture puts them
 // after sec-fetch-dest on a redirect hop, where a fresh navigation carries them

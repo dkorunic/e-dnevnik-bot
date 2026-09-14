@@ -107,11 +107,15 @@ func TestLoginPostLooksLikeFormNavigation(t *testing.T) {
 		}
 	}
 
-	// Chrome pairs these only on a hard reload; surf's XHR profile sends them.
-	for _, h := range []string{"Cache-Control", "Pragma"} {
-		if got := req.Header.Get(h); got != "" {
-			t.Errorf("%s = %q, want it not sent on a form submission", h, got)
-		}
+	// A form submit is a reload-like navigation, so Chrome sends max-age=0
+	// (CLAUDE.md for why a link click does not).
+	if got := req.Header.Get("Cache-Control"); got != "max-age=0" {
+		t.Errorf("Cache-Control = %q, want \"max-age=0\" on a form submission", got)
+	}
+
+	// Pragma is surf's XHR profile leaking; Chrome sends none on any hop.
+	if got := req.Header.Get("Pragma"); got != "" {
+		t.Errorf("Pragma = %q, want it not sent", got)
 	}
 }
 
@@ -251,11 +255,12 @@ func TestConnectionHeaderSitsAfterHost(t *testing.T) {
 	}
 }
 
-// TestPostHeaderOrderMatchesChrome covers the gap that let correct-valued
-// headers land in wrong slots — TestHeaderOrderMatchesChrome only exercises GET.
-// surf's POST order map carries neither Sec-Fetch-User nor
-// Upgrade-Insecure-Requests, and unlisted keys sort last, pushing both past
-// Cookie. Slots mirror surf's GET profile.
+// TestPostHeaderOrderMatchesChrome guards the login POST against the capture in
+// chromePostWireOrder.
+//
+// It once asserted surf's own output under a name claiming it matched Chrome,
+// which is why that deviation survived until a capture was taken. One shared
+// expectation now, so this and the socket-level test cannot drift apart.
 func TestPostHeaderOrderMatchesChrome(t *testing.T) {
 	t.Parallel()
 
@@ -267,39 +272,5 @@ func TestPostHeaderOrderMatchesChrome(t *testing.T) {
 		t.Fatalf("doSAMLRequest: %v", err)
 	}
 
-	got := wireHeaderOrder(t, (*seen)[0])
-
-	want := []string{
-		"Host",
-		"Connection",
-		"Content-Length",
-		"Sec-Ch-Ua-Platform",
-		"Upgrade-Insecure-Requests",
-		"User-Agent",
-		"Sec-Ch-Ua",
-		"Content-Type",
-		"Sec-Ch-Ua-Mobile",
-		"Accept",
-		"Origin",
-		"Sec-Fetch-Site",
-		"Sec-Fetch-Mode",
-		"Sec-Fetch-User",
-		"Sec-Fetch-Dest",
-		"Referer",
-		"Accept-Encoding",
-		"Accept-Language",
-	}
-
-	idx := 0
-
-	for _, name := range got {
-		if idx < len(want) && strings.EqualFold(name, want[idx]) {
-			idx++
-		}
-	}
-
-	if idx != len(want) {
-		t.Errorf("POST header order mismatch: matched %d/%d (first unmatched: %q)\n got: %v\nwant order: %v",
-			idx, len(want), want[idx], got, want)
-	}
+	assertWireOrder(t, "login POST", wireHeaderOrder(t, (*seen)[0]), chromePostWireOrder)
 }

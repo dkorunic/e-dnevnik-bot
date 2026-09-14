@@ -218,8 +218,7 @@ func TestOpenDBReturnsErrorInsteadOfExiting(t *testing.T) {
 		return
 	}
 
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		switch exitErr.ExitCode() {
 		case 3:
 			t.Fatalf("openDB opened a directory as a database\noutput:\n%s", out)

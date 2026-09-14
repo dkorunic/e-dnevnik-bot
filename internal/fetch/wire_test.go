@@ -19,14 +19,38 @@ import (
 // chromeRedirectWireOrder is the header sequence a Chrome 152 wire capture
 // shows on a POST→302→GET, in wire order.
 //
-// Cache-Control is absent by choice: the capture carried it, but that run
-// reached the form by typed URL, and address-bar navigation is itself a
-// max-age=0 navigation — so a form submit's behaviour is unconfirmed.
+// Cache-Control is here because the redirect inherits the POST's max-age=0
+// (CLAUDE.md).
 //
 // Regenerate with the recipe in CLAUDE.md; never edit to match a failure.
+// chromePostWireOrder is the same capture's login POST, where surf's profile
+// scatters the client hints and inverts two pairs.
+var chromePostWireOrder = []string{
+	"Host",
+	"Connection",
+	"Content-Length",
+	"Cache-Control",
+	"Sec-Ch-Ua",
+	"Sec-Ch-Ua-Mobile",
+	"Sec-Ch-Ua-Platform",
+	"Upgrade-Insecure-Requests",
+	"Content-Type",
+	"User-Agent",
+	"Origin",
+	"Accept",
+	"Sec-Fetch-Site",
+	"Sec-Fetch-Mode",
+	"Sec-Fetch-User",
+	"Sec-Fetch-Dest",
+	"Referer",
+	"Accept-Encoding",
+	"Accept-Language",
+}
+
 var chromeRedirectWireOrder = []string{
 	"Host",
 	"Connection",
+	"Cache-Control",
 	"Upgrade-Insecure-Requests",
 	"User-Agent",
 	"Accept",
@@ -42,10 +66,10 @@ var chromeRedirectWireOrder = []string{
 	"Accept-Language",
 }
 
-// readRequestNames returns one request's header names in wire order. Reading
-// the socket is the point: Go's Header map and CDP both canonicalise and sort,
-// so order and casing exist nowhere else.
-func readRequestNames(c net.Conn, respond func(method, path string) string) []string {
+// readRequestHead returns one request's header lines in wire order. Reading the
+// socket is the point: Go's Header map and CDP both canonicalise and sort, so
+// order and casing exist nowhere else.
+func readRequestHead(c net.Conn, respond func(method, path string) string) []string {
 	defer c.Close()
 
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
@@ -53,7 +77,7 @@ func readRequestNames(c net.Conn, respond func(method, path string) string) []st
 	r := bufio.NewReader(c)
 
 	var (
-		names        []string
+		head         []string
 		method, path string
 		bodyLen      int
 	)
@@ -61,7 +85,7 @@ func readRequestNames(c net.Conn, respond func(method, path string) string) []st
 	for i := 0; ; i++ {
 		line, err := r.ReadString('\n')
 		if err != nil {
-			return names
+			return head
 		}
 
 		line = strings.TrimRight(line, "\r\n")
@@ -77,8 +101,9 @@ func readRequestNames(c net.Conn, respond func(method, path string) string) []st
 			continue
 		}
 
+		head = append(head, line)
+
 		name, value, _ := strings.Cut(line, ":")
-		names = append(names, name)
 
 		if strings.EqualFold(name, "content-length") {
 			bodyLen, _ = strconv.Atoi(strings.TrimSpace(value))
@@ -91,7 +116,31 @@ func readRequestNames(c net.Conn, respond func(method, path string) string) []st
 
 	_, _ = c.Write([]byte(respond(method, path)))
 
+	return head
+}
+
+// headerNames reduces wire header lines to their names, in order.
+func headerNames(head []string) []string {
+	names := make([]string, 0, len(head))
+
+	for _, l := range head {
+		name, _, _ := strings.Cut(l, ":")
+		names = append(names, name)
+	}
+
 	return names
+}
+
+// headerValue returns the value of name from wire header lines, or "".
+func headerValue(head, name string) string {
+	for l := range strings.SplitSeq(head, "\n") {
+		k, v, ok := strings.Cut(l, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(k), name) {
+			return strings.TrimSpace(v)
+		}
+	}
+
+	return ""
 }
 
 // TestRedirectHopMatchesChromeWireOrder drives the real transport at a raw
@@ -118,7 +167,7 @@ func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
 				return
 			}
 
-			hops <- readRequestNames(c, func(method, _ string) string {
+			hops <- readRequestHead(c, func(method, _ string) string {
 				if method == "POST" {
 					return "HTTP/1.1 302 Found\r\nLocation: /class\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 				}
@@ -139,6 +188,11 @@ func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
 	defer c.CloseConnections()
 
 	base := "http://" + l.Addr().String()
+
+	// What getCSRFToken leaves behind, so the POST carries a Referer as in
+	// production.
+	c.lastURL = base + "/login"
+
 	form := url.Values{"username": {"u"}, "password": {"p"}, "csrf_token": {"tok"}}.Encode()
 
 	req := c.httpClient.Post(g.String(base + "/login")).Body(form)
@@ -153,25 +207,50 @@ func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
 
 	defer resp.Body.Close()
 
-	var got []string
+	var post, redirected []string
 
-	for range 2 {
+	for i := range 2 {
 		select {
-		case got = <-hops: // keep the last: the redirect hop
+		case head := <-hops:
+			if i == 0 {
+				post = head
+			} else {
+				redirected = head
+			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("timed out waiting for both hops")
 		}
 	}
 
-	if len(got) != len(chromeRedirectWireOrder) {
-		t.Fatalf("redirect hop sent %d headers, Chrome sends %d\n got:  %v\n want: %v",
-			len(got), len(chromeRedirectWireOrder), got, chromeRedirectWireOrder)
+	postHead := strings.Join(post, "\n")
+
+	if got := headerValue(postHead, "Cache-Control"); got != "max-age=0" {
+		t.Errorf("login POST sent Cache-Control %q, Chrome sends \"max-age=0\"", got)
+	}
+
+	if got := headerValue(postHead, "Pragma"); got != "" {
+		t.Errorf("login POST sent Pragma %q; Chrome sends none on any hop", got)
+	}
+
+	assertWireOrder(t, "login POST", headerNames(post), chromePostWireOrder)
+	assertWireOrder(t, "redirect hop", headerNames(redirected), chromeRedirectWireOrder)
+}
+
+// assertWireOrder compares a captured header sequence name by name. Case is
+// ignored: enetx/http canonicalises every name at write time, so Chrome's
+// lowercase sec-ch-* hints are unreachable from here (see CLAUDE.md).
+func assertWireOrder(t *testing.T, what string, got, want []string) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("%s sent %d headers, Chrome sends %d\n got:  %v\n want: %v",
+			what, len(got), len(want), got, want)
 	}
 
 	for i := range got {
-		if !strings.EqualFold(got[i], chromeRedirectWireOrder[i]) {
-			t.Errorf("header %d on the wire = %q, Chrome sends %q\n got:  %v\n want: %v",
-				i, got[i], chromeRedirectWireOrder[i], got, chromeRedirectWireOrder)
+		if !strings.EqualFold(got[i], want[i]) {
+			t.Errorf("%s header %d = %q, Chrome sends %q\n got:  %v\n want: %v",
+				what, i, got[i], want[i], got, want)
 		}
 	}
 }

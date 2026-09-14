@@ -55,6 +55,7 @@ tasks:
       - go mod tidy
       - gci write .
       - gofumpt -l -w .
+      - go fix ./...
       - betteralign -apply ./...
 
   modernize:

@@ -5,6 +5,7 @@ package fetch
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	ehttp "github.com/enetx/http"
@@ -73,12 +74,8 @@ func TestRedirectHopDropsOrigin(t *testing.T) {
 	// list names it (header.go: `if v == "content-length" && cl >= 0`), so a
 	// bodyless GET inheriting the POST's order emits "Content-Length: 0".
 	// Chrome sends none on a navigation — confirmed on the wire.
-	for _, name := range redirected.Header[ehttp.HeaderOrderKey] {
-		if name == "content-length" {
-			t.Error("the redirect GET still orders content-length, so the writer will inject Content-Length: 0")
-
-			break
-		}
+	if slices.Contains(redirected.Header[ehttp.HeaderOrderKey], "content-length") {
+		t.Error("the redirect GET still orders content-length, so the writer will inject Content-Length: 0")
 	}
 
 	if got := redirected.Header.Get("Content-Length"); got != "" {
@@ -112,8 +109,9 @@ func TestRedirectHopUsesChromeGetOrder(t *testing.T) {
 
 	order := rec.hops[1].Header[ehttp.HeaderOrderKey]
 
-	// Nothing that belongs to a request with a body.
-	for _, gone := range []string{"content-length", "content-type", "pragma", "cache-control", "origin"} {
+	// Nothing body-related. cache-control is excluded: the redirect inherits
+	// the POST's max-age=0, as Chrome's does.
+	for _, gone := range []string{"content-length", "content-type", "pragma", "origin"} {
 		if idx := indexOf(order, gone); idx >= 0 {
 			t.Errorf("redirect GET still orders %q at %d: %v", gone, idx, order)
 		}
