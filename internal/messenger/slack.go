@@ -35,7 +35,8 @@ var (
 
 	SlackQueueName = []byte(SlackQueue)
 	slackCli       slackPoster
-	slackMu        sync.Mutex // guards slackCli initialisation
+	slackCreds     credGuard  // credentials slackCli was built from
+	slackMu        sync.Mutex // guards slackCli and slackCreds
 	SlackVersion   = version.ReadVersion("github.com/slack-go/slack")
 )
 
@@ -136,9 +137,15 @@ func markSlackPermanent(err error) error {
 // processSlack renders g as markup and sends it to each chat ID (Slack
 // channel/user/group IDs, not @nicknames), re-queueing on partial or total
 // failure. Recipients already in SkipRecipients are omitted.
+// slackMessageText renders g for Slack within the platform's text cap. Pairs
+// are dropped before rendering, not cut after: the fence and the &-entities
+// Slack requires survive only an untouched string (see truncateRendered).
+func slackMessageText(g msgtypes.Message) string {
+	return truncateRendered(format.MarkupMsg, g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, SlackMaxMessageChars)
+}
+
 func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// Truncate over Slack's text cap — oversize bodies are rejected outright.
-	m := truncateWithEllipsis(format.MarkupMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), SlackMaxMessageChars)
+	m := slackMessageText(g)
 
 	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
 	for _, r := range g.SkipRecipients {
@@ -217,16 +224,20 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	}
 }
 
-// slackInit lazily creates the shared Slack client (idempotent).
+// slackInit lazily creates the shared Slack client, rebuilding it when the
+// token changes (see credGuard).
 func slackInit(token string) error {
 	slackMu.Lock()
 	defer slackMu.Unlock()
 
-	if slackCli == nil {
-		logger.Debug().Msg("Initializing Slack client")
-
-		slackCli = slack.New(token)
+	if slackCli != nil && !slackCreds.changed(token) {
+		return nil
 	}
+
+	logger.Debug().Msg("Initializing Slack client")
+
+	slackCli = slack.New(token)
+	slackCreds.record(token)
 
 	return nil
 }

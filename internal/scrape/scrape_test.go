@@ -471,9 +471,10 @@ func TestCleanEventDescriptionReturnAfterNotBefore(t *testing.T) {
 	}
 }
 
-// TestTrimAllSpaceConcurrent verifies Bug 3C from TESTING-PLAN:
-// the pool builder must NOT be returned before b.String() is called.
-// Run under -race to detect the data race that would occur if the order were reversed.
+// TestTrimAllSpaceConcurrent guards a property, not a current mechanism:
+// trimAllSpace holds no shared state today, so reintroducing a pooled or
+// package-level buffer is what this would catch — the results would interleave,
+// and under -race the write would be reported outright.
 func TestTrimAllSpaceConcurrent(t *testing.T) {
 	t.Parallel()
 
@@ -483,14 +484,25 @@ func TestTrimAllSpaceConcurrent(t *testing.T) {
 
 	wg.Add(goroutines)
 
+	// Every input takes the rewrite path, so the builder is exercised rather
+	// than short-circuited.
+	cases := []struct{ in, want string }{
+		{"  hello world  ", "hello world"},
+		{"foo  bar", "foo bar"},
+		{"\nhello\nworld\n", "hello world"},
+		{"  a  b  c  ", "a b c"},
+	}
+
 	for range goroutines {
 		go func() {
 			defer wg.Done()
 
-			// Inputs need normalisation so pass 2 is always taken (race-detector target).
-			inputs := []string{"  hello world  ", "foo  bar", "\nhello\nworld\n", "  a  b  c  "}
-			for _, s := range inputs {
-				_ = trimAllSpace(s)
+			for _, tc := range cases {
+				if got := trimAllSpace(tc.in); got != tc.want {
+					t.Errorf("trimAllSpace(%q) = %q, want %q", tc.in, got, tc.want)
+
+					return
+				}
 			}
 		}()
 	}

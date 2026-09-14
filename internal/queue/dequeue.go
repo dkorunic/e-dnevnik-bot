@@ -155,7 +155,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 // new keys in survivor order, and removes the original row. On any failure it
 // rolls back the partial split (leaving the original intact) and returns nil
 // so the caller skips the row this cycle — no loss, no duplication.
-func splitRow(ctx context.Context, eDB *sqlitedb.Edb, queueKey, origKey []byte, survivors []msgtypes.Message) [][]byte {
+func splitRow(ctx context.Context, eDB rowStore, queueKey, origKey []byte, survivors []msgtypes.Message) [][]byte {
 	newKeys := make([][]byte, 0, len(survivors))
 
 	for _, m := range survivors {

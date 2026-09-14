@@ -102,10 +102,10 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		var sinks []messengerSink
 
 		// start registers a messenger's buffered channel as a sink and drains it
-		// in a tracked goroutine. queueable gates overflow spills; nil accepts all.
-		start := func(queueName []byte, queueable func(msgtypes.Message) bool, run func(ch <-chan msgtypes.Message)) {
+		// in a tracked goroutine.
+		start := func(queueName []byte, run func(ch <-chan msgtypes.Message)) {
 			ch := make(chan msgtypes.Message, messengerBufLen)
-			sinks = append(sinks, messengerSink{ch: ch, queue: queueName, queueable: queueable})
+			sinks = append(sinks, messengerSink{ch: ch, queue: queueName})
 
 			wgInner.Add(1)
 
@@ -126,7 +126,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}()
 
 		if cfg.DiscordEnabled {
-			start(messenger.DiscordQueueName, nil, func(ch <-chan msgtypes.Message) {
+			start(messenger.DiscordQueueName, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Discord(ctx, eDB, ch, messenger.DiscordConfig{
 					Token:   cfg.Discord.Token,
 					UserIDs: cfg.Discord.UserIDs,
@@ -138,7 +138,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.TelegramEnabled {
-			start(messenger.TelegramQueueName, nil, func(ch <-chan msgtypes.Message) {
+			start(messenger.TelegramQueueName, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Telegram(ctx, eDB, ch, messenger.TelegramConfig{
 					Token:   cfg.Telegram.Token,
 					ChatIDs: cfg.Telegram.ChatIDs,
@@ -150,7 +150,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.SlackEnabled {
-			start(messenger.SlackQueueName, nil, func(ch <-chan msgtypes.Message) {
+			start(messenger.SlackQueueName, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Slack(ctx, eDB, ch, messenger.SlackConfig{
 					Token:   cfg.Slack.Token,
 					ChatIDs: cfg.Slack.ChatIDs,
@@ -162,7 +162,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.MailEnabled {
-			start(messenger.MailQueueName, nil, func(ch <-chan msgtypes.Message) {
+			start(messenger.MailQueueName, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Mail(ctx, eDB, ch, messenger.MailConfig{
 					Server:   cfg.Mail.Server,
 					Port:     cfg.Mail.Port,
@@ -179,7 +179,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		}
 
 		if cfg.CalendarEnabled {
-			start(messenger.CalendarQueueName, isExamMsg, func(ch <-chan msgtypes.Message) {
+			start(messenger.CalendarQueueName, func(ch <-chan msgtypes.Message) {
 				if err := messenger.Calendar(ctx, eDB, ch, messenger.CalendarConfig{
 					Name:    cfg.Calendar.Name,
 					TokFile: *calTokFile,
@@ -193,13 +193,13 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		// Calendar configured but not yet initializable: queue-only stub
 		// preserves exams. Mutually exclusive with CalendarEnabled.
 		if cfg.CalendarDeferred {
-			start(messenger.CalendarQueueName, isExamMsg, func(ch <-chan msgtypes.Message) {
+			start(messenger.CalendarQueueName, func(ch <-chan msgtypes.Message) {
 				messenger.CalendarDeferred(ctx, eDB, ch)
 			})
 		}
 
 		if cfg.WhatsAppEnabled {
-			start(messenger.WhatsAppQueueName, nil, func(ch <-chan msgtypes.Message) {
+			start(messenger.WhatsAppQueueName, func(ch <-chan msgtypes.Message) {
 				if err := messenger.WhatsApp(ctx, eDB, ch, messenger.WhatsAppConfig{
 					UserIDs: cfg.WhatsApp.UserIDs,
 					Groups:  cfg.WhatsApp.Groups,
@@ -221,18 +221,8 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 // messengerSink is a messenger's fan-out channel plus the queue for spills.
 type messengerSink struct {
-	// queueable gates overflow spills; nil accepts every code. A spill is only
-	// worth making if something reads it back — Calendar takes exams alone and
-	// its deferred stub never reads its queue, so anything else sits there
-	// unconsumable until MaxQueueAge.
-	queueable func(msgtypes.Message) bool
-	ch        chan msgtypes.Message
-	queue     []byte
-}
-
-// isExamMsg reports whether g is an exam — the only code Calendar delivers.
-func isExamMsg(g msgtypes.Message) bool {
-	return g.Code == msgtypes.Exam
+	ch    chan msgtypes.Message
+	queue []byte
 }
 
 // dispatch delivers g to one messenger, never blocking the fan-out: a full
@@ -244,7 +234,7 @@ func dispatch(ctx context.Context, eDB *sqlitedb.Edb, s messengerSink, g msgtype
 	case s.ch <- g:
 	default:
 		// A row this messenger would discard is one nothing can consume.
-		if s.queueable != nil && !s.queueable(g) {
+		if !messenger.QueueAccepts(s.queue, g) {
 			return
 		}
 
@@ -327,6 +317,39 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 	})
 }
 
+// maxLeapYearLookback bounds resolveHRYear's walk. 29 February is the only
+// value time.Parse accepts that some years lack, and it does NOT recur every
+// four: a non-leap century (1900, 2100) stretches the worst case to seven steps.
+const maxLeapYearLookback = 8
+
+// resolveHRYear attaches a year to a day-and-month from the portal's "D.M."
+// column: the latest year in which that date has already passed. Walking back
+// handles 29 February, which time.Date would roll to 1 March in a common year,
+// making a grade from an earlier leap year read as days old.
+//
+// Reports false when no year in range holds the date — callers must fail open.
+// Unreachable for anything time.Parse accepts; returning a normalised date
+// instead would read as years old and silently suppress the alert.
+func resolveHRYear(t, now time.Time) (time.Time, bool) {
+	year := now.Year()
+
+	// A date still ahead of today belongs to the previous year.
+	if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
+		year--
+	}
+
+	for range maxLeapYearLookback {
+		// Round-trip check: normalisation is what signals the date is absent.
+		if d := time.Date(year, t.Month(), t.Day(), 0, 0, 0, 0, t.Location()); d.Day() == t.Day() {
+			return d, true
+		}
+
+		year--
+	}
+
+	return time.Time{}, false
+}
+
 // isStaleEvent reports whether g falls outside the configured relevance window
 // and should be suppressed. Only Exam and Grade events are time-filtered; all
 // other codes (and a zero relevancePeriod) are always treated as fresh. A grade
@@ -345,7 +368,15 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 			return true
 		}
 	case g.Code == msgtypes.Grade && len(g.Fields) > 0:
-		// XXX Fields[0] assumed to be the grade date.
+		// XXX Fields[0] assumed to be the grade date. cellValues pads empty
+		// cells, so a blank one is alignment, not drift — Debug, or a subject
+		// with a blank first column logs per event per cycle forever.
+		if g.Fields[0] == "" {
+			logger.Debug().Msgf("No date to judge relevance for: %v/%v", g.Username, g.Subject)
+
+			return false
+		}
+
 		t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 		if err != nil {
 			// Fail-open: prefer stale alert to silent drop.
@@ -354,14 +385,15 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 			return false
 		}
 
-		// Future day.month. implies previous year.
-		if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
-			t = t.AddDate(now.Year()-1, 0, 0)
-		} else {
-			t = t.AddDate(now.Year(), 0, 0)
+		resolved, ok := resolveHRYear(t, now)
+		if !ok {
+			// Fail-open: prefer a stale alert to a silent drop.
+			logger.Error().Msgf("Unable to place %q in a year for: %v/%v", g.Fields[0], g.Username, g.Subject)
+
+			return false
 		}
 
-		if time.Since(t) > *relevancePeriod {
+		if time.Since(resolved) > *relevancePeriod {
 			logger.Warn().Msgf("Ignoring changes in an old event: %v/%v: %+v", g.Username, g.Subject, g)
 
 			return true

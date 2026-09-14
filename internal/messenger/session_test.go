@@ -10,7 +10,7 @@ import (
 )
 
 // TestRemoveWhatsAppSessionDeletesStore: callers follow this with "please link
-// again", so a surviving store means the next run reuses the dead session.
+// again", so a surviving store means the next run reuses a dead session.
 func TestRemoveWhatsAppSessionDeletesStore(t *testing.T) {
 	t.Parallel()
 

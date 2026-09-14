@@ -7,6 +7,8 @@ import (
 	"html"
 	"strings"
 	"testing"
+
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
 // TestFormatGrades covers the body renderer every format shares. The escaper is
@@ -74,6 +76,43 @@ func TestFormatGrades(t *testing.T) {
 
 			if got := sb.String(); got != tt.want {
 				t.Errorf("formatGrades() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFormatSubject covers the shared header line. The escaper is required so
+// the three *AddHeader wrappers cannot each reach their own answer.
+func TestFormatSubject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		escape func(string) string
+		name   string
+		want   string
+	}{
+		{
+			name:   "escaper covers user and subject alike",
+			escape: html.EscapeString,
+			want:   GradePrefix + "&lt;u&gt; / &lt;s&gt;",
+		},
+		{
+			name:   "noEscape passes both through verbatim",
+			escape: noEscape,
+			want:   GradePrefix + "<u> / <s>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sb strings.Builder
+
+			formatSubject(&sb, "<u>", "<s>", msgtypes.Grade, tt.escape)
+
+			if got := sb.String(); got != tt.want {
+				t.Errorf("formatSubject() = %q, want %q", got, tt.want)
 			}
 		})
 	}

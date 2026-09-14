@@ -9,22 +9,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// markupReplacer escapes Markdown specials in one pass.
-// Backslash is first so later escape sequences don't introduce one mid-pass.
-// HTML-entity triplet escapes Slack mrkdwn link/mention metasyntax.
-var markupReplacer = strings.NewReplacer(
-	`\`, `\\`,
-	`&`, `&amp;`,
-	`<`, `&lt;`,
-	`>`, `&gt;`,
-	`*`, `\*`,
-	`_`, `\_`,
-	"`", "\\`",
-	`~`, `\~`,
-	`[`, `\[`,
-	`]`, `\]`,
-)
-
 // MarkupMsg formats grade report as preformatted Markup block in a string.
 func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	var sb strings.Builder
@@ -34,23 +18,41 @@ func MarkupMsg(username, subject string, code msgtypes.EventCode, descriptions, 
 	markupAddHeader(&sb, username, subject, code)
 
 	sb.WriteString("```\n")
-	formatGrades(&sb, descriptions, grade, markupEscapeString)
+	formatGrades(&sb, descriptions, grade, markupEscape)
 	sb.WriteString("```\n")
 
 	return sb.String()
 }
 
-// markupEscapeString escapes Markdown special characters in s to prevent them
-// from being interpreted as formatting syntax in Slack mrkdwn and Telegram
-// MarkdownV1 (e.g. a subject name containing '*' or '_' would break bold wrapping).
-func markupEscapeString(s string) string {
+// markupReplacer escapes what Slack interprets, and nothing else.
+//
+// Confirmed on a live render: mrkdwn honours no backslash escape, so `\*` reaches
+// the reader as a backslash and an asterisk. Escaping the formatting
+// metacharacters is therefore never right — one escaper serves header and body.
+// The &/</> entities are what Slack does require, code fence included.
+//
+// A backtick is substituted, not escaped, for the same reason: three in a row
+// would close MarkupMsg's fence and expose the rest of the note to formatting.
+//
+// Accepted: a literal '*' in a subject ends the header's bold early. Subject
+// names and skole.hr usernames carry none, and the alternative printed a
+// backslash before every underscore in every username.
+var markupReplacer = strings.NewReplacer(
+	`&`, `&amp;`,
+	`<`, `&lt;`,
+	`>`, `&gt;`,
+	"`", `'`,
+)
+
+// markupEscape escapes portal content for a Slack message, header and body alike.
+func markupEscape(s string) string {
 	return markupReplacer.Replace(s)
 }
 
-// markupAddHeader adds Markup bold header containing username and subject name, and a delimiter.
-// User and subject are escaped to prevent Markdown metacharacters from breaking the bold syntax.
+// markupAddHeader adds Markup bold header containing username and subject name,
+// and a delimiter.
 func markupAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	sb.WriteString("*")
-	PlainFormatSubject(sb, markupEscapeString(user), markupEscapeString(subject), code)
+	formatSubject(sb, user, subject, code, markupEscape)
 	sb.WriteString("*\n\n")
 }

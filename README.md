@@ -126,6 +126,8 @@ The configuration file consists of several blocks. The user block can be repeate
 >
 > **The bot may rewrite your configuration file.** When the WhatsApp `groups` field contains a name that resolves to a JID (see the [WhatsApp configuration](#whatsapp-configuration) section), and the file is writable by the bot's user, the resolved JID is migrated from `groups` into `userids` and the file is rewritten in place. Comments and key ordering are **not preserved** — the rewrite uses a TOML encoder that emits a canonical form. If you maintain the file under version control or rely on inline comments, either keep the file read-only and manage the JIDs yourself, or expect a single one-time rewrite on first successful resolution.
 
+> **Credentials are read once, at startup.** The configuration file is parsed when the bot starts, and the values it holds — AAI/AOSI passwords, messenger tokens, SMTP credentials — are used unchanged for the lifetime of the process. There is no reload signal. After rotating a password or a token, restart the bot (`systemctl restart e-dnevnik-bot`, or recreate the container) before expecting the new value to take effect.
+
 #### User configuration
 
 ```toml
@@ -189,6 +191,14 @@ from = "user.name@gmail.com"
 subject = "Nova ocjena iz e-Dnevnika"
 to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
 ```
+
+> **Upgrading: `from` is now required.** It used to be optional, but an empty
+> `from` is rejected by the SMTP library, and the mail messenger treated that as
+> a per-recipient failure — quietly discarding every alert it was given. The
+> address is now validated at startup, so a `[mail]` block with `server` set and
+> `from` missing **aborts the bot** rather than running with mail silently
+> broken. Because that abort happens before anything starts, the other
+> messengers stop too: add `from` before upgrading.
 
 Steps required:
 

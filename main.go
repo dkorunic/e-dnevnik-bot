@@ -259,27 +259,39 @@ func main() {
 				return
 			}
 
-			// On overrun, emit "overdue" instead of a useless "Next run in 0 second".
-			var scheduledSleep string
-			if remaining := time.Until(nextRunAt); remaining > 0 {
-				scheduledSleep = fmt.Sprintf(scheduledNext, durafmt.Parse(remaining.Round(time.Second)).String())
-			} else {
-				scheduledSleep = scheduledOverdue
-			}
-
-			logger.Info().Msg(scheduledSleep)
-			_ = sysdnotify.Status(scheduledSleep)
-
-			// Drain stale tick; Stop()+Reset() don't flush the buffered value.
-			select {
-			case <-statusTicker.C:
-			default:
-			}
-
-			// Resume countdown for the idle window.
-			statusTicker.Reset(statusInterval)
+			announceIdleWindow(ctx, statusTicker, nextRunAt)
 		}
 	}
+}
+
+// announceIdleWindow reports how long the daemon will idle before the next
+// poll, or that the cycle has overrun, and resumes the countdown ticker.
+//
+// Silent once ctx is cancelled: a cycle cut short by SIGTERM has no idle window
+// to wait out, and announcing one tells the operator the daemon is sleeping
+// while it is on its way out.
+func announceIdleWindow(ctx context.Context, statusTicker *time.Ticker, nextRunAt time.Time) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	var scheduledSleep string
+	if remaining := time.Until(nextRunAt); remaining > 0 {
+		scheduledSleep = fmt.Sprintf(scheduledNext, durafmt.Parse(remaining.Round(time.Second)).String())
+	} else {
+		scheduledSleep = scheduledOverdue
+	}
+
+	logger.Info().Msg(scheduledSleep)
+	_ = sysdnotify.Status(scheduledSleep)
+
+	// Drain stale tick; Stop()+Reset() don't flush the buffered value.
+	select {
+	case <-statusTicker.C:
+	default:
+	}
+
+	statusTicker.Reset(statusInterval)
 }
 
 // awaitShutdown drains the bgWG background goroutines under an exitDelay
@@ -333,7 +345,18 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 
 	versionCheck(ctx, &wgVersion)
 
-	eDB := openDB(ctx, *dbFile)
+	eDB, err := openDB(ctx, *dbFile)
+	if err != nil {
+		// No dedup store means no way to tell a new event from a seen one, so
+		// the cycle is skipped rather than run blind. versionCheck is already
+		// in flight and still has to be awaited.
+		logger.Error().Msgf("Unable to open application database, skipping this cycle: %v", err)
+		exitWithError.Store(true)
+
+		wgVersion.Wait()
+
+		return
+	}
 
 	scrapeStage(ctx, &wgScrape, gradesScraped, cfg)
 
@@ -399,7 +422,13 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 
 	var wgMsg sync.WaitGroup
 
-	eDB := openDB(ctx, *dbFile)
+	eDB, err := openDB(ctx, *dbFile)
+	if err != nil {
+		logger.Error().Msgf("Unable to open application database: %v", err)
+		exitWithError.Store(true)
+
+		return
+	}
 
 	msgSend(ctx, eDB, &wgMsg, gradesMsg, config)
 

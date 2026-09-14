@@ -203,11 +203,35 @@ func TestTelegramInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to create Telegram bot: %v", err)
 	}
-	telegramCli = b
-	err = telegramInit("test-token")
-	if err != nil {
+
+	seedTelegramClient(t, b, "test-token")
+
+	if err := telegramInit("test-token"); err != nil {
 		t.Fatalf("telegramInit() error = %v", err)
 	}
+}
+
+// seedTelegramClient publishes a client together with the credentials it was
+// built from, the way telegramInit does. Seeding the client alone leaves the
+// guard unset, so the next telegramInit treats the token as changed and rebuilds
+// through bot.New — against the live API, since only the seeded client carries
+// the test server URL.
+func seedTelegramClient(t *testing.T, b *bot.Bot, token string) {
+	t.Helper()
+
+	telegramMu.Lock()
+	orig := telegramCli
+	origCreds := telegramCreds
+	telegramCli = b
+	telegramCreds.record(token)
+	telegramMu.Unlock()
+
+	t.Cleanup(func() {
+		telegramMu.Lock()
+		telegramCli = orig
+		telegramCreds = origCreds
+		telegramMu.Unlock()
+	})
 }
 
 // TestProcessTelegramPoisonKeyedOnConfiguredChatID: after a migration the loop

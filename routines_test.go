@@ -4,14 +4,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
@@ -623,26 +626,162 @@ func TestDispatchSkipsUnqueueableOverflow(t *testing.T) {
 	eDB := openExistingDB(t, t.TempDir()+"/dispatch-queueable.db")
 	defer eDB.Close() //nolint:errcheck
 
-	queueName := []byte("test-dispatch-queueable-queue")
-
 	// Capacity one, already occupied: every further send takes the spill branch.
+	// The real Calendar queue, not an injected predicate: the rule lives with
+	// the queue, so this exercises the wiring an operator actually gets.
 	s := messengerSink{
-		ch:        make(chan msgtypes.Message, 1),
-		queue:     queueName,
-		queueable: isExamMsg,
+		ch:    make(chan msgtypes.Message, 1),
+		queue: messenger.CalendarQueueName,
 	}
 	s.ch <- msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "already-buffered"}
 
 	dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Grade, Username: "u", Subject: "dropped-grade"})
 
-	if got := queue.FetchFailedMsgs(t.Context(), eDB, queueName); len(got) != 0 {
+	if got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.CalendarQueueName); len(got) != 0 {
 		t.Fatalf("FetchFailedMsgs = %+v, want nothing queued: this messenger discards non-exams, so the row would be unconsumable", got)
 	}
 
 	dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "spilled-exam"})
 
-	got := queue.FetchFailedMsgs(t.Context(), eDB, queueName)
+	got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.CalendarQueueName)
 	if len(got) != 1 || got[0].Msg.Subject != "spilled-exam" {
 		t.Fatalf("FetchFailedMsgs = %+v, want only the exam spilled; the filter must not become a general drop", got)
+	}
+}
+
+// TestIsStaleEventLeapDay: "29.2." only exists in a leap year, so attaching a
+// non-leap year rolls it to 1 March and makes a grade from an earlier leap year
+// look days old. The year has to walk back to one that actually has the date.
+func TestIsStaleEventLeapDay(t *testing.T) {
+	setRelevancePeriod(t, 30*24*time.Hour)
+
+	// 2027 is not a leap year, so the most recent 29 February was 2024's.
+	now := time.Date(2027, 3, 5, 12, 0, 0, 0, time.UTC)
+
+	g := msgtypes.Message{
+		Code:     msgtypes.Grade,
+		Username: "u",
+		Subject:  "Matematika",
+		Fields:   []string{"29.2."},
+	}
+
+	if !isStaleEvent(g, now) {
+		t.Error("a 29 February grade seen in March 2027 was treated as fresh; the nearest such date is 2024-02-29, years outside the window")
+	}
+
+	// A leap year must still resolve to the date itself, not walk past it.
+	leapNow := time.Date(2028, 3, 5, 12, 0, 0, 0, time.UTC)
+	if isStaleEvent(g, leapNow) {
+		t.Error("a 29 February 2028 grade seen days later was treated as stale")
+	}
+}
+
+// TestIsStaleEventBlankDateIsNotAnError: cellValues pads empty cells, so a
+// subject whose first column is blank is padding, not portal drift. Logging it
+// at Error emits one line per event per cycle, forever.
+func TestIsStaleEventBlankDateIsNotAnError(t *testing.T) {
+	setRelevancePeriod(t, 30*24*time.Hour)
+
+	var buf bytes.Buffer
+
+	orig := logger.Logger
+	logger.Logger = logger.Output(&buf)
+
+	t.Cleanup(func() { logger.Logger = orig })
+
+	g := msgtypes.Message{
+		Code:     msgtypes.Grade,
+		Username: "u",
+		Subject:  "Matematika",
+		Fields:   []string{"", "5"},
+	}
+
+	if isStaleEvent(g, time.Now()) {
+		t.Error("a blank date must fail open, not suppress the alert")
+	}
+
+	if got := buf.String(); strings.Contains(got, `"level":"error"`) {
+		t.Errorf("a blank date logged at error level: %v", got)
+	}
+
+	// A non-empty value that genuinely will not parse must still be loud.
+	buf.Reset()
+
+	g.Fields = []string{"not-a-date"}
+
+	if isStaleEvent(g, time.Now()) {
+		t.Error("an unparseable date must fail open")
+	}
+
+	if got := buf.String(); !strings.Contains(got, `"level":"error"`) {
+		t.Errorf("an unparseable date was not reported at error level: %v", got)
+	}
+}
+
+// TestResolveHRYear covers the year the portal's "D.M." column omits. 29
+// February is the only value absent from some years, and the gap spans a
+// non-leap century boundary (1900, 2100), so the walk has to reach further back
+// than four years.
+func TestResolveHRYear(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		date string
+		now  time.Time
+		want time.Time
+	}{
+		{
+			name: "already passed this year",
+			date: "15.4.",
+			now:  time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "still ahead implies last year",
+			date: "20.9.",
+			now:  time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2025, 9, 20, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "leap day in a leap year is itself",
+			date: "29.2.",
+			now:  time.Date(2028, 3, 5, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2028, 2, 29, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "leap day in a common year walks back",
+			date: "29.2.",
+			now:  time.Date(2027, 3, 5, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2024, 2, 29, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			// 2100 is not a leap year, so 2096 is the nearest — seven steps,
+			// which a four-year assumption cannot reach.
+			name: "leap day across a non-leap century",
+			date: "29.2.",
+			now:  time.Date(2103, 3, 5, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2096, 2, 29, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			parsed, err := time.Parse(formatHRDateOnly, tt.date)
+			if err != nil {
+				t.Fatalf("time.Parse(%q) = %v", tt.date, err)
+			}
+
+			got, ok := resolveHRYear(parsed, tt.now)
+			if !ok {
+				t.Fatalf("resolveHRYear(%q, %v) reported no resolvable year", tt.date, tt.now)
+			}
+
+			if !got.Equal(tt.want) {
+				t.Errorf("resolveHRYear(%q, %v) = %v, want %v", tt.date, tt.now, got, tt.want)
+			}
+		})
 	}
 }

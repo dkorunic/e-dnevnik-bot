@@ -38,8 +38,9 @@ var (
 	MailQueueName = []byte(MailQueue)
 	MailVersion   = version.ReadVersion("github.com/wneessen/go-mail")
 
-	mailCli *mail.Client
-	mailMu  sync.Mutex // guards mailCli initialisation
+	mailCli   *mail.Client
+	mailCreds credGuard  // credentials mailCli was built from
+	mailMu    sync.Mutex // guards mailCli and mailCreds
 )
 
 // MailConfig holds the per-messenger settings for the e-mail backend.
@@ -106,29 +107,35 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 	return nil
 }
 
-// mailInit initializes the mail client once, reusing it across all subsequent calls.
+// mailInit lazily creates the shared mail client, rebuilding it when any of the
+// server, port, username or password changes (see credGuard).
 func mailInit(server string, portInt int, username, password string) error {
 	mailMu.Lock()
 	defer mailMu.Unlock()
 
-	if mailCli == nil {
-		logger.Debug().Msg("Initializing e-mail client")
+	port := strconv.Itoa(portInt)
 
-		// Mandatory STARTTLS: AUTH PLAIN must never traverse cleartext.
-		cli, err := mail.NewClient(server,
-			mail.WithPort(portInt),
-			mail.WithSMTPAuth(mail.SMTPAuthPlain),
-			mail.WithTLSPolicy(mail.TLSMandatory),
-			mail.WithUsername(username),
-			mail.WithPassword(password),
-		)
-		if err != nil {
-			return fmt.Errorf("%w: %w", ErrMailDialer, err)
-		}
-
-		// Publish only on full success so a failed init is retried next cycle.
-		mailCli = cli
+	if mailCli != nil && !mailCreds.changed(server, port, username, password) {
+		return nil
 	}
+
+	logger.Debug().Msg("Initializing e-mail client")
+
+	// Mandatory STARTTLS: AUTH PLAIN must never traverse cleartext.
+	cli, err := mail.NewClient(server,
+		mail.WithPort(portInt),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithTLSPolicy(mail.TLSMandatory),
+		mail.WithUsername(username),
+		mail.WithPassword(password),
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrMailDialer, err)
+	}
+
+	// Publish only on full success so a failed init is retried next cycle.
+	mailCli = cli
+	mailCreds.record(server, port, username, password)
 
 	return nil
 }
@@ -194,12 +201,14 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m := mail.NewMsg()
 
 		if err := m.From(from); err != nil {
-			// Malformed From is permanent: the message can never be sent, so drop.
-			logger.Error().Msgf("Invalid mail From address %v, permanently dropping recipient %q: %v", from, u, err)
+			// Message-level, not the recipient's: blaming each address in turn
+			// reported one config line as a fleet of dead recipients. No
+			// recipient can be served, and no retry can help, so stop here
+			// rather than requeue into MaxQueueAge.
+			logger.Error().Msgf("%v: invalid From address %q, dropping alert for %v/%v: %v",
+				ErrMailSendingMessages, from, g.Username, g.Subject, err)
 
-			poisonedIDs = append(poisonedIDs, u)
-
-			continue
+			return
 		}
 
 		if err := m.To(u); err != nil {

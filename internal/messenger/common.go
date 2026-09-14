@@ -4,6 +4,7 @@
 package messenger
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -56,6 +57,21 @@ func isPermanentSendErr(err error) bool {
 	return errors.As(err, &perr)
 }
 
+// QueueAccepts reports whether g is worth persisting to the named queue. A row
+// is only worth writing if something reads it back: Calendar takes exams alone
+// and its deferred stub never reads its queue, so anything else sits there
+// unconsumable until MaxQueueAge.
+//
+// Keyed on the queue, not passed in: the overflow spill, init failure and panic
+// drain all have to agree, and a parameter is something a new route can forget.
+func QueueAccepts(queueName []byte, g msgtypes.Message) bool {
+	if bytes.Equal(queueName, CalendarQueueName) {
+		return g.Code == msgtypes.Exam
+	}
+
+	return true
+}
+
 // storeTimeout bounds the detached context used to persist queue writes after caller ctx cancel.
 const storeTimeout = 5 * time.Second
 
@@ -78,8 +94,15 @@ func queueStoreCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 // single durable store there is no fallback, so the message is lost.
 func queueUndelivered(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, ch <-chan msgtypes.Message) {
 	queued := 0
+	skipped := 0
 
 	for g := range ch {
+		if !QueueAccepts(queueName, g) {
+			skipped++
+
+			continue
+		}
+
 		// Shutdown-tolerant: queue write must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, queueName, g); err != nil {
@@ -95,6 +118,11 @@ func queueUndelivered(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, 
 		logger.Warn().Msgf("Messenger %v failed to initialize; stored %v undelivered messages for retry on next run",
 			string(queueName), queued)
 	}
+
+	if skipped > 0 {
+		logger.Debug().Msgf("Messenger %v does not deliver %v of the undelivered messages; dropped rather than queued",
+			string(queueName), skipped)
+	}
 }
 
 // recoverMessenger prevents a panicking messenger from crashing the process:
@@ -109,7 +137,7 @@ func recoverMessenger(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, 
 		string(queueName), r)
 
 	// Consumed from ch before the panic — orphaned from both channel and queue.
-	if inflight != nil {
+	if inflight != nil && QueueAccepts(queueName, *inflight) {
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, queueName, *inflight); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -168,15 +196,27 @@ func mergeSkipRecipients(existing, extras []string) []string {
 	return out
 }
 
-// truncateHTMLBody renders an HTML message that fits within maxRunes by
-// dropping trailing description/grade pairs. Trimming the input (not the
-// output) keeps the <b>/<pre> tags balanced so Telegram's parser accepts it;
-// an over-budget header falls back to header-only. Uses binary search over the
-// pair count (O(log N) renders).
+// bodyRenderer renders a whole message from its parts; format.HTMLMsg and
+// format.MarkupMsg both satisfy it.
+type bodyRenderer func(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string
+
+// truncateHTMLBody fits an HTML message within maxRunes.
 func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descriptions, grade []string, maxRunes int) string {
+	return truncateRendered(format.HTMLMsg, username, subject, code, descriptions, grade, maxRunes)
+}
+
+// truncateRendered fits a message within maxRunes by dropping trailing
+// description/grade pairs and re-rendering.
+//
+// Which side gets trimmed is the point: cutting the output splits whatever it
+// lands in — a <b>/<pre> tag Telegram rejects, a Slack fence's closing ```, or
+// an &-entity arriving as "&am". Trimming the input only ever drops whole rows.
+// An over-budget header falls back to header-only and may still exceed
+// maxRunes; nothing smaller renders. O(log N) renders via binary search.
+func truncateRendered(render bodyRenderer, username, subject string, code msgtypes.EventCode, descriptions, grade []string, maxRunes int) string {
 	nMax := min(len(descriptions), len(grade))
 
-	formatted := format.HTMLMsg(username, subject, code, descriptions[:nMax], grade[:nMax])
+	formatted := render(username, subject, code, descriptions[:nMax], grade[:nMax])
 	if utf8.RuneCountInString(formatted) <= maxRunes {
 		return formatted
 	}
@@ -185,7 +225,7 @@ func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descrip
 	lo, hi := -1, nMax
 	for lo+1 < hi {
 		mid := lo + (hi-lo)/2
-		candidate := format.HTMLMsg(username, subject, code, descriptions[:mid], grade[:mid])
+		candidate := render(username, subject, code, descriptions[:mid], grade[:mid])
 
 		if utf8.RuneCountInString(candidate) <= maxRunes {
 			lo = mid
@@ -197,7 +237,7 @@ func truncateHTMLBody(username, subject string, code msgtypes.EventCode, descrip
 
 	if lo < 0 {
 		// Even the header exceeds the budget; best-effort return.
-		return format.HTMLMsg(username, subject, code, nil, nil)
+		return render(username, subject, code, nil, nil)
 	}
 
 	return formatted

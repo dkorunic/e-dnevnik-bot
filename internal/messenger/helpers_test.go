@@ -267,8 +267,11 @@ func TestTruncateHTMLBodyCountsRunesNotBytes(t *testing.T) {
 
 // TestSlackInitIsIdempotent: the shared client is created lazily and reused, so
 // a second call must not replace a live client mid-cycle.
+// TestSlackInitRebuildsOnlyOnCredentialChange: the cache must be keyed on the
+// token, not merely on the client existing — unchanged credentials keep the
+// client, a rotated one replaces it.
 // Not parallel: writes the package-level slackCli global.
-func TestSlackInitIsIdempotent(t *testing.T) {
+func TestSlackInitRebuildsOnlyOnCredentialChange(t *testing.T) {
 	slackMu.Lock()
 	orig := slackCli
 	slackCli = nil
@@ -292,7 +295,7 @@ func TestSlackInitIsIdempotent(t *testing.T) {
 		t.Fatal("slackInit() left slackCli nil")
 	}
 
-	if err := slackInit("xoxb-second"); err != nil {
+	if err := slackInit("xoxb-first"); err != nil {
 		t.Fatalf("slackInit() second call = %v, want nil", err)
 	}
 
@@ -301,7 +304,21 @@ func TestSlackInitIsIdempotent(t *testing.T) {
 	slackMu.Unlock()
 
 	if first != second {
-		t.Error("slackInit() replaced an existing client; initialization must be idempotent")
+		t.Error("slackInit() rebuilt on unchanged credentials; every cycle would discard a working client")
+	}
+
+	// Rotated token: the cached client authenticates as the old one, so serving
+	// it would send with a credential the operator has replaced.
+	if err := slackInit("xoxb-second"); err != nil {
+		t.Fatalf("slackInit() after rotation = %v, want nil", err)
+	}
+
+	slackMu.Lock()
+	third := slackCli
+	slackMu.Unlock()
+
+	if third == second {
+		t.Error("slackInit() kept the client built from the previous token")
 	}
 }
 

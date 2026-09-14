@@ -3,12 +3,38 @@
 
 package format
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+)
 
 // noEscape is the identity escaper. Naming it makes "this format escapes
 // nothing" a stated choice rather than an inherited one: MarkupMsg reached
 // Slack's mrkdwn unescaped by reusing the plain-text renderer.
 func noEscape(s string) string { return s }
+
+// formatSubject writes the "<prefix><user> / <subject>" header line. escape
+// covers both portal-derived fields and is mandatory (see noEscape).
+func formatSubject(sb *strings.Builder, user, subject string, code msgtypes.EventCode, escape func(string) string) {
+	switch code {
+	case msgtypes.Exam:
+		sb.WriteString(ExamPrefix)
+	case msgtypes.Reading:
+		sb.WriteString(ReadingPrefix)
+	case msgtypes.Grade:
+		sb.WriteString(GradePrefix)
+	case msgtypes.FinalGrade:
+		sb.WriteString(FinalGradePrefix)
+	case msgtypes.NationalExam:
+		sb.WriteString(NationalExamPrefix)
+	default:
+	}
+
+	sb.WriteString(escape(user))
+	sb.WriteString(" / ")
+	sb.WriteString(escape(subject))
+}
 
 // formatGrades renders description/value pairs, skipping blank columns — the
 // scraper pads those for alignment. escape covers both halves and is mandatory

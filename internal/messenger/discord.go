@@ -51,7 +51,8 @@ var (
 	DiscordQueueName = []byte(DiscordQueue)
 	discordCli       *discordgo.Session
 	discordChannels  map[string]string // cached DM channel IDs per user ID
-	discordMu        sync.Mutex        // guards discordCli and discordChannels initialisation
+	discordCreds     credGuard         // credentials discordCli was built from
+	discordMu        sync.Mutex        // guards discordCli, discordChannels and discordCreds
 	DiscordVersion   = version.ReadVersion("github.com/bwmarrin/discordgo")
 )
 
@@ -373,7 +374,8 @@ func sendDiscordEmbed(ctx context.Context, channelID string, msg *discordgo.Mess
 	)
 }
 
-// discordInit lazily creates the shared REST-only Discord client (idempotent).
+// discordInit lazily creates the shared REST-only Discord client, rebuilding it
+// when the token changes (see credGuard).
 func discordInit(token string) error {
 	discordMu.Lock()
 	defer discordMu.Unlock()
@@ -383,23 +385,28 @@ func discordInit(token string) error {
 	// gateway connection open added heartbeats/reconnect churn for nothing —
 	// and a failed Open() left a half-initialized session that was never
 	// retried because discordCli was already non-nil.
-	if discordCli == nil {
-		logger.Debug().Msg("Initializing Discord client")
-
-		cli, err := discordgo.New("Bot " + token)
-		if err != nil {
-			logger.Error().Msgf("%v: %v", ErrDiscordCreatingSession, err)
-
-			return err
-		}
-
-		cli.ShouldRetryOnRateLimit = true
-		cli.MaxRestRetries = 1
-
-		// Publish only on full success so a failed init is retried next cycle.
-		discordCli = cli
-		discordChannels = make(map[string]string)
+	if discordCli != nil && !discordCreds.changed(token) {
+		return nil
 	}
+
+	logger.Debug().Msg("Initializing Discord client")
+
+	cli, err := discordgo.New("Bot " + token)
+	if err != nil {
+		logger.Error().Msgf("%v: %v", ErrDiscordCreatingSession, err)
+
+		return err
+	}
+
+	cli.ShouldRetryOnRateLimit = true
+	cli.MaxRestRetries = 1
+
+	// Publish only on full success so a failed init is retried next cycle.
+	// The channel cache is dropped with the client it belongs to: a DM channel
+	// is owned by the bot identity that opened it.
+	discordCli = cli
+	discordChannels = make(map[string]string)
+	discordCreds.record(token)
 
 	return nil
 }

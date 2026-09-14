@@ -86,6 +86,48 @@ func (c *Client) chromeNavigationMW(r *surf.Request) error {
 	return nil
 }
 
+// postOnlyHeaderOrder belong to a request with a body. A hop rewritten to GET
+// inherits them because the redirect copier strips only Content-Type.
+var postOnlyHeaderOrder = []string{"content-length", "content-type", "pragma", "cache-control", "origin"}
+
+// chromeRedirectClientHints move as a block: a Chrome 152 capture puts them
+// after sec-fetch-dest on a redirect hop, where a fresh navigation carries them
+// ahead of user-agent. Matching our own plain GETs is therefore also wrong.
+var chromeRedirectClientHints = []string{"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform"}
+
+// moveHeaderOrderBefore relocates names, in the sequence given, to sit ahead of
+// before. A missing before leaves order untouched rather than guessed at.
+func moveHeaderOrderBefore(order, names []string, before string) []string {
+	out := slices.Clone(order)
+
+	present := make([]string, 0, len(names))
+
+	for _, n := range names {
+		if slices.Contains(order, n) {
+			present = append(present, n)
+		}
+
+		out = dropHeaderOrder(out, n)
+	}
+
+	at := slices.Index(out, before)
+	if at < 0 {
+		return order
+	}
+
+	return slices.Insert(out, at, present...)
+}
+
+// dropHeaderOrder removes name from order, leaving it untouched if absent.
+func dropHeaderOrder(order []string, name string) []string {
+	at := slices.Index(order, name)
+	if at < 0 {
+		return order
+	}
+
+	return slices.Delete(slices.Clone(order), at, at+1)
+}
+
 // insertHeaderOrder slots name ahead of before, leaving order untouched if
 // name is already listed or before is absent; appending instead would recreate
 // the trailing-header bug this prevents.
@@ -102,6 +144,50 @@ func insertHeaderOrder(order []string, name, before string) []string {
 	return slices.Insert(slices.Clone(order), at, name)
 }
 
+// fixupRedirectHeaders corrects a hop rewritten to GET that still wears the
+// POST's headers. chromeNavigationMW runs once per Do(), not per hop, so
+// CheckRedirect is the only hook that sees one — and it runs after the copier.
+// Every correction comes from a Chrome 152 wire capture (see CLAUDE.md).
+//
+//   - Origin goes: Chrome sends none on a GET navigation.
+//   - content-length goes from the *order list*, not the header map. Deleting
+//     the header does nothing — enetx/http's ordered writer re-adds it from the
+//     list (`if v == "content-length" && cl >= 0`), emitting "Content-Length: 0".
+//   - the client hints move to where the capture shows them.
+//
+// Sec-Fetch-User and Upgrade-Insecure-Requests stay: Chrome sends both on
+// navigations. A 307/308 keeps its method, so it keeps its Origin too.
+//
+// The order is patched, not declared: surf owns it via Impersonate()'s own
+// SetHeaders call, and passing our own MapOrd would register at priority 0 —
+// racing that call rather than following it — and replace the list wholesale.
+// Wrapping surf's CheckRedirect likewise preserves its max-redirect ceiling and
+// same-host rule, which the builder's checkRedirect option discards.
+func fixupRedirectHeaders(cli *surf.Client) {
+	hc := cli.GetClient()
+	surfPolicy := hc.CheckRedirect
+
+	hc.CheckRedirect = func(req *ehttp.Request, via []*ehttp.Request) error {
+		if req.Method == http.MethodGet {
+			req.Header.Del("Origin")
+
+			if order, ok := req.Header[ehttp.HeaderOrderKey]; ok {
+				for _, name := range postOnlyHeaderOrder {
+					order = dropHeaderOrder(order, name)
+				}
+
+				req.Header[ehttp.HeaderOrderKey] = moveHeaderOrderBefore(order, chromeRedirectClientHints, "referer")
+			}
+		}
+
+		if surfPolicy != nil {
+			return surfPolicy(req, via)
+		}
+
+		return nil
+	}
+}
+
 // newSurfClient builds c's impersonating HTTP client. One Chrome 152 profile
 // supplies every browser-identifying signal — user agent, client hints, header
 // order, ClientHello, HTTP/2 SETTINGS — so they cannot contradict each other.
@@ -109,7 +195,7 @@ func insertHeaderOrder(order []string, name, before string) []string {
 // Session() adds the cookie jar SSO needs; owning the client keeps
 // CloseConnections off a shared pool.
 func newSurfClient(c *Client) (*surf.Client, error) {
-	return surf.NewClient().
+	cli, err := surf.NewClient().
 		Builder().
 		Impersonate().Windows().Chrome().
 		Session().
@@ -117,4 +203,11 @@ func newSurfClient(c *Client) (*surf.Client, error) {
 		With(c.chromeNavigationMW, overrideMWPriority).
 		Build().
 		Result()
+	if err != nil {
+		return nil, err
+	}
+
+	fixupRedirectHeaders(cli)
+
+	return cli, nil
 }

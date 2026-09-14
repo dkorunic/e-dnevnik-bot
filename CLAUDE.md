@@ -138,9 +138,29 @@ What the profile cannot know about *this* portal is corrected in `chromeNavigati
 - **`Connection: keep-alive` is prepended to `HeaderOrderKey`.** surf's order map has no slot for it, so it otherwise lands last rather than directly after `Host`.
 - **The login POST is a navigation, not an XHR.** surf models POSTs as XHR (`Accept: */*`, `Sec-Fetch-Mode: cors`, plus the no-cache pair); a form submit carries the navigation `Accept`, an `Origin`, and no cache-busting headers.
 
+`chromeNavigationMW` runs **once per `Do()`, not once per redirect hop** — surf applies middleware above its own `retry:` label, and redirects are followed inside `cli.Do`. The redirect handler then copies the initial request's headers onto every hop, stripping only the `Content-*` group on a POST→GET rewrite. So the POST rules above leak forward, and per-hop corrections need `CheckRedirect`, which runs *after* that copier:
+
+- **`Origin` is deleted on a redirect hop that became a GET** (`stripRedirectOrigin`). A Chrome 152 capture of this portal shows no `Origin` on a GET navigation, so the login POST's would contradict the profile on the post-login request. `Sec-Fetch-User` and `Upgrade-Insecure-Requests` are deliberately *kept*: the same capture shows Chrome sending both on navigations. A method-preserving redirect (307/308) is still a form submit and keeps its `Origin`.
+- **Wrap surf's `CheckRedirect`, never replace it.** It carries the max-redirect ceiling and the same-host rule; the builder's `checkRedirect` option discards both (`TestRedirectCeilingSurvivesOriginStrip` follows 129 hops instead of 10 if you do).
+
+Still unresolved: the redirect GET carries surf's **POST** `HeaderOrderKey` list. DevTools displays request headers alphabetically sorted, so a DevTools capture cannot establish Chrome's wire order — settling it needs the Network panel's "view source" or a raw wire capture.
+
 **Any request with a body must set `GetBody`** (see `doSAMLRequest`). surf sets `Body` but never `GetBody`, and because the Chrome ClientHello offers h2 while the portal negotiates none, surf retries over HTTP/1.1 — which only works for a request it can rewind. Bodyless GETs replay regardless, so omitting it breaks authentication outright while leaving unauthenticated fetches working, and no GET-only test will catch it.
 
-Verify header changes by diffing against a real capture, never from memory: load the portal in Chrome, read the request over the DevTools protocol, and compare against `req.Write` output from a stub transport. The `Priority` and `Connection` rules above were both found that way. Tests reach the stub via `newStubClient`, which swaps `GetClient().Transport` so surf's middleware still runs.
+Verify header changes by diffing against a real capture, never from memory. The `Priority`, `Connection` and redirect-`Origin` rules above were all found that way, and two plausible shortcuts were wrong: matching our *own* GET order (Chrome orders a redirect hop differently from a fresh navigation) and deleting the `Content-Length` header (the ordered writer re-adds it from the order list).
+
+**DevTools is not sufficient.** The Network panel sorts request headers alphabetically and CDP returns a map, so neither shows wire order; Go's `Header` map canonicalises, so neither shows casing. Order and casing exist only on the socket.
+
+**Capture recipe.** `TestRedirectHopMatchesChromeWireOrder` (`internal/fetch/wire_test.go`) carries a raw HTTP/1.1 listener that records header names in wire order, and drives the real transport — not a stub — through a POST→302→GET. To re-derive the expected sequence after a surf bump:
+
+1. Point that listener's address at a browser instead of the client: serve a form whose action POSTs back, then 302 to another path. `127.0.0.1` is a trustworthy origin, so Chrome sends the full set (client hints included) over plain HTTP — no certificate needed.
+2. Drive the form in Chrome, read the redirect hop's names off the listener, and update `chromeRedirectWireOrder` from that capture.
+
+Never edit `chromeRedirectWireOrder` to match a failing test: a change there means either surf's profile moved or Chrome did, and only a capture distinguishes them.
+
+For everything else, tests reach a stub via `newStubClient`, which swaps `GetClient().Transport` so surf's middleware still runs.
+
+**Header-name casing cannot be fixed from here.** Chrome sends the `sec-ch-*` client hints lowercase and everything else canonicalised; surf's own constants are lowercase (`header.SEC_CH_UA = "sec-ch-ua"`), but `enetx/http` writes every name through `CanonicalHeaderKey` (`header.go`), so they reach the wire as `Sec-Ch-Ua`. That is an upstream gap, not something `chromeNavigationMW` can correct — the wire-order test compares case-insensitively for that reason.
 
 ### Messenger implementation contract — `internal/messenger/*.go`
 
@@ -151,6 +171,13 @@ Every messenger follows an identical lifecycle and set of rules. When adding a n
 3. **Permanent vs transient errors + poison-drop**: each messenger has a `markNamePermanent(err) error`. Permanent errors (invalid token, 4xx that will never succeed) are wrapped `retry.Unrecoverable(permanentError{err})` — the outer marker short-circuits `retry-go`, and the inner `permanentError` sentinel **survives `retry.Do`'s marker stripping** (retry-go v5 strips the outer `Unrecoverable` on return) so `isPermanentSendErr` can still detect permanence *after* the retry loop. Transient errors (timeout, 429) are returned unwrapped so retry fires. A permanent per-recipient failure is **poison-dropped**: logged loudly, added to `poisonedIDs`, and **not** requeued (it would otherwise retry every cycle until `MaxQueueAge`); only transient failures set `anyFailed` and requeue.
 4. **Partial delivery — `SkipRecipients`**: successful *and* poisoned recipient IDs are merged into `g.SkipRecipients` before requeuing (via `mergeSkipRecipients`, deduplicated so it doesn't grow unboundedly). On retry, iterate over recipients and skip those already in the set.
 5. **Queue writes must use `queueStoreCtx`** (see Shutdown-tolerant queue writes above) — never the raw `ctx`.
+
+### Outbound formatting contract — `internal/format`, `internal/messenger`
+
+Two rules that were each established by sending a real message and reading it back, not by reasoning about the markup.
+
+- **Slack honours no backslash escape. Never escape mrkdwn metacharacters.** `\*` reaches the reader as a literal backslash followed by an asterisk — confirmed on a live render, where every username carrying an underscore arrived as `pero\_peric`. `markupEscape` therefore escapes only what Slack does interpret: the `&`/`<`/`>` entities, which are required *everywhere* including inside a code fence. A backtick is substituted rather than escaped, because it cannot be escaped either and three in a row would close `MarkupMsg`'s fence. One escaper serves header and body — splitting them is how the two halves came to hold contradictory beliefs about the same renderer. Accepted cost: a literal `*` in a subject ends the header's bold early.
+- **Truncate the input, never the rendered output** (`truncateRendered`). Cutting the finished string splits whatever it lands in: a `<b>`/`<pre>` tag Telegram's parser rejects, the closing ``` of a Slack fence, or an `&amp;` that arrives as `&am`. Dropping whole description/value pairs and re-rendering can only ever lose rows. `truncateWithEllipsis` is for unstructured text only — plain-text bodies, mail subjects, Discord field values — and using it on rendered markup is the bug this rule exists to prevent.
 
 ---
 
@@ -165,6 +192,8 @@ Every messenger follows an identical lifecycle and set of rules. When adding a n
 ## Config
 
 TOML (`.e-dnevnik.toml`). Multiple `[[user]]` blocks supported. Each messenger section is independently optional — absence disables that messenger. Validation is fail-fast in `internal/config/validators.go`. `LoadConfig` tightens the file to 0600 on every load (best-effort, warn-only on failure); `SaveConfig` writes 0600 atomically.
+
+**Credentials are read once, at startup.** `cfg` is loaded in `main` and passed *by value* into every poll cycle, and nothing re-reads the file — `LoadConfigRaw` exists only for the two rewrite paths (`telegramPersistChatID`, `whatsAppPersistResolvedGroups`). Rotating a token therefore requires a restart, and that is documented behaviour, not an oversight. The messengers' lazy clients are keyed on their credentials anyway (`credGuard`, `internal/messenger/creds.go`), so a rebuild happens if the inputs ever do start varying: `if cli == nil` alone would keep serving a client built from a superseded secret. Live rotation would additionally need a validating non-fatal loader (`LoadConfig` calls `logger.Fatal`, which must never run mid-cycle), would have to take `configRewriteMu` to avoid racing those rewrite paths, and could not cover WhatsApp or Calendar at all — their credentials live in `.e-dnevnik.wa.sqlite` and `calendar_token.json`, behind interactive pairing and OAuth.
 
 ## Flag variables
 

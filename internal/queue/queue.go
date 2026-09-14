@@ -43,6 +43,13 @@ const rowKeySep = byte(0x00)
 
 var ErrQueueing = errors.New("problem with persistent queue")
 
+// rowStore is the write surface the per-row layout uses. A seam: splitRow's
+// rollback runs only on a Put that fails partway, which a healthy store won't.
+type rowStore interface {
+	Put(ctx context.Context, key, value []byte) error
+	Delete(ctx context.Context, key []byte) error
+}
+
 // rowSeq disambiguates rows stored within the same nanosecond; combined with
 // the timestamp it yields process-unique, roughly FIFO-ordered row keys.
 var rowSeq atomic.Uint64
@@ -90,7 +97,7 @@ func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgty
 // after the outcome is durable (delivered, or re-queued as a fresh row): a
 // crash before Dequeue re-delivers rather than loses. The delete survives ctx
 // cancel so a shutdown mid-drain doesn't duplicate the row next run.
-func Dequeue(ctx context.Context, eDB *sqlitedb.Edb, key []byte) {
+func Dequeue(ctx context.Context, eDB rowStore, key []byte) {
 	dctx, cancel := detachedCtx(ctx)
 	defer cancel()
 

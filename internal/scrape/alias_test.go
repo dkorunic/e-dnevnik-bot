@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// TestTrimAllSpaceDoesNotAliasPriorResults: results become Message.Fields — the
-// dedup identity — and String() aliases the builder's buffer, so builder reuse
-// would silently corrupt a hash.
+// TestTrimAllSpaceDoesNotAliasPriorResults: results become Message.Fields, the
+// dedup identity, and String() aliases the builder's buffer — reuse would
+// silently corrupt a hash.
 func TestTrimAllSpaceDoesNotAliasPriorResults(t *testing.T) {
 	t.Parallel()
 

@@ -39,7 +39,8 @@ var (
 
 	TelegramQueueName = []byte(TelegramQueue)
 	telegramCli       *bot.Bot
-	telegramMu        sync.Mutex // guards telegramCli initialisation
+	telegramCreds     credGuard  // credentials telegramCli was built from
+	telegramMu        sync.Mutex // guards telegramCli and telegramCreds
 	TelegramVersion   = version.ReadVersion("github.com/go-telegram/bot")
 
 	telegramMigratedIDsMu sync.Mutex            // guards telegramMigratedIDs
@@ -323,8 +324,9 @@ func telegramPersistChatID(ctx context.Context, oldID, newID string) {
 	logger.Info().Msgf("Telegram: persisted chat ID remap %v -> %v to %q", oldID, newID, confFile)
 }
 
-// telegramInit lazily creates the shared Telegram client (idempotent).
-// bot.New validates the token via a network getMe call.
+// telegramInit lazily creates the shared Telegram client, rebuilding it when the
+// token changes (see credGuard). bot.New validates the token via a network
+// getMe call, so an unchanged token must not reach it.
 //
 // No Start(): its getUpdates long-poll is only for receiving, which a
 // send-only bot never consumes. SendMessage works without it.
@@ -332,18 +334,23 @@ func telegramInit(apiKey string) error {
 	telegramMu.Lock()
 	defer telegramMu.Unlock()
 
-	var err error
-
-	if telegramCli == nil {
-		logger.Debug().Msg("Initializing Telegram client")
-
-		telegramCli, err = bot.New(apiKey)
-		if err != nil {
-			logger.Error().Msgf("%v: %v", ErrTelegramSession, err)
-
-			return err
-		}
+	if telegramCli != nil && !telegramCreds.changed(apiKey) {
+		return nil
 	}
+
+	logger.Debug().Msg("Initializing Telegram client")
+
+	// Local, then publish: assigning telegramCli directly nils a working client
+	// whenever the getMe below fails, which the other messengers avoid.
+	cli, err := bot.New(apiKey)
+	if err != nil {
+		logger.Error().Msgf("%v: %v", ErrTelegramSession, err)
+
+		return err
+	}
+
+	telegramCli = cli
+	telegramCreds.record(apiKey)
 
 	return nil
 }

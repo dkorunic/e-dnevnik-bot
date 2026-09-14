@@ -17,9 +17,6 @@ const (
 	NationalExamPrefix = "✍️ Nacionalni ispit: "
 )
 
-// Formatters build into a local builder, never a pooled one: String() aliases
-// the builder's buffer, so reuse would overwrite results callers still hold.
-
 // PlainMsg formats grade report as cleartext block in a string.
 func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	var sb strings.Builder
@@ -45,27 +42,11 @@ func PlainSubject(user, subject string, code msgtypes.EventCode) string {
 
 // PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.
 func PlainFormatSubject(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
-	switch code {
-	case msgtypes.Exam:
-		sb.WriteString(ExamPrefix)
-	case msgtypes.Reading:
-		sb.WriteString(ReadingPrefix)
-	case msgtypes.Grade:
-		sb.WriteString(GradePrefix)
-	case msgtypes.FinalGrade:
-		sb.WriteString(FinalGradePrefix)
-	case msgtypes.NationalExam:
-		sb.WriteString(NationalExamPrefix)
-	default:
-	}
-
-	sb.WriteString(user)
-	sb.WriteString(" / ")
-	sb.WriteString(subject)
+	formatSubject(sb, user, subject, code, noEscape)
 }
 
 // plainAddHeader adds cleartext header containing username and subject name, and a delimiter.
 func plainAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
-	PlainFormatSubject(sb, user, subject, code)
+	formatSubject(sb, user, subject, code, noEscape)
 	sb.WriteString("\n\n")
 }

@@ -25,10 +25,10 @@ func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, gr
 	return sb.String()
 }
 
-// htmlAddHeader adds bold header containing username and subject name, and a delimiter.
-// User and subject are HTML-escaped to prevent injection into Telegram's HTML parse mode.
+// htmlAddHeader adds bold header containing username and subject name, and a
+// delimiter. Escaped to keep portal content out of Telegram's HTML parse mode.
 func htmlAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	sb.WriteString("<b>")
-	PlainFormatSubject(sb, html.EscapeString(user), html.EscapeString(subject), code)
+	formatSubject(sb, user, subject, code, html.EscapeString)
 	sb.WriteString("</b>\n")
 }

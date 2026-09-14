@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -522,5 +523,76 @@ func TestFatalIfErrorsFlushesProfilesBeforeExit(t *testing.T) {
 			t.Errorf("%v is %d bytes and does not start with the gzip magic; the profile was never flushed before os.Exit",
 				name, len(b))
 		}
+	}
+}
+
+// TestAnnounceIdleWindowSilentOnShutdown: a cycle that ended because SIGTERM
+// arrived has no idle window to wait out, so announcing one tells the operator
+// the daemon is sleeping when it is exiting.
+// Not parallel: swaps the global logger to read its output.
+func TestAnnounceIdleWindowSilentOnShutdown(t *testing.T) {
+	statusTicker := time.NewTicker(time.Hour)
+	statusTicker.Stop()
+
+	defer statusTicker.Stop()
+
+	var buf bytes.Buffer
+
+	origLogger := logger.Logger
+	logger.Logger = logger.Output(&buf)
+
+	t.Cleanup(func() { logger.Logger = origLogger })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	announceIdleWindow(ctx, statusTicker, time.Now().Add(time.Hour))
+
+	if buf.Len() != 0 {
+		t.Errorf("announced an idle window during shutdown: %v", buf.String())
+	}
+}
+
+// TestAnnounceIdleWindowReportsRemaining is the complement: a live context must
+// still get its countdown, or the daemon goes quiet between polls.
+func TestAnnounceIdleWindowReportsRemaining(t *testing.T) {
+	statusTicker := time.NewTicker(time.Hour)
+	statusTicker.Stop()
+
+	defer statusTicker.Stop()
+
+	var buf bytes.Buffer
+
+	origLogger := logger.Logger
+	logger.Logger = logger.Output(&buf)
+
+	t.Cleanup(func() { logger.Logger = origLogger })
+
+	announceIdleWindow(context.Background(), statusTicker, time.Now().Add(time.Hour))
+
+	if !strings.Contains(buf.String(), "Next scheduled run") {
+		t.Errorf("a live context got no countdown: %v", buf.String())
+	}
+}
+
+// TestAnnounceIdleWindowReportsOverdue: an overrun cycle must say so rather
+// than render a useless "next run in 0 seconds".
+func TestAnnounceIdleWindowReportsOverdue(t *testing.T) {
+	statusTicker := time.NewTicker(time.Hour)
+	statusTicker.Stop()
+
+	defer statusTicker.Stop()
+
+	var buf bytes.Buffer
+
+	origLogger := logger.Logger
+	logger.Logger = logger.Output(&buf)
+
+	t.Cleanup(func() { logger.Logger = origLogger })
+
+	announceIdleWindow(context.Background(), statusTicker, time.Now().Add(-time.Hour))
+
+	if !strings.Contains(buf.String(), scheduledOverdue) {
+		t.Errorf("an overrun cycle did not report itself overdue: %v", buf.String())
 	}
 }
