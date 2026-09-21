@@ -10,7 +10,7 @@ require (
 	github.com/andybalholm/cascadia v1.3.5
 	github.com/avast/retry-go/v5 v5.0.0
 	github.com/bwmarrin/discordgo v0.29.0
-	github.com/dustin/go-humanize v1.0.1
+	github.com/dustin/go-humanize v1.1.0
 	github.com/enetx/g v1.1.1
 	github.com/enetx/http v1.0.29
 	github.com/enetx/surf v1.0.206
@@ -31,7 +31,7 @@ require (
 	github.com/slack-go/slack v0.29.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20260917111002-2e338d0ee73d
+	go.mau.fi/whatsmeow v0.0.0-20260921121126-35ae40906e74
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.37.0
 	google.golang.org/api v0.298.0
@@ -39,9 +39,9 @@ require (
 )
 
 require (
-	cloud.google.com/go/auth v0.23.2 // indirect
+	cloud.google.com/go/auth v0.23.3 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	cloud.google.com/go/compute/metadata v0.9.1 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/andybalholm/brotli v1.2.4 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
@@ -55,7 +55,7 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/google/s2a-go v0.1.9 // indirect
+	github.com/google/s2a-go v0.1.10 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.22 // indirect
 	github.com/googleapis/gax-go/v2 v2.24.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
@@ -64,7 +64,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20260917103748-04b046e838b2 // indirect
+	github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.62.0 // indirect
 	github.com/refraction-networking/utls v1.8.3-0.20260623165621-880e27d8b0e5 // indirect
@@ -86,10 +86,10 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260911204522-f61a6ca850bd // indirect
-	google.golang.org/grpc v1.83.2 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260918162117-cecb64721679 // indirect
+	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	modernc.org/libc v1.76.0 // indirect
+	modernc.org/libc v1.77.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
