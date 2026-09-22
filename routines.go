@@ -29,12 +29,14 @@ const (
 	spinnerRotateDelay = 100 * time.Millisecond // spinner delay
 	githubOrg          = "dkorunic"
 	githubRepo         = "e-dnevnik-bot"
-	// versionCheckTimeout bounds the GitHub release-check so a stalled API can't outlive one poll cycle.
+	// Bounds the release check so a stalled API can't outlive a poll cycle.
 	versionCheckTimeout = 30 * time.Second
 )
 
 var (
 	ErrScrapingUser = errors.New("error scraping data for User")
+	ErrFanOutPanic  = errors.New("message fan-out panicked")
+	ErrDedupPanic   = errors.New("message dedup panicked")
 	ErrDiscord      = errors.New("Discord messenger issue")  //nolint:staticcheck
 	ErrTelegram     = errors.New("Telegram messenger issue") //nolint:staticcheck
 	ErrSlack        = errors.New("Slack messenger issue")    //nolint:staticcheck
@@ -42,17 +44,16 @@ var (
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
 	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:staticcheck
 
-	// formatHRDateOnly parses the portal's "D.M." grade date column.
-	// Do not normalise: portal values like "15.4." would stop parsing.
+	// Parses the portal's "D.M." grade date column. Do not normalise —
+	// values like "15.4." would stop parsing.
 	formatHRDateOnly = "2.1."
 )
 
-// scrapeStage is a test seam: runPollCycle's teardown ordering is only
-// observable with events in flight, which otherwise needs the live portal.
+// scrapeStage is a test seam: runPollCycle's teardown ordering is observable
+// only with events in flight, which otherwise needs the live portal.
 var scrapeStage = scrapers
 
-// scrapers will call subjects/grades/exams scraping for every configured AAI/AOSI User and send grades/exams messages
-// to a channel.
+// scrapers scrapes grades and exams for every configured AAI/AOSI user.
 func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, cfg config.TomlConfig) {
 	logger.Debug().Msg("Starting scrapers")
 
@@ -60,7 +61,7 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 		wgScrape.Go(func() {
 			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
 			if err != nil {
-				// Shutdown-induced cancellation is not a cycle failure.
+				// A shutdown is not a cycle failure.
 				if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 					logger.Debug().Msgf("Scraping aborted by shutdown for user %v", i.Username)
 
@@ -74,9 +75,8 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 	}
 }
 
-// flagMessengerError logs a messenger failure and latches the run as failed —
-// unless the failure is a shutdown-induced cancellation, which is part of a
-// normal stop and must not turn a clean SIGTERM into a non-zero exit.
+// flagMessengerError latches the run as failed, except on shutdown
+// cancellation — a clean SIGTERM must not exit non-zero.
 func flagMessengerError(ctx context.Context, sentinel, err error) {
 	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 		logger.Debug().Msgf("Messenger aborted by shutdown: %v", err)
@@ -88,21 +88,18 @@ func flagMessengerError(ctx context.Context, sentinel, err error) {
 	exitWithError.Store(true)
 }
 
-// msgSend fans messages from gradesMsg out to every enabled messenger, each
-// draining its own buffered channel in its own goroutine. Delivery per
-// messenger is non-blocking — see dispatch.
+// msgSend fans gradesMsg out to every enabled messenger, one buffered channel
+// and goroutine each. Delivery is non-blocking; see dispatch.
 //
-// Two-level WaitGroup: the deferred sequence closes every messenger channel
-// *then* wgInner.Wait(). Reversed order deadlocks — a drain loop exits only
-// once its channel closes.
+// The deferred close must precede wgInner.Wait(): a drain loop exits only once
+// its channel closes, so the reverse order deadlocks.
 func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message, cfg config.TomlConfig) {
 	wgMsg.Go(func() {
 		var wgInner sync.WaitGroup
 
 		var sinks []messengerSink
 
-		// start registers a messenger's buffered channel as a sink and drains it
-		// in a tracked goroutine.
+		// Registers a sink and drains it in a tracked goroutine.
 		start := func(queueName []byte, run func(ch <-chan msgtypes.Message)) {
 			ch := make(chan msgtypes.Message, messengerBufLen)
 			sinks = append(sinks, messengerSink{ch: ch, queue: queueName})
@@ -116,13 +113,21 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// Close before wait (see doc): drain loops exit only on channel close.
+		// Close before wait — see doc comment.
 		defer func() {
 			for _, s := range sinks {
 				close(s.ch)
 			}
 
 			wgInner.Wait()
+		}()
+
+		// LIFO: runs before the close/wait defer, so the drain finishes while
+		// this stage still owns gradesMsg.
+		defer func() {
+			if r := recover(); r != nil {
+				recoverFanOut(ctx, eDB, sinks, gradesMsg, r)
+			}
 		}()
 
 		if cfg.DiscordEnabled {
@@ -210,13 +215,52 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
-		// gradesMsg close ends this on shutdown.
+		// Ends when gradesMsg closes.
 		for g := range gradesMsg {
 			for _, s := range sinks {
-				dispatch(ctx, eDB, s, g)
+				dispatchFn(ctx, eDB, s, g)
 			}
 		}
 	})
+}
+
+// recoverFanOut costs the cycle instead of the process, mirroring
+// recoverMessenger.
+//
+// The drain is mandatory: msgDedup's handoff is a blocking send, so a fan-out
+// that stops reading wedges it and runPollCycle never returns — a silent hang
+// in place of a visible crash. Drained messages are already dedup-flagged and
+// will never be re-scraped, so they go to the queues.
+func recoverFanOut(ctx context.Context, eDB *sqlitedb.Edb, sinks []messengerSink, gradesMsg <-chan msgtypes.Message, r any) {
+	logger.Error().Msgf("%v, spilling undelivered messages to the queues: %v", ErrFanOutPanic, r)
+	exitWithError.Store(true)
+
+	spilled := 0
+
+	for g := range gradesMsg {
+		spillAll(ctx, eDB, sinks, g)
+
+		spilled++
+	}
+
+	if spilled > 0 {
+		logger.Warn().Msgf("Spilled %v messages to the messenger queues after the fan-out failed", spilled)
+	}
+}
+
+// spillAll queues g for every messenger, containing its own panic so a failing
+// store cannot abort the caller's drain. Losing one message beats losing every
+// later one to a deadlock.
+func spillAll(ctx context.Context, eDB *sqlitedb.Edb, sinks []messengerSink, g msgtypes.Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error().Msgf("%v: dropping a message while spilling: %v", ErrFanOutPanic, r)
+		}
+	}()
+
+	for _, s := range sinks {
+		spill(ctx, eDB, s, g)
+	}
 }
 
 // messengerSink is a messenger's fan-out channel plus the queue for spills.
@@ -225,21 +269,31 @@ type messengerSink struct {
 	queue []byte
 }
 
-// dispatch delivers g to one messenger, never blocking the fan-out: a full
-// buffer means that messenger is behind (mail mid-retry, say), so the message
-// spills to its queue instead of pacing every other messenger behind it.
-// Trade-off: it then delivers a cycle late and slightly out of order.
+// dispatch delivers g to one messenger without ever blocking the fan-out. A
+// full buffer means that messenger is behind (mail mid-retry, say), so the
+// message spills to its queue rather than pacing every other messenger.
+// Trade-off: it arrives a cycle late and slightly out of order.
 func dispatch(ctx context.Context, eDB *sqlitedb.Edb, s messengerSink, g msgtypes.Message) {
 	select {
 	case s.ch <- g:
 	default:
-		// A row this messenger would discard is one nothing can consume.
-		if !messenger.QueueAccepts(s.queue, g) {
-			return
-		}
-
-		storeOverflow(ctx, eDB, s.queue, g)
+		spill(ctx, eDB, s, g)
 	}
+}
+
+// dispatchFn is a test seam (cf. scrapeStage): a fan-out panic is reachable
+// only through dispatch, and forcing one otherwise means racing a failing
+// backend to fill its buffer.
+var dispatchFn = dispatch
+
+// spill queues g for one messenger, to deliver next cycle.
+func spill(ctx context.Context, eDB *sqlitedb.Edb, s messengerSink, g msgtypes.Message) {
+	// A row this messenger would discard is one nothing can consume.
+	if !messenger.QueueAccepts(s.queue, g) {
+		return
+	}
+
+	storeOverflow(ctx, eDB, s.queue, g)
 }
 
 // overflowStoreTimeout bounds the detached spill-to-queue write.
@@ -257,12 +311,26 @@ func storeOverflow(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g m
 	}
 }
 
-// msgDedup acts like a filter: processes all incoming messages, calls in to database check and if it hasn't been found
-// and if it is not an initial run, it will pass through to messengers for further alerting.
+// msgDedup forwards only events the dedup store has not seen before, and only
+// once past the first run — a fresh database seeds silently instead of
+// flooding.
 func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
 	wgFilter.Go(func() {
 		// Close gradesMsg on exit so msgSend's fan-out loop unblocks.
 		defer close(gradesMsg)
+
+		// Marked seen but not yet handed over. Dedup never re-fires a flagged
+		// event, so a panic in that window must forward it (cf.
+		// recoverMessenger's inflight).
+		var flagged *msgtypes.Message
+
+		// LIFO: runs before the close, while gradesScraped is still owned and
+		// gradesMsg still open.
+		defer func() {
+			if r := recover(); r != nil {
+				recoverDedup(gradesScraped, gradesMsg, flagged, r)
+			}
+		}()
 
 		if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't send alerts in this run")
@@ -271,6 +339,9 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 		now := time.Now()
 
 		for g := range gradesScraped {
+			// Previous iteration reached a decision.
+			flagged = nil
+
 			// Bail before flagging: unflagged events re-scrape next run; flagged ones can't drop.
 			if ctx.Err() != nil {
 				return
@@ -293,6 +364,10 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				return
 			}
 
+			// Flagged: every path from here forwards or deliberately
+			// suppresses, so a panic in between must forward.
+			flagged = &g
+
 			// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
 			if found || !eDB.Existing() {
 				continue
@@ -313,33 +388,69 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 			// Blocking handoff: flagged events must reach msgSend; receiver lives until close.
 			gradesMsg <- g
+
+			flagged = nil
 		}
 	})
 }
 
+// recoverDedup costs the cycle instead of the process. The asymmetry between
+// its two halves is the point:
+//
+//   - flagged is already committed as seen and can never re-fire, so dropping
+//     it loses that alert permanently. It is forwarded; the blocking send is
+//     safe because msgSend runs until gradesMsg closes, which happens after.
+//   - The gradesScraped backlog never reached CheckAndFlagTTL, so it is
+//     unflagged and discarded for the next cycle to re-scrape.
+//
+// The drain is mandatory either way: the scrapers' send yields only to
+// ctx.Done(), which a panic never triggers, so a stage that stops reading
+// parks them on a full channel and wgScrape.Wait() never returns.
+func recoverDedup(gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message, flagged *msgtypes.Message, r any) {
+	logger.Error().Msgf("%v: %v", ErrDedupPanic, r)
+	exitWithError.Store(true)
+
+	// Already seen: forward it or lose it.
+	if flagged != nil {
+		logger.Warn().Msgf("Forwarding the already-flagged event interrupted by the failure: %v/%v",
+			flagged.Username, flagged.Subject)
+
+		gradesMsg <- *flagged
+	}
+
+	discarded := 0
+	for range gradesScraped {
+		discarded++
+	}
+
+	if discarded > 0 {
+		logger.Warn().Msgf("Discarded %v unflagged events after the dedup stage failed; they will be re-scraped next cycle",
+			discarded)
+	}
+}
+
 // maxLeapYearLookback bounds resolveHRYear's walk. 29 February is the only
-// value time.Parse accepts that some years lack, and it does NOT recur every
-// four: a non-leap century (1900, 2100) stretches the worst case to seven steps.
+// parseable date some years lack, and it does not recur every four — a non-leap
+// century (1900, 2100) stretches the worst case to seven steps.
 const maxLeapYearLookback = 8
 
-// resolveHRYear attaches a year to a day-and-month from the portal's "D.M."
-// column: the latest year in which that date has already passed. Walking back
-// handles 29 February, which time.Date would roll to 1 March in a common year,
-// making a grade from an earlier leap year read as days old.
+// resolveHRYear dates a "D.M." column to the latest year in which it has
+// already passed. The walk exists for 29 February: time.Date rolls it to 1
+// March in a common year, making an older leap-year grade read as days old.
 //
-// Reports false when no year in range holds the date — callers must fail open.
-// Unreachable for anything time.Parse accepts; returning a normalised date
-// instead would read as years old and silently suppress the alert.
+// Reports false when no year in range holds the date; callers must fail open.
+// Returning a normalised date instead would read as years old and suppress the
+// alert silently.
 func resolveHRYear(t, now time.Time) (time.Time, bool) {
 	year := now.Year()
 
-	// A date still ahead of today belongs to the previous year.
+	// Still ahead of today: it belongs to last year.
 	if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
 		year--
 	}
 
 	for range maxLeapYearLookback {
-		// Round-trip check: normalisation is what signals the date is absent.
+		// Normalisation is what signals the date is absent.
 		if d := time.Date(year, t.Month(), t.Day(), 0, 0, 0, 0, t.Location()); d.Day() == t.Day() {
 			return d, true
 		}
@@ -350,11 +461,10 @@ func resolveHRYear(t, now time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// isStaleEvent reports whether g falls outside the configured relevance window
-// and should be suppressed. Only Exam and Grade events are time-filtered; all
-// other codes (and a zero relevancePeriod) are always treated as fresh. A grade
-// date that fails to parse fails open — a stale alert is preferred to a silent
-// drop. The matching log line is emitted here so the caller stays a flat guard.
+// isStaleEvent reports whether g should be suppressed as too old. Only Exam and
+// Grade are time-filtered; every other code, and a zero relevancePeriod, counts
+// as fresh. An unparseable date fails open — a stale alert beats a silent drop.
+// Logging lives here so the caller stays a flat guard.
 func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 	if *relevancePeriod <= 0 {
 		return false
@@ -368,9 +478,9 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 			return true
 		}
 	case g.Code == msgtypes.Grade && len(g.Fields) > 0:
-		// XXX Fields[0] assumed to be the grade date. cellValues pads empty
-		// cells, so a blank one is alignment, not drift — Debug, or a subject
-		// with a blank first column logs per event per cycle forever.
+		// XXX Fields[0] is assumed to be the grade date. cellValues pads empty
+		// cells, so a blank is alignment rather than drift — hence Debug, or a
+		// subject with a blank first column logs forever.
 		if g.Fields[0] == "" {
 			logger.Debug().Msgf("No date to judge relevance for: %v/%v", g.Username, g.Subject)
 
@@ -379,7 +489,7 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 
 		t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 		if err != nil {
-			// Fail-open: prefer stale alert to silent drop.
+			// Fail open: a stale alert beats a silent drop.
 			logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
 
 			return false
@@ -387,7 +497,7 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 
 		resolved, ok := resolveHRYear(t, now)
 		if !ok {
-			// Fail-open: prefer a stale alert to a silent drop.
+			// Fail open: a stale alert beats a silent drop.
 			logger.Error().Msgf("Unable to place %q in a year for: %v/%v", g.Fields[0], g.Username, g.Subject)
 
 			return false
@@ -403,15 +513,15 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 	return false
 }
 
-// spinner shows a spiffy terminal spinner until done is closed. It writes to
-// stderr so the stdout stream stays parseable when logs are JSON.
+// spinner runs until done is closed, on stderr so JSON logs on stdout stay
+// parseable.
 func spinner(done <-chan struct{}) {
 	s := spin.New()
 
 	for {
 		fmt.Fprintf(os.Stderr, "\rWaiting... %v", s.Next())
 
-		// Cancellable wait so shutdown isn't held by an in-flight Sleep.
+		// Cancellable so shutdown isn't held by an in-flight sleep.
 		select {
 		case <-done:
 			fmt.Fprint(os.Stderr, "\r")
@@ -422,11 +532,11 @@ func spinner(done <-chan struct{}) {
 	}
 }
 
-// versionCheck logs a notice if a newer release exists on GitHub. Skipped for
-// local/dirty source builds; the GitHub call is bounded by versionCheckTimeout.
+// versionCheck notes a newer GitHub release, skipping local and dirty builds.
+// Bounded by versionCheckTimeout.
 func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	wgVersion.Go(func() {
-		// Skip local source-builds — user owns their own version.
+		// Local build: the user owns their own version.
 		if GitTag == "" || GitDirty != "" {
 			return
 		}
@@ -438,7 +548,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 			return
 		}
 
-		// Bounded timeout so a stalled GitHub API can't outlive the poll cycle.
+		// A stalled API must not outlive the poll cycle.
 		vctx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
 		defer cancel()
 
@@ -451,7 +561,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 
 		latestRelease, _, err := client.Repositories.GetLatestRelease(vctx, githubOrg, githubRepo)
 		if err != nil || latestRelease == nil {
-			// Shutdown cancelling vctx mid-request is not an app error.
+			// Shutdown cancelling mid-request is not an app error.
 			if ctx.Err() == nil {
 				logger.Error().Msgf("Unable to check for latest release of e-dnevnik-bot: %v", err)
 			}
@@ -478,7 +588,7 @@ func versionCheck(ctx context.Context, wgVersion *sync.WaitGroup) {
 	})
 }
 
-// githubClient returns a new GitHub client, authenticated via GITHUB_TOKEN when set.
+// githubClient authenticates via GITHUB_TOKEN when set.
 func githubClient() (*github.Client, error) {
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		return github.NewClient(github.WithAuthToken(token))
