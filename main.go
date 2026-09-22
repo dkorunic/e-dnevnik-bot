@@ -49,15 +49,15 @@ var (
 	GitDirty      = ""
 	BuildTime     = ""
 
-	// bgWG tracks background goroutines so shutdown bounds their wait via exitDelay.
+	// Background goroutines, so shutdown can bound their wait by exitDelay.
 	bgWG sync.WaitGroup
 )
 
-// fatalIfErrors exits non-zero (via Fatal) if any cycle set exitWithError,
-// otherwise logs success. Terminal call — does not return on the error path.
+// fatalIfErrors exits non-zero if any cycle latched a failure. Terminal on that
+// path.
 //
-// flush runs first: logger.Fatal is os.Exit, which skips defers, so leaving
-// pprof teardown to one loses the profile of every failed run.
+// flush runs first because logger.Fatal is os.Exit, which skips defers: leaving
+// pprof teardown to one would lose the profile of every failed run.
 func fatalIfErrors(flush func()) {
 	flush()
 
@@ -69,7 +69,7 @@ func fatalIfErrors(flush func()) {
 }
 
 // startProfiling honours -c/-m and returns the flush that finalises them. Not a
-// defer (see fatalIfErrors); once-guarded because both callers invoke it, and
+// defer (see fatalIfErrors), once-guarded because both callers invoke it, and
 // reverse-ordered to match the defers it replaces.
 func startProfiling() func() {
 	var flushes []func()
@@ -104,7 +104,7 @@ func startProfiling() func() {
 		flushes = append(flushes, func() {
 			runtime.GC()
 
-			// Error, not Fatal: a Fatal here would pre-empt fatalIfErrors' exit.
+			// Not Fatal: it would pre-empt fatalIfErrors' exit.
 			if err := pprof.WriteHeapProfile(f); err != nil {
 				logger.Error().Msgf("Error writing memory profile: %v", err)
 			}
@@ -126,18 +126,21 @@ func startProfiling() func() {
 	}
 }
 
-// main wires up config, logging, memory limits, signal handling, and profiling,
-// runs first-run Calendar/WhatsApp setup, then either does a single run or
-// drives the daemon poll loop until signalled.
+// main wires up config, logging, memory limits, signals and profiling, runs
+// first-run setup, then does a single run or drives the poll loop.
 func main() {
 	parseFlags()
 
 	initLog()
 
+	// After initLog: these answer the command line, so they must honour the
+	// level and format it asked for.
+	clampFlags()
+
 	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on %v, with %v", GitTag, GitCommit, GitDirty,
 		BuildTime, runtime.Version())
 
-	// Cap heap at 90% of cgroup/system memory to play nice with containers.
+	// 90% of cgroup or system memory, to play nicely in containers.
 	limit, err := memlimit.Set(
 		memlimit.WithRatio(maxMemRatio),
 		memlimit.WithProvider(
@@ -168,18 +171,18 @@ func main() {
 		logger.Fatal().Msgf("Error loading configuration: %v", err)
 	}
 
-	// Pass config path to messengers that reload credentials on token refresh.
+	// For the messengers that rewrite the file in place.
 	ctx = context.WithValue(ctx, messenger.ConfFileKey, *confFile)
 
 	flushProfiles := startProfiling()
 	defer flushProfiles()
 
-	// Interactive OAuth flow must run on the main goroutine.
+	// Interactive: must run on the main goroutine.
 	if cfg.CalendarEnabled {
 		checkCalendar(ctx, &cfg)
 	}
 
-	// Pairing/QR flow must run on the main goroutine.
+	// Interactive: must run on the main goroutine.
 	if cfg.WhatsAppEnabled {
 		checkWhatsApp(ctx, &cfg)
 	}
@@ -191,11 +194,12 @@ func main() {
 		return
 	}
 
-	// Fire the first poll almost immediately; real interval takes over after Reset.
+	// First poll fires almost at once; Reset installs the real interval.
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	// Countdown to next scrape; paused during runs, starts stopped until nextRunAt is set.
+	// Countdown to the next scrape: paused during runs, stopped until
+	// nextRunAt is set.
 	statusTicker := time.NewTicker(statusInterval)
 	statusTicker.Stop()
 	defer statusTicker.Stop()
@@ -227,7 +231,7 @@ func main() {
 
 			return
 		case <-statusTicker.C:
-			// Surface "overdue" on overrun so operators see a live signal, not a frozen status.
+			// On overrun, say so rather than freeze the status.
 			if remaining := time.Until(nextRunAt); remaining > 0 {
 				_ = sysdnotify.Status(fmt.Sprintf(scheduledNext,
 					durafmt.Parse(remaining.Round(time.Second)).String()))
@@ -235,12 +239,12 @@ func main() {
 				_ = sysdnotify.Status(scheduledOverdue)
 			}
 		case <-ticker.C:
-			// Pause countdown while scraping.
+			// Paused while scraping.
 			statusTicker.Stop()
 
 			logger.Info().Msg(scheduledActive)
 
-			// Jitter spreads concurrent daemons so they don't hammer the portal together.
+			// Spreads concurrent daemons off the portal's lockstep.
 			nextInterval := *tickInterval
 			if *jitter {
 				nextInterval = durationRandJitter(*tickInterval)
@@ -264,12 +268,11 @@ func main() {
 	}
 }
 
-// announceIdleWindow reports how long the daemon will idle before the next
-// poll, or that the cycle has overrun, and resumes the countdown ticker.
+// announceIdleWindow reports the wait until the next poll, or an overrun, and
+// resumes the countdown.
 //
-// Silent once ctx is cancelled: a cycle cut short by SIGTERM has no idle window
-// to wait out, and announcing one tells the operator the daemon is sleeping
-// while it is on its way out.
+// Silent once ctx is cancelled: a cycle cut short by SIGTERM has no idle window,
+// and announcing one tells the operator it is sleeping while it is exiting.
 func announceIdleWindow(ctx context.Context, statusTicker *time.Ticker, nextRunAt time.Time) {
 	if ctx.Err() != nil {
 		return
@@ -285,7 +288,7 @@ func announceIdleWindow(ctx context.Context, statusTicker *time.Ticker, nextRunA
 	logger.Info().Msg(scheduledSleep)
 	_ = sysdnotify.Status(scheduledSleep)
 
-	// Drain stale tick; Stop()+Reset() don't flush the buffered value.
+	// Stop()+Reset() leave a buffered tick behind.
 	select {
 	case <-statusTicker.C:
 	default:
@@ -294,9 +297,9 @@ func announceIdleWindow(ctx context.Context, statusTicker *time.Ticker, nextRunA
 	statusTicker.Reset(statusInterval)
 }
 
-// awaitShutdown drains the bgWG background goroutines under an exitDelay
-// ceiling — a wedged goroutine must not stall process exit. Only bgWG is
-// awaited: the per-cycle waitgroups have already drained inside runPollCycle.
+// awaitShutdown drains bgWG under an exitDelay ceiling, so a wedged goroutine
+// cannot stall exit. Only bgWG: the per-cycle waitgroups drained in
+// runPollCycle.
 func awaitShutdown(stop context.CancelFunc, ticker, statusTicker *time.Ticker) {
 	logger.Info().Msg("Received stop signal, asking all routines to stop")
 	ticker.Stop()
@@ -306,7 +309,7 @@ func awaitShutdown(stop context.CancelFunc, ticker, statusTicker *time.Ticker) {
 
 	stop()
 
-	// Interactive only: the wait can run seconds, and silence reads as a hang.
+	// The wait can run seconds, and silence reads as a hang.
 	var spinnerDone chan struct{}
 
 	if isTerminal() {
@@ -330,13 +333,13 @@ func awaitShutdown(stop context.CancelFunc, ticker, statusTicker *time.Ticker) {
 	}
 }
 
-// runPollCycle runs one scrape→dedup→send pipeline against a freshly opened DB.
+// runPollCycle runs one scrape→dedup→send pipeline on a freshly opened DB.
 //
-// Teardown order is load-bearing: gradesScraped may only be closed once
-// scrapers have finished, because that close is what unblocks msgDedup's range;
-// and the DB must outlive every stage, since msgDedup and the messengers both
-// write to it. exitWithError deliberately latches for the process lifetime, so
-// a daemon that errored in any cycle still exits non-zero.
+// Teardown order is load-bearing: gradesScraped closes only once the scrapers
+// have finished, that close being what unblocks msgDedup's range, and the DB
+// must outlive every stage since msgDedup and the messengers both write to it.
+// exitWithError latches for the process lifetime, so a daemon that errored in
+// any cycle still exits non-zero.
 func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 	gradesScraped := make(chan msgtypes.Message, chanBufLen)
 	gradesMsg := make(chan msgtypes.Message, chanBufLen)
@@ -347,9 +350,9 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 
 	eDB, err := openDB(ctx, *dbFile)
 	if err != nil {
-		// No dedup store means no way to tell a new event from a seen one, so
-		// the cycle is skipped rather than run blind. versionCheck is already
-		// in flight and still has to be awaited.
+		// Without the dedup store nothing can tell a new event from a seen one,
+		// so skip the cycle rather than run blind. versionCheck is already in
+		// flight and still has to be awaited.
 		logger.Error().Msgf("Unable to open application database, skipping this cycle: %v", err)
 		exitWithError.Store(true)
 
@@ -374,14 +377,14 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 	closeDB(eDB)
 }
 
-// startSystemdWatchdog, when a watchdog is configured, spawns a bgWG-tracked
-// goroutine that sends heartbeats until ctx is cancelled.
+// startSystemdWatchdog heartbeats until ctx is cancelled, when one is
+// configured.
 func startSystemdWatchdog(ctx context.Context) {
 	watchdog, _ := sysdwatchdog.New()
 	if watchdog != nil {
 		logger.Debug().Msg("Detected and enabled systemd watchdog support")
 
-		// Tracked in bgWG so shutdown awaits it with a bounded timeout.
+		// bgWG, so shutdown awaits it under a bounded timeout.
 		bgWG.Go(func() {
 			ticker := watchdog.NewTicker()
 			defer ticker.Stop()
@@ -398,10 +401,10 @@ func startSystemdWatchdog(ctx context.Context) {
 	}
 }
 
-// testSingleRun pushes one synthetic message through the full send pipeline so
-// operators can verify messenger credentials and formatting without scraping.
-// The shared signal ctx stays active: SIGTERM drains gracefully through the
-// messengers' queue persistence instead of killing the process mid-send.
+// testSingleRun pushes one synthetic message through the send pipeline, so
+// credentials and formatting can be checked without scraping. The signal ctx
+// stays live, so SIGTERM drains through the messengers' queue persistence
+// rather than killing the process mid-send.
 func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
 
@@ -439,9 +442,9 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Exiting with a success from the emulation.")
 }
 
-// durationRandJitter scales x by a continuous factor in [0.9, 1.1) so
-// concurrent daemons spread their polls instead of hitting the portal in
-// lockstep. Continuous (not stepped) to avoid aliasing on a few wake times.
+// durationRandJitter scales x by a factor in [0.9, 1.1), spreading concurrent
+// daemons off the portal's lockstep. Continuous, not stepped: a stepped variant
+// aliases onto a handful of wake times.
 func durationRandJitter(x time.Duration) time.Duration {
 	//nolint:gosec,mnd
 	return time.Duration(float64(x) * (0.9 + 0.2*rand.Float64()))

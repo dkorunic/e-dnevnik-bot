@@ -32,7 +32,7 @@ var (
 	retries                                                                              *uint
 )
 
-// parseFlags parses the command line flags and sets the corresponding variables.
+// parseFlags populates the package-level flag pointers.
 func parseFlags() {
 	fs := ff.NewFlagSet("e-dnevnik-bot")
 
@@ -60,7 +60,7 @@ func parseFlags() {
 	var err error
 
 	if err = ff.Parse(fs, os.Args[1:]); err != nil {
-		// --help requested via ff: exit 0, not 1.
+		// ff reports --help as an error; it exits 0.
 		if errors.Is(err, ff.ErrHelp) {
 			fmt.Printf("%s\n", ffhelp.Flags(fs))
 
@@ -86,6 +86,22 @@ func parseFlags() {
 		os.Exit(0)
 	}
 
+	// Stays here, not in clampFlags: initLog reads *debug to pick the level.
+	if *debugEvents {
+		*debug = true
+	}
+}
+
+// clampFlags applies the guard rails on parsed values, reporting each
+// adjustment.
+//
+// Called after initLog because these are the process's first log lines: run
+// during parsing they predate SetGlobalLevel and the console writer, so they
+// ignored LOG_LEVEL and printed as raw JSON inside a colourised -l session.
+//
+// Deferring them costs nothing — every consumer runs later than initLog, the
+// earliest being main's daemon banner.
+func clampFlags() {
 	if *tickInterval < DefaultTickInterval {
 		logger.Info().Msgf("Poll interval is below %v, so I will default to %v",
 			durafmt.Parse(DefaultTickInterval).String(), durafmt.Parse(DefaultTickInterval).String())
@@ -99,14 +115,10 @@ func parseFlags() {
 		*relevancePeriod = 0
 	}
 
-	// retry-go treats Attempts(0) as unlimited; clamp to bound retries.
+	// retry-go reads Attempts(0) as unlimited.
 	if *retries == 0 {
 		logger.Info().Msg("Retries flag set to 0; clamping to 1 (no retries) — retry-go interprets 0 as unlimited")
 
 		*retries = 1
-	}
-
-	if *debugEvents {
-		*debug = true
 	}
 }

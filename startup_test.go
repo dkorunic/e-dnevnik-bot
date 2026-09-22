@@ -318,15 +318,21 @@ type parsedFlags struct {
 	DebugEvents     bool          `json:"debug_events"`
 }
 
-// TestParseFlagsClamps covers the guard rails parseFlags applies after parsing.
+// TestParseFlagsClamps covers the guard rails clampFlags applies after parsing.
 // It runs in a re-executed child because parseFlags reassigns every
 // package-level flag pointer, which would corrupt the rest of this package's
 // tests if done in-process.
+//
+// The child mirrors main's order — parseFlags, then initLog, then clampFlags —
+// because the clamps deliberately run after logging is configured, so that
+// their messages honour the level and format the command line asked for.
 func TestParseFlagsClamps(t *testing.T) {
 	if args := os.Getenv(startupCaseEnv); strings.HasPrefix(args, "parseflags ") {
 		os.Args = append([]string{"e-dnevnik-bot"}, strings.Fields(strings.TrimPrefix(args, "parseflags "))...)
 
 		parseFlags()
+		initLog()
+		clampFlags()
 
 		out, err := json.Marshal(parsedFlags{
 			TickInterval:    *tickInterval,
@@ -594,5 +600,95 @@ func TestAnnounceIdleWindowReportsOverdue(t *testing.T) {
 
 	if !strings.Contains(buf.String(), scheduledOverdue) {
 		t.Errorf("an overrun cycle did not report itself overdue: %v", buf.String())
+	}
+}
+
+// TestClampFlagsRespectsLogConfiguration is the regression guard for clamp
+// messages that predated logging setup. Emitted from parseFlags they reached
+// stdout before SetGlobalLevel and before the console writer existed, so they
+// ignored LOG_LEVEL and arrived as raw JSON in the middle of an otherwise
+// colourised -l session — the process's first line disagreeing with every line
+// after it.
+//
+// Re-executed in a child: the case mutates the global logger and every flag
+// pointer.
+func TestClampFlagsRespectsLogConfiguration(t *testing.T) {
+	if args := os.Getenv(startupCaseEnv); strings.HasPrefix(args, "clamplog ") {
+		os.Args = append([]string{"e-dnevnik-bot"}, strings.Fields(strings.TrimPrefix(args, "clamplog "))...)
+
+		parseFlags()
+		initLog()
+		clampFlags()
+
+		os.Exit(0)
+	}
+
+	// -i 5m always trips the poll-interval clamp, so every case has a message
+	// to suppress or reformat.
+	tests := []struct {
+		name     string
+		args     string
+		logLevel string
+		check    func(t *testing.T, out string)
+	}{
+		{
+			name:     "LOG_LEVEL above info suppresses the clamp message",
+			args:     "-i 5m",
+			logLevel: "3", // zerolog.ErrorLevel
+			check: func(t *testing.T, out string) {
+				t.Helper()
+
+				if strings.Contains(out, "Poll interval is below") {
+					t.Errorf("clamp message survived LOG_LEVEL=3; it is emitted below the configured level\noutput:\n%s", out)
+				}
+			},
+		},
+		{
+			name:     "colorised output carries no raw JSON",
+			args:     "-l -i 5m",
+			logLevel: "",
+			check: func(t *testing.T, out string) {
+				t.Helper()
+
+				if !strings.Contains(out, "Poll interval is below") {
+					t.Fatalf("clamp message missing entirely\noutput:\n%s", out)
+				}
+
+				if strings.Contains(out, `{"level":"info"`) {
+					t.Errorf("clamp message printed as raw JSON under -l; the console writer was not yet installed when it ran\noutput:\n%s", out)
+				}
+			},
+		},
+		{
+			name:     "default configuration still reports the clamp",
+			args:     "-i 5m",
+			logLevel: "",
+			check: func(t *testing.T, out string) {
+				t.Helper()
+
+				if !strings.Contains(out, "Poll interval is below") {
+					t.Errorf("clamp message missing; a silently raised interval looks like the bot ignoring -i\noutput:\n%s", out)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := exec.Command(os.Args[0], "-test.run=TestClampFlagsRespectsLogConfiguration") //nolint:gosec // re-exec of this test binary
+			cmd.Env = append(os.Environ(), startupCaseEnv+"=clamplog "+tt.args)
+
+			// Explicit either way: the ambient environment must not decide.
+			cmd.Env = append(cmd.Env, "LOG_LEVEL="+tt.logLevel, "NO_COLOR=")
+
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("child failed: %v\noutput:\n%s", err, out)
+			}
+
+			tt.check(t, string(out))
+		})
 	}
 }
