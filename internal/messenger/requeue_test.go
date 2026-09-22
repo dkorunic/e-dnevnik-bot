@@ -19,9 +19,9 @@ import (
 
 // TestProcessShutdownRequeuesEveryMessenger: a recipient loop cut short by
 // shutdown must still requeue the message. With the context already cancelled
-// nothing is sent and nothing fails, so allProcessed is the only thing that can
-// trigger the write — and every event reaching processX is already dedup-flagged,
-// so dropping it here drops it for good.
+// nothing is sent and nothing fails, so the run's interrupted flag is the only
+// thing that can trigger the write — and every event reaching processX is
+// already dedup-flagged, so dropping it here drops it for good.
 //
 // No client is configured on purpose: each loop must break before touching one.
 // Not parallel: the messengers read package-level client globals.

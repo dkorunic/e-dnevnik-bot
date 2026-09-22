@@ -15,7 +15,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
-	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/internal/version"
 	mail "github.com/wneessen/go-mail"
@@ -55,10 +54,10 @@ type MailConfig struct {
 	Retries  uint
 }
 
-// Mail resends any queued failures, then delivers live messages from ch to the
-// configured recipients. An invalid port falls back to 587.
+// Mail resends queued failures, then delivers ch to the configured recipients.
+// An invalid port falls back to 587.
 func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg MailConfig) (err error) {
-	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
+	// Panic guard; stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -77,7 +76,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 	}
 
 	if err = mailInit(cfg.Server, portInt, cfg.Username, cfg.Password); err != nil {
-		// Events are already dedup-flagged; queue them or they are lost forever.
+		// Already dedup-flagged: queue them or lose them forever.
 		queueUndelivered(ctx, eDB, MailQueueName, ch)
 
 		return err
@@ -85,17 +84,9 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
-	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
-	for _, q := range queue.FetchFailedMsgs(ctx, eDB, MailQueueName) {
-		if ctx.Err() != nil {
-			break
-		}
-
-		processMail(ctx, eDB, q.Msg, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
-
-		// Failures were re-queued by processMail; drop the original row.
-		queue.Dequeue(ctx, eDB, q.Key)
-	}
+	resendQueued(ctx, eDB, MailQueueName, func(m msgtypes.Message) {
+		processMail(ctx, eDB, m, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
+	})
 
 	// Drain fully; processMail durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
@@ -107,8 +98,8 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 	return nil
 }
 
-// mailInit lazily creates the shared mail client, rebuilding it when any of the
-// server, port, username or password changes (see credGuard).
+// mailInit lazily builds the shared client, rebuilding when any credential
+// changes (see credGuard).
 func mailInit(server string, portInt int, username, password string) error {
 	mailMu.Lock()
 	defer mailMu.Unlock()
@@ -121,7 +112,7 @@ func mailInit(server string, portInt int, username, password string) error {
 
 	logger.Debug().Msg("Initializing e-mail client")
 
-	// Mandatory STARTTLS: AUTH PLAIN must never traverse cleartext.
+	// Mandatory STARTTLS: AUTH PLAIN must never cross cleartext.
 	cli, err := mail.NewClient(server,
 		mail.WithPort(portInt),
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
@@ -133,17 +124,16 @@ func mailInit(server string, portInt int, username, password string) error {
 		return fmt.Errorf("%w: %w", ErrMailDialer, err)
 	}
 
-	// Publish only on full success so a failed init is retried next cycle.
+	// Publish only on success, so a failed init retries next cycle.
 	mailCli = cli
 	mailCreds.record(server, port, username, password)
 
 	return nil
 }
 
-// markMailPermanent marks non-temporary SMTP errors (permanent 5xx, auth
-// failure, malformed header, broken TLS) as unrecoverable so retry-go stops
-// retrying. Classification comes from *mail.SendError.IsTemp; anything else
-// keeps its normal retry budget.
+// markMailPermanent stops retry-go on a non-temporary SMTP error — permanent
+// 5xx, auth failure, malformed header, broken TLS — as classified by
+// *mail.SendError.IsTemp. Anything else keeps its retry budget.
 func markMailPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -151,50 +141,36 @@ func markMailPermanent(err error) error {
 
 	var sendErr *mail.SendError
 	if errors.As(err, &sendErr) && !sendErr.IsTemp() {
-		// permanentError inside: survives retry.Do's marker stripping.
+		// Inner sentinel survives retry.Do's marker stripping.
 		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err
 }
 
-// processMail formats g as a multipart/alternative (text + HTML) message per
-// recipient and delivers the batch, re-queueing on partial or total failure
-// with an accurate SkipRecipients set. Recipients already in SkipRecipients
-// are omitted. The rate limiter is taken once per alert batch, not per
-// recipient, since delivery shares one SMTP connection.
+// processMail delivers g as a multipart/alternative batch, one message per
+// recipient, re-queueing on partial or total failure. The rate limiter is taken
+// once per batch rather than per recipient: delivery shares one SMTP
+// connection.
 func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) {
-	// Cap body size client-side; an MTA-rejected oversize would otherwise
-	// loop indefinitely in the failed-message queue.
+	// Capped client-side: an MTA-rejected oversize would loop in the queue
+	// until MaxQueueAge.
 	htmlContent := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, MailMaxBodyChars)
 	plainContent := truncateWithEllipsis(
 		format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields),
 		MailMaxBodyChars,
 	)
 
-	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
-	for _, r := range g.SkipRecipients {
-		skipSet[r] = struct{}{}
-	}
+	run := newRecipientRun(g)
 
-	var successfulIDs []string
-
-	// Permanently-failed recipients: skipped on retry, never requeued.
-	var poisonedIDs []string
-
-	anyFailed := false
-	// Tracks incomplete batches so shutdown-cancelled sends get re-queued, not dropped.
-	allProcessed := true
-
-	// Build one message per recipient upfront so partial failures stay
-	// attributable per recipient.
+	// One message per recipient, so a partial failure stays attributable.
 	var (
 		pendingMsgs []*mail.Msg
 		pendingRcpt []string
 	)
 
 	for _, u := range to {
-		if _, skip := skipSet[u]; skip {
+		if run.skipped(u) {
 			continue
 		}
 
@@ -202,9 +178,8 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 
 		if err := m.From(from); err != nil {
 			// Message-level, not the recipient's: blaming each address in turn
-			// reported one config line as a fleet of dead recipients. No
-			// recipient can be served, and no retry can help, so stop here
-			// rather than requeue into MaxQueueAge.
+			// reported one config line as a fleet of dead recipients. Nothing
+			// can be served and no retry helps, so stop rather than requeue.
 			logger.Error().Msgf("%v: invalid From address %q, dropping alert for %v/%v: %v",
 				ErrMailSendingMessages, from, g.Username, g.Subject, err)
 
@@ -212,10 +187,10 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		}
 
 		if err := m.To(u); err != nil {
-			// Malformed To never becomes valid: drop.
+			// Never becomes valid: drop.
 			logger.Error().Msgf("Invalid mail To address, permanently dropping recipient %q: %v", u, err)
 
-			poisonedIDs = append(poisonedIDs, u)
+			run.poison(u)
 
 			continue
 		}
@@ -224,7 +199,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetDate()
 		m.SetBulk()
 
-		// Cap subject length to avoid MTA-rejected headers.
+		// Capped to avoid MTA-rejected headers.
 		if subject != "" {
 			m.Subject(truncateWithEllipsis(subject, MailMaxSubjectChars))
 		} else {
@@ -242,43 +217,32 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	case len(pendingMsgs) == 0:
 		// Nothing left to send after skips/poison.
 	case ctx.Err() != nil:
-		// Check before rl.Take() so shutdown is not blocked on a token.
-		allProcessed = false
+		// Before rl.Take(), so shutdown is not blocked on a token.
+		run.interrupt()
 	default:
 		rl.Take()
 
 		delivered, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, retries)
-		successfulIDs = append(successfulIDs, delivered...)
+		run.delivered(delivered...)
 
 		switch {
 		case err == nil:
 			// All delivered.
 		case isPermanentSendErr(err):
-			// All undelivered failed permanently (e.g. SMTP 5xx): drop, don't requeue.
+			// Every remaining failure is permanent: drop, don't requeue.
 			undelivered := undeliveredRecipients(pendingRcpt, delivered)
-			poisonedIDs = append(poisonedIDs, undelivered...)
+			run.poison(undelivered...)
 
 			logger.Error().Msgf("%v: permanently dropping %d recipient(s): %v",
 				ErrMailSendingMessages, len(undelivered), err)
 		default:
 			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
-			anyFailed = true
+			run.failed()
 		}
 	}
 
-	if anyFailed || !allProcessed {
-		// Skip successful and poisoned recipients on retry; dedup bounds growth.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
-
-		// Shutdown-tolerant: queue write must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err := queue.StoreFailedMsgs(sctx, eDB, MailQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
-	}
+	run.finish(ctx, eDB, MailQueueName, g)
 }
 
 // undeliveredRecipients returns the entries of rcpt not in delivered, in order.
@@ -299,11 +263,10 @@ func undeliveredRecipients(rcpt, delivered []string) []string {
 	return out
 }
 
-// sendMailBatch delivers msgs (parallel to rcpt) over one SMTP connection per
-// attempt, retrying only the undelivered subset — identified via
-// Msg.IsDelivered — so a partial failure never re-sends to already-delivered
-// recipients. Retries short-circuit once every remaining failure is permanent.
-// Returns the delivered recipients and the last send error, if any remained.
+// sendMailBatch delivers msgs, parallel to rcpt, over one SMTP connection per
+// attempt. Only the undelivered subset is retried — Msg.IsDelivered identifies
+// it — so a partial failure never re-sends to anyone already served. Retries
+// short-circuit once every remaining failure is permanent.
 func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries uint) ([]string, error) {
 	var successful []string
 
@@ -317,7 +280,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 		func() error {
 			sendErr := mailCli.DialAndSendWithContext(ctx, pendingMsgs...)
 
-			// Winnow delivered messages so only failures are retried.
+			// Keep only the failures for the next attempt.
 			var stillMsgs []*mail.Msg
 
 			var stillRcpt []string
@@ -340,12 +303,12 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 			}
 
 			if sendErr == nil {
-				// Defensive: undelivered without error should not happen.
+				// Should not happen: undelivered with no error.
 				return fmt.Errorf("%w", ErrMailSendingMessages)
 			}
 
-			// Dial/connection-level failure: no message was attempted,
-			// classify the aggregate error directly.
+			// Connection-level failure: nothing was attempted, so classify
+			// the aggregate error directly.
 			attempted := false
 
 			for _, m := range pendingMsgs {
@@ -360,8 +323,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 				return markMailPermanent(sendErr)
 			}
 
-			// Retry only helps if at least one remaining failure is
-			// transient; short-circuit when all are permanent.
+			// Retrying helps only if one remaining failure is transient.
 			for _, m := range pendingMsgs {
 				var msgErr *mail.SendError
 				if !errors.As(m.SendError(), &msgErr) || msgErr.IsTemp() {
@@ -369,7 +331,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 				}
 			}
 
-			// permanentError inside: survives retry.Do's marker stripping.
+			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{sendErr})
 		},
 	)

@@ -15,7 +15,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
-	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/internal/version"
 	"github.com/go-telegram/bot"
@@ -54,11 +53,11 @@ type TelegramConfig struct {
 	Retries uint
 }
 
-// Telegram resends any queued failures, then delivers live messages from ch to
-// the configured chat IDs. On init failure it drains ch into the queue so
-// already-dedup-flagged events are not lost.
+// Telegram resends queued failures, then delivers ch to the configured chat
+// IDs. On init failure it drains ch to the queue rather than lose flagged
+// events.
 func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg TelegramConfig) (err error) {
-	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
+	// Panic guard; stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -81,9 +80,8 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	err = telegramInit(cfg.Token)
 	if err != nil {
-		// bot.New performs a network getMe call, so this path is reachable on
-		// transient failures. Events are already dedup-flagged; queue them or
-		// they are lost forever.
+		// bot.New makes a network getMe call, so this is reachable on transient
+		// failures. Already dedup-flagged: queue them or lose them forever.
 		queueUndelivered(ctx, eDB, TelegramQueueName, ch)
 
 		return err
@@ -93,17 +91,9 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
-	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
-	for _, q := range queue.FetchFailedMsgs(ctx, eDB, TelegramQueueName) {
-		if ctx.Err() != nil {
-			break
-		}
-
-		processTelegram(ctx, eDB, q.Msg, cfg.ChatIDs, rl, cfg.Retries)
-
-		// Failures were re-queued by processTelegram; drop the original row.
-		queue.Dequeue(ctx, eDB, q.Key)
-	}
+	resendQueued(ctx, eDB, TelegramQueueName, func(m msgtypes.Message) {
+		processTelegram(ctx, eDB, m, cfg.ChatIDs, rl, cfg.Retries)
+	})
 
 	// Drain fully; processTelegram durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
@@ -115,16 +105,15 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
-// markTelegramPermanent marks permanent errors as unrecoverable so retry-go
-// stops retrying: Forbidden, BadRequest, Unauthorized, NotFound, Conflict, and
-// MigrateError (chat upgraded to supergroup — the old ChatID is dead).
+// markTelegramPermanent stops retry-go on Forbidden, BadRequest, Unauthorized,
+// NotFound, Conflict and MigrateError — a migrated chat's old ID is dead.
 // TooManyRequests and network errors stay transient.
 func markTelegramPermanent(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	// errors.As survives wrapping in future library versions.
+	// errors.As survives wrapping by future library versions.
 	var tmr *bot.TooManyRequestsError
 	if errors.As(err, &tmr) || errors.Is(err, bot.ErrorTooManyRequests) {
 		return err
@@ -137,40 +126,28 @@ func markTelegramPermanent(err error) error {
 		errors.Is(err, bot.ErrorUnauthorized) ||
 		errors.Is(err, bot.ErrorNotFound) ||
 		errors.Is(err, bot.ErrorConflict) {
-		// permanentError inside: survives retry.Do's marker stripping.
+		// Inner sentinel survives retry.Do's marker stripping.
 		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err
 }
 
-// processTelegram renders g as HTML and sends it to each chat ID, re-queueing
-// on partial or total failure. Recipients already in SkipRecipients are omitted.
+// processTelegram sends g as HTML to each chat ID, re-queueing on partial or
+// total failure.
 func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
-	// Trim pairs pre-format to keep <b>/<pre> tags balanced.
+	// Trim before formatting, so <b>/<pre> stay balanced.
 	m := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, TelegramMaxMessageChars)
 
-	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
-	for _, r := range g.SkipRecipients {
-		skipSet[r] = struct{}{}
-	}
-
-	var successfulIDs []string
-
-	// Permanently-failed recipients: skipped on retry, never requeued.
-	var poisonedIDs []string
-
-	anyFailed := false
-	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
-	allProcessed := true
+	run := newRecipientRun(g)
 
 	for _, origID := range chatIDs {
-		if _, skip := skipSet[origID]; skip {
+		if run.skipped(origID) {
 			continue
 		}
 
-		// Follow supergroup migrations seen in earlier cycles. SkipRecipients
-		// bookkeeping stays on origID so retries dedupe correctly.
+		// Follow migrations seen in earlier cycles. Bookkeeping stays on
+		// origID so retries dedupe correctly.
 		u := origID
 
 		telegramMigratedIDsMu.Lock()
@@ -181,10 +158,10 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		uu, err := strconv.ParseInt(u, 10, 64)
 		if err != nil {
-			// Malformed ID never becomes valid: drop loudly, don't silently skip.
+			// Never becomes valid: drop loudly rather than skip silently.
 			logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrTelegramInvalidChatID, u, err)
 
-			poisonedIDs = append(poisonedIDs, origID)
+			run.poison(origID)
 
 			continue
 		}
@@ -195,9 +172,9 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			ParseMode: models.ParseModeHTML,
 		}
 
-		// Check before rl.Take() so shutdown is not blocked on a token.
+		// Before rl.Take(), so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
-			allProcessed = false
+			run.interrupt()
 
 			break
 		}
@@ -207,8 +184,8 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		err = sendTelegramMsg(ctx, &msg, retries)
 		if err != nil {
 			if mig, ok := errors.AsType[*bot.MigrateError](err); ok {
-				// Chat upgraded to supergroup: remap in-process, persist the
-				// new ID to configuration, and deliver to the supergroup now.
+				// Upgraded to a supergroup: remap, persist the new ID, and
+				// deliver there now.
 				newID := strconv.Itoa(mig.MigrateToChatID)
 
 				logger.Warn().Msgf("Telegram: chat %v was migrated to supergroup %v — remapping and updating configuration",
@@ -227,40 +204,29 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		if err != nil {
 			if isPermanentSendErr(err) {
-				// Permanent (blocked bot, deleted chat): drop, don't requeue.
+				// Blocked bot or deleted chat: drop, don't requeue.
 				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrTelegramSendingMessage, u, err)
 
-				poisonedIDs = append(poisonedIDs, origID)
+				run.poison(origID)
 
 				continue
 			}
 
 			logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
-			anyFailed = true
+			run.failed()
 
 			continue
 		}
 
-		successfulIDs = append(successfulIDs, origID)
+		run.delivered(origID)
 	}
 
-	if anyFailed || !allProcessed {
-		// Skip successful and poisoned recipients on retry; dedup bounds growth.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
-
-		// Shutdown-tolerant: queue write must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err := queue.StoreFailedMsgs(sctx, eDB, TelegramQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
-	}
+	run.finish(ctx, eDB, TelegramQueueName, g)
 }
 
 // sendTelegramMsg delivers msg under the per-recipient retry budget, marking
-// permanent failures so the caller can poison-drop or remap.
+// permanent failures for the caller to poison-drop or remap.
 func sendTelegramMsg(ctx context.Context, msg *bot.SendMessageParams, retries uint) error {
 	return retry.New(
 		retry.Attempts(retries),
@@ -275,9 +241,9 @@ func sendTelegramMsg(ctx context.Context, msg *bot.SendMessageParams, retries ui
 	)
 }
 
-// telegramPersistChatID rewrites a migrated chat ID in the config file so the
-// supergroup remapping survives restarts. Best-effort: the in-process remap
-// stays active regardless; a failure only costs a manual edit.
+// telegramPersistChatID rewrites a migrated chat ID so the remap survives a
+// restart. Best effort — the in-process remap holds regardless, and a failure
+// only costs a manual edit.
 func telegramPersistChatID(ctx context.Context, oldID, newID string) {
 	confFile, ok := ctx.Value(ConfFileKey).(string)
 	if !ok {
@@ -293,8 +259,8 @@ func telegramPersistChatID(ctx context.Context, oldID, newID string) {
 		return
 	}
 
-	// Non-validating decode: a broken mid-run edit must not os.Exit this
-	// goroutine via LoadConfig's fail-fast validators.
+	// Non-validating: LoadConfig's fail-fast validators would os.Exit this
+	// goroutine on a broken mid-run edit.
 	cfg, err := config.LoadConfigRaw(confFile)
 	if err != nil {
 		logger.Error().Msgf("Telegram: unable to load configuration for chat ID remap: %v", err)
@@ -324,12 +290,12 @@ func telegramPersistChatID(ctx context.Context, oldID, newID string) {
 	logger.Info().Msgf("Telegram: persisted chat ID remap %v -> %v to %q", oldID, newID, confFile)
 }
 
-// telegramInit lazily creates the shared Telegram client, rebuilding it when the
-// token changes (see credGuard). bot.New validates the token via a network
-// getMe call, so an unchanged token must not reach it.
+// telegramInit lazily builds the shared client, rebuilding on a token change
+// (see credGuard). bot.New validates the token over the network, so an
+// unchanged token must not reach it.
 //
-// No Start(): its getUpdates long-poll is only for receiving, which a
-// send-only bot never consumes. SendMessage works without it.
+// No Start(): its getUpdates long-poll only receives, which a send-only bot
+// never consumes.
 func telegramInit(apiKey string) error {
 	telegramMu.Lock()
 	defer telegramMu.Unlock()
@@ -340,8 +306,8 @@ func telegramInit(apiKey string) error {
 
 	logger.Debug().Msg("Initializing Telegram client")
 
-	// Local, then publish: assigning telegramCli directly nils a working client
-	// whenever the getMe below fails, which the other messengers avoid.
+	// Build locally, then publish: assigning directly would nil a working
+	// client whenever the getMe below fails.
 	cli, err := bot.New(apiKey)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrTelegramSession, err)

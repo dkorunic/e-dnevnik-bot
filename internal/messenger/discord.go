@@ -16,7 +16,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
-	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/internal/version"
 	"go.uber.org/ratelimit"
@@ -28,16 +27,16 @@ const (
 	DiscordMinDelay = DiscordWindow / DiscordAPILimit
 	DiscordQueue    = "discord-queue"
 
-	// DiscordMaxTitleChars and the Max* limits below are Discord's embed caps.
-	// Exceeding any one rejects the entire message, so we truncate client-side.
+	// DiscordMaxTitleChars and the caps below are Discord's embed limits:
+	// exceeding any one rejects the whole message.
 	// https://discord.com/developers/docs/resources/channel#embed-object-embed-limits
 	DiscordMaxTitleChars     = 256
 	DiscordMaxFieldNameChars = 256
 	DiscordMaxFieldValChars  = 1024
 	DiscordMaxFields         = 25
 
-	// minDiscordFieldValueRunes is the minimum value budget when appending a field.
-	// Must be ≥ 3 (ellipsis) plus content so the last field carries more than just "...".
+	// Minimum value budget for a field: ellipsis plus content, so the last one
+	// carries more than just "...".
 	minDiscordFieldValueRunes = 16
 )
 
@@ -63,11 +62,10 @@ type DiscordConfig struct {
 	Retries uint
 }
 
-// Discord resends any queued failures, then delivers live messages from ch to
-// the configured user IDs. On init failure it drains ch into the queue so
-// already-dedup-flagged events are not lost.
+// Discord resends queued failures, then delivers ch to the configured user IDs.
+// On init failure it drains ch to the queue rather than lose flagged events.
 func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg DiscordConfig) (err error) {
-	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
+	// Panic guard; stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -90,7 +88,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	err = discordInit(cfg.Token)
 	if err != nil {
-		// Events are already dedup-flagged; queue them or they are lost forever.
+		// Already dedup-flagged: queue them or lose them forever.
 		queueUndelivered(ctx, eDB, DiscordQueueName, ch)
 
 		return err
@@ -100,17 +98,9 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
-	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
-	for _, q := range queue.FetchFailedMsgs(ctx, eDB, DiscordQueueName) {
-		if ctx.Err() != nil {
-			break
-		}
-
-		processDiscord(ctx, eDB, q.Msg, cfg.UserIDs, rl, cfg.Retries)
-
-		// Failures were re-queued by processDiscord; drop the original row.
-		queue.Dequeue(ctx, eDB, q.Key)
-	}
+	resendQueued(ctx, eDB, DiscordQueueName, func(m msgtypes.Message) {
+		processDiscord(ctx, eDB, m, cfg.UserIDs, rl, cfg.Retries)
+	})
 
 	// Drain fully; processDiscord durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
@@ -122,9 +112,8 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 	return nil
 }
 
-// markDiscordPermanent marks permanent 4xx REST errors (except 408/429) as
-// unrecoverable so retry-go stops retrying. Non-REST/transport errors keep
-// their normal retry budget.
+// markDiscordPermanent stops retry-go on a permanent 4xx REST error. Transport
+// errors keep their retry budget.
 func markDiscordPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -133,7 +122,7 @@ func markDiscordPermanent(err error) error {
 	var rerr *discordgo.RESTError
 	if errors.As(err, &rerr) && rerr.Response != nil {
 		if isPermanentHTTPStatus(rerr.Response.StatusCode) {
-			// permanentError inside: survives retry.Do's marker stripping.
+			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
 		}
 	}
@@ -141,9 +130,8 @@ func markDiscordPermanent(err error) error {
 	return err
 }
 
-// discordEmbedFields renders g's description/value pairs as embed fields within
-// Discord's per-field, per-name and total-embed caps. title is passed in
-// because it draws on the same total-embed budget.
+// discordEmbedFields renders g's pairs within Discord's per-field, per-name and
+// total-embed caps. title draws on the same total budget, hence the parameter.
 func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEmbedField {
 	available := min(len(g.Fields), len(g.Descriptions))
 	budget := DiscordMaxEmbedChars - utf8.RuneCountInString(title)
@@ -155,13 +143,13 @@ func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEm
 	overCap := 0
 
 	for ii := range available {
-		// cellValues' alignment padding, not content; every other backend skips it.
+		// cellValues' alignment padding; every other backend skips it too.
 		if g.Fields[ii] == "" {
 			continue
 		}
 
-		// Cap counts emitted fields — bounding the loop index instead would spend
-		// slots on skipped padding and drop real values that had room.
+		// Counts emitted fields: bounding the loop index instead would spend slots
+		// on padding and drop real values that had room.
 		if len(fields) >= DiscordMaxFields {
 			overCap++
 
@@ -171,7 +159,7 @@ func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEm
 		name := truncateWithEllipsis(g.Descriptions[ii], DiscordMaxFieldNameChars)
 		value := truncateWithEllipsis(g.Fields[ii], DiscordMaxFieldValChars)
 
-		// Discord 400s on an empty name, poison-dropping the whole alert.
+		// An empty name 400s, poison-dropping the whole alert.
 		if name == "" {
 			name = "-"
 		}
@@ -179,7 +167,8 @@ func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEm
 		nameLen := utf8.RuneCountInString(name)
 		valueLen := utf8.RuneCountInString(value)
 
-		// Require real value room: Discord rejects empty Value and bare ellipses are useless.
+		// Needs real room: Discord rejects an empty Value, and a bare ellipsis is
+		// useless.
 		if nameLen+minDiscordFieldValueRunes > budget {
 			droppedAt = ii
 
@@ -219,10 +208,8 @@ func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEm
 	return fields
 }
 
-// processDiscord renders g as an embed (field count and sizes capped to
-// Discord's limits) and sends it to each user ID via a lazily-resolved,
-// cached DM channel, re-queueing on partial or total failure. Recipients
-// already in SkipRecipients are omitted.
+// processDiscord sends g as a capped embed to each user ID over a lazily
+// resolved, cached DM channel, re-queueing on partial or total failure.
 func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
 	title := truncateWithEllipsis(format.PlainSubject(g.Username, g.Subject, g.Code), DiscordMaxTitleChars)
 
@@ -233,35 +220,23 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		Fields: fields,
 	}
 
-	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
-	for _, r := range g.SkipRecipients {
-		skipSet[r] = struct{}{}
-	}
-
-	var successfulIDs []string
-
-	// Permanently-failed recipients: skipped on retry, never requeued.
-	var poisonedIDs []string
-
-	anyFailed := false
-	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
-	allProcessed := true
+	run := newRecipientRun(g)
 
 	for _, u := range userIDs {
-		if _, skip := skipSet[u]; skip {
+		if run.skipped(u) {
 			continue
 		}
 
-		// Check before rl.Take() so shutdown is not blocked on a token.
+		// Before rl.Take(), so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
-			allProcessed = false
+			run.interrupt()
 
 			break
 		}
 
 		rl.Take()
 
-		// Resolve DM channel lazily; cache across recipients.
+		// Resolved lazily, cached across recipients.
 		discordMu.Lock()
 		channelID, cached := discordChannels[u]
 		discordMu.Unlock()
@@ -273,17 +248,17 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 				discordgo.WithRestRetries(1))
 			if err != nil {
 				if isPermanentSendErr(markDiscordPermanent(err)) {
-					// Permanent (invalid/unknown user): drop, don't requeue.
+					// Invalid or unknown user: drop, don't requeue.
 					logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrDiscordCreatingChannel, u, err)
 
-					poisonedIDs = append(poisonedIDs, u)
+					run.poison(u)
 
 					continue
 				}
 
 				logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
 
-				anyFailed = true
+				run.failed()
 
 				continue
 			}
@@ -296,10 +271,10 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 		err := sendDiscordEmbed(ctx, channelID, &msg, retries)
 		if err != nil && isPermanentSendErr(err) && cached {
-			// A cached DM channel can go stale (user closed the DM, channel
-			// deleted): evict, re-resolve once, and resend once before
-			// classifying. If the re-resolve fails, keep the original error
-			// — the cache is already evicted, so the next cycle starts clean.
+			// A cached DM channel goes stale when the user closes the DM or it
+			// is deleted: evict, re-resolve and resend once before classifying.
+			// A failed re-resolve keeps the original error; the cache is already
+			// evicted, so the next cycle starts clean.
 			discordMu.Lock()
 			delete(discordChannels, u)
 			discordMu.Unlock()
@@ -322,40 +297,29 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 		if err != nil {
 			if isPermanentSendErr(err) {
-				// Permanent (blocked bot, unknown channel): drop, don't requeue.
+				// Blocked bot or unknown channel: drop, don't requeue.
 				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrDiscordSendingMessage, u, err)
 
-				poisonedIDs = append(poisonedIDs, u)
+				run.poison(u)
 
 				continue
 			}
 
 			logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
-			anyFailed = true
+			run.failed()
 
 			continue
 		}
 
-		successfulIDs = append(successfulIDs, u)
+		run.delivered(u)
 	}
 
-	if anyFailed || !allProcessed {
-		// Skip successful and poisoned recipients on retry; dedup bounds growth.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
-
-		// Shutdown-tolerant: queue write must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err := queue.StoreFailedMsgs(sctx, eDB, DiscordQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
-	}
+	run.finish(ctx, eDB, DiscordQueueName, g)
 }
 
-// sendDiscordEmbed delivers msg to channelID under the per-recipient retry
-// budget, marking permanent 4xx failures so the caller can poison-drop.
+// sendDiscordEmbed delivers msg under the per-recipient retry budget, marking
+// permanent 4xx failures for the caller to poison-drop.
 func sendDiscordEmbed(ctx context.Context, channelID string, msg *discordgo.MessageEmbed, retries uint) error {
 	return retry.New(
 		retry.Attempts(retries),
@@ -374,17 +338,16 @@ func sendDiscordEmbed(ctx context.Context, channelID string, msg *discordgo.Mess
 	)
 }
 
-// discordInit lazily creates the shared REST-only Discord client, rebuilding it
-// when the token changes (see credGuard).
+// discordInit lazily builds the shared REST-only client, rebuilding on a token
+// change (see credGuard).
 func discordInit(token string) error {
 	discordMu.Lock()
 	defer discordMu.Unlock()
 
-	// No Open(): this bot only sends via REST (UserChannelCreate /
-	// ChannelMessageSendEmbed), which needs no gateway websocket. Keeping a
-	// gateway connection open added heartbeats/reconnect churn for nothing —
-	// and a failed Open() left a half-initialized session that was never
-	// retried because discordCli was already non-nil.
+	// No Open(): sending is pure REST and needs no gateway websocket. Holding
+	// one added heartbeat and reconnect churn for nothing, and a failed Open()
+	// left a half-initialised session that was never retried, discordCli already
+	// being non-nil.
 	if discordCli != nil && !discordCreds.changed(token) {
 		return nil
 	}
@@ -401,9 +364,9 @@ func discordInit(token string) error {
 	cli.ShouldRetryOnRateLimit = true
 	cli.MaxRestRetries = 1
 
-	// Publish only on full success so a failed init is retried next cycle.
-	// The channel cache is dropped with the client it belongs to: a DM channel
-	// is owned by the bot identity that opened it.
+	// Publish only on success, so a failed init retries next cycle. The channel
+	// cache goes with the client: a DM channel belongs to the identity that
+	// opened it.
 	discordCli = cli
 	discordChannels = make(map[string]string)
 	discordCreds.record(token)

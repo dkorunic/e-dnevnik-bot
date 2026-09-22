@@ -40,7 +40,8 @@ const (
 
 	CalendarExamSep = " - Ispit iz: "
 
-	// CalendarPrimary is the ID and accepted name-alias of the user's primary calendar.
+	// CalendarPrimary is both the ID and the accepted alias of the primary
+	// calendar.
 	CalendarPrimary = "primary"
 )
 
@@ -67,11 +68,11 @@ type CalendarConfig struct {
 	Retries uint
 }
 
-// Calendar resends any queued failures, then inserts exam events from ch into
-// the configured calendar. On init failure it drains ch into the queue so
-// already-dedup-flagged events are not lost.
+// Calendar resends queued failures, then inserts ch's exams into the configured
+// calendar. On init failure it drains ch to the queue rather than lose flagged
+// events.
 func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalendarConfig) (err error) {
-	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
+	// Panic guard; stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -82,8 +83,8 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	srv, calID, err := ensureCalendarInit(ctx, cfg.TokFile, cfg.Name)
 	if err != nil {
-		// Init does network I/O (OAuth refresh), so failure may be transient.
-		// Queue the already-flagged events or lose them.
+		// Init does network I/O (OAuth refresh), so this may be transient.
+		// Already dedup-flagged: queue them or lose them forever.
 		queueUndelivered(ctx, eDB, CalendarQueueName, ch)
 
 		return err
@@ -93,17 +94,9 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
-	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
-	for _, q := range queue.FetchFailedMsgs(ctx, eDB, CalendarQueueName) {
-		if ctx.Err() != nil {
-			break
-		}
-
-		processCalendar(ctx, eDB, q.Msg, rl, srv, calID, cfg.Retries)
-
-		// Failures were re-queued by processCalendar; drop the original row.
-		queue.Dequeue(ctx, eDB, q.Key)
-	}
+	resendQueued(ctx, eDB, CalendarQueueName, func(m msgtypes.Message) {
+		processCalendar(ctx, eDB, m, rl, srv, calID, cfg.Retries)
+	})
 
 	// Drain fully; processCalendar durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
@@ -115,10 +108,9 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
-// ensureCalendarInit lazily initializes the shared calendar service under
-// calendarMu. The defer-unlock (not a manual one) keeps a panic in InitCalendar
-// from leaking the lock, which would deadlock the next cycle's Calendar at Lock
-// and hang shutdown.
+// ensureCalendarInit lazily initialises the shared service. The unlock is
+// deferred, not manual: a panic in InitCalendar would otherwise leak the lock
+// and deadlock the next cycle at Lock, hanging shutdown.
 func ensureCalendarInit(ctx context.Context, tokFile, name string) (*calendar.Service, string, error) {
 	calendarMu.Lock()
 	defer calendarMu.Unlock()
@@ -135,13 +127,12 @@ func ensureCalendarInit(ctx context.Context, tokFile, name string) (*calendar.Se
 	return calendarSrv, calendarID, nil
 }
 
-// CalendarDeferred is the queue-only stub msgSend runs when Calendar is
-// configured but not yet initializable (headless daemon before interactive
-// OAuth). It queues exam events — the only type Calendar delivers — so they are
-// inserted once OAuth completes rather than dedup-flagged and lost; non-exam
-// events are dropped (other messengers already got them).
+// CalendarDeferred is the queue-only stub for a Calendar configured but not yet
+// initialisable — a headless daemon before interactive OAuth. Exams are queued
+// for insertion once OAuth completes rather than flagged and lost; anything else
+// is dropped, the other messengers having already taken it.
 func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message) {
-	// Same panic-guard contract as the full messengers: degrade, don't crash.
+	// Same contract as the full messengers: degrade, don't crash.
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -159,7 +150,7 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 
 		inflight = &g
 
-		// Shutdown-tolerant: queue write must survive ctx cancel.
+		// Must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err := queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -178,10 +169,9 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 	}
 }
 
-// markCalendarPermanent marks permanent 4xx errors (except 408/429) as
-// unrecoverable so retry-go stops retrying. 409 Conflict is permanent too and
-// the caller treats it as success — the deterministic event ID means the
-// insert already landed. 5xx/transport errors stay transient.
+// markCalendarPermanent stops retry-go on a permanent 4xx. 409 is permanent too
+// but the caller reads it as success: the deterministic event ID means the
+// insert already landed. 5xx and transport errors stay transient.
 func markCalendarPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -189,7 +179,7 @@ func markCalendarPermanent(err error) error {
 
 	if gaErr, ok := errors.AsType[*googleapi.Error](err); ok {
 		if isPermanentHTTPStatus(gaErr.Code) {
-			// permanentError inside: survives retry.Do's marker stripping.
+			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
 		}
 	}
@@ -197,25 +187,25 @@ func markCalendarPermanent(err error) error {
 	return err
 }
 
-// processCalendar inserts g as an all-day event, re-queueing on failure.
-// Non-exam events, past exams, and field-less exams are skipped. The event ID
-// is a deterministic hash so a retried insert dedupes server-side (409).
+// processCalendar inserts g as an all-day event, re-queueing on failure and
+// skipping non-exams, past exams and field-less exams. The deterministic event
+// ID makes a retried insert dedupe server-side.
 func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, rl ratelimit.Limiter,
 	srv *calendar.Service, calID string, retries uint,
 ) {
 	var err error
 
-	// Calendar only receives exams; everything else is a no-op.
+	// Only exams are delivered here.
 	if g.Code != msgtypes.Exam {
 		logger.Debug().Msgf("Calendar: skipping non-exam event for %v/%v (code %v)", g.Username, g.Subject, g.Code)
 
 		return
 	}
 
-	// Refresh per call: long-running daemons must not use a stale boundary.
-	// Compare calendar dates, not instants: exam timestamps are midnight-UTC
-	// all-day markers, so comparing against time.Now() directly would drop an
-	// exam first seen on the exam day itself. Only strictly-past days skip.
+	// Recomputed per call so a long-running daemon never uses a stale boundary,
+	// and compared as dates rather than instants: exam timestamps are midnight-UTC
+	// all-day markers, so an instant comparison would drop an exam first seen on
+	// the day itself.
 	if g.Timestamp.Format(time.DateOnly) < time.Now().UTC().Format(time.DateOnly) {
 		logger.Info().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)
 
@@ -228,10 +218,9 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		return
 	}
 
-	// Deterministic ID makes a retried insert a 409 (idempotent success below).
-	// Keyed on (username, subject, date), NOT g.Fields — so a later edit to an
-	// exam's note on the same date is a 409 no-op and keeps the original.
-	// Accepted: exam notes rarely change once dated.
+	// Keyed on (username, subject, date), not g.Fields, so a later edit to the
+	// note on the same date is a 409 no-op that keeps the original. Accepted:
+	// notes rarely change once dated.
 	idHash := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s",
 		g.Username, g.Subject, g.Timestamp.Format(time.DateOnly)))
 
@@ -247,16 +236,16 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		},
 	}
 
-	// The exam note is the third field of scrape's exam layout (subject,
-	// date, note). Short rows (legacy queue entries) get no description
-	// instead of a mis-picked field.
+	// Third field of scrape's exam layout (subject, date, note). A short
+	// row — a legacy queue entry — gets no description rather than a
+	// mis-picked field.
 	if len(g.Fields) >= 3 {
 		newEvent.Description = g.Fields[2]
 	}
 
-	// Cancelled before insert: re-queue so caller's tail-slice does not drop us.
+	// Cancelled before insert: re-queue rather than be dropped.
 	if ctx.Err() != nil {
-		// Shutdown-tolerant: queue write must survive ctx cancel.
+		// Must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -269,7 +258,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	rl.Take()
 
-	// 409 Conflict short-circuits via Unrecoverable, then post-Do treats it as idempotent success.
+	// 409 short-circuits here and reads as idempotent success below.
 	err = retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
@@ -290,7 +279,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		}
 
 		if isPermanentSendErr(err) {
-			// Permanent non-409 (400/403/404): drop, don't requeue.
+			// Permanent and not a 409: drop, don't requeue.
 			logger.Error().Msgf("Permanently dropping Google Calendar event for %v/%v (will not retry): %v",
 				g.Username, g.Subject, err)
 
@@ -299,7 +288,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
-		// Shutdown-tolerant: queue write must survive ctx cancel.
+		// Must survive ctx cancel.
 		sctx, scancel := queueStoreCtx(ctx)
 		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
 			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
@@ -311,9 +300,8 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 }
 
-// InitCalendar builds an OAuth2-authenticated Calendar service (running the
-// interactive consent flow if tokFile has no valid token) and resolves the
-// calendar named name to its ID.
+// InitCalendar builds an authenticated Calendar service, running interactive
+// consent if tokFile holds no valid token, and resolves name to a calendar ID.
 func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service, string, error) {
 	b, err := credentialFS.ReadFile(CalendarCredentials)
 	if err != nil {

@@ -14,7 +14,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
-	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/internal/version"
 	"github.com/slack-go/slack"
@@ -40,8 +39,8 @@ var (
 	SlackVersion   = version.ReadVersion("github.com/slack-go/slack")
 )
 
-// slackPoster is the subset of *slack.Client the send path uses, so tests can
-// drive permanent-vs-transient outcomes without a live workspace.
+// slackPoster is the slice of *slack.Client the send path uses, so tests can
+// drive permanent-vs-transient outcomes without a workspace.
 type slackPoster interface {
 	PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error)
 }
@@ -53,11 +52,10 @@ type SlackConfig struct {
 	Retries uint
 }
 
-// Slack resends any queued failures, then delivers live messages from ch to the
-// configured chat IDs. On init failure it drains ch into the queue so
-// already-dedup-flagged events are not lost.
+// Slack resends queued failures, then delivers ch to the configured chat IDs.
+// On init failure it drains ch to the queue rather than lose flagged events.
 func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg SlackConfig) (err error) {
-	// Panic guard; inflight stays nil on the resend path (see recoverMessenger).
+	// Panic guard; stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
 
 	defer func() {
@@ -79,7 +77,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 	}
 
 	if err := slackInit(cfg.Token); err != nil {
-		// Events are already dedup-flagged; queue them or they are lost forever.
+		// Already dedup-flagged: queue them or lose them forever.
 		queueUndelivered(ctx, eDB, SlackQueueName, ch)
 
 		return err
@@ -89,17 +87,9 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 
 	rl := ratelimit.New(SlackAPILimit, ratelimit.Per(SlackWindow))
 
-	// Resend queued failures first; rows outlive processing (see FetchFailedMsgs).
-	for _, q := range queue.FetchFailedMsgs(ctx, eDB, SlackQueueName) {
-		if ctx.Err() != nil {
-			break
-		}
-
-		processSlack(ctx, eDB, q.Msg, cfg.ChatIDs, rl, cfg.Retries)
-
-		// Failures were re-queued by processSlack; drop the original row.
-		queue.Dequeue(ctx, eDB, q.Key)
-	}
+	resendQueued(ctx, eDB, SlackQueueName, func(m msgtypes.Message) {
+		processSlack(ctx, eDB, m, cfg.ChatIDs, rl, cfg.Retries)
+	})
 
 	// Drain fully; processSlack durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
@@ -111,9 +101,9 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 	return nil
 }
 
-// markSlackPermanent marks permanent errors as unrecoverable so retry-go stops
-// retrying: 4xx StatusCodeError (except 408/429) and any SlackErrorResponse
-// (API-level "ok":false, e.g. invalid_auth). Network/5xx errors stay transient.
+// markSlackPermanent stops retry-go on a permanent 4xx StatusCodeError or any
+// SlackErrorResponse (API-level "ok":false, e.g. invalid_auth). Network and 5xx
+// stay transient.
 func markSlackPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -121,25 +111,22 @@ func markSlackPermanent(err error) error {
 
 	if sce, ok := errors.AsType[slack.StatusCodeError](err); ok {
 		if isPermanentHTTPStatus(sce.Code) {
-			// permanentError inside: survives retry.Do's marker stripping.
+			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
 		}
 	}
 
 	if _, ok := errors.AsType[*slack.SlackErrorResponse](err); ok {
-		// permanentError inside: survives retry.Do's marker stripping.
+		// Inner sentinel survives retry.Do's marker stripping.
 		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err
 }
 
-// processSlack renders g as markup and sends it to each chat ID (Slack
-// channel/user/group IDs, not @nicknames), re-queueing on partial or total
-// failure. Recipients already in SkipRecipients are omitted.
-// slackMessageText renders g for Slack within the platform's text cap. Pairs
-// are dropped before rendering, not cut after: the fence and the &-entities
-// Slack requires survive only an untouched string (see truncateRendered).
+// slackMessageText renders g within Slack's text cap. Pairs are dropped before
+// rendering rather than cut after: the fence and the &-entities Slack requires
+// survive only an untouched string (see truncateRendered).
 func slackMessageText(g msgtypes.Message) string {
 	return truncateRendered(format.MarkupMsg, g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, SlackMaxMessageChars)
 }
@@ -147,28 +134,16 @@ func slackMessageText(g msgtypes.Message) string {
 func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
 	m := slackMessageText(g)
 
-	skipSet := make(map[string]struct{}, len(g.SkipRecipients))
-	for _, r := range g.SkipRecipients {
-		skipSet[r] = struct{}{}
-	}
-
-	var successfulIDs []string
-
-	// Permanently-failed recipients: skipped on retry, never requeued.
-	var poisonedIDs []string
-
-	anyFailed := false
-	// Tracks incomplete loops so shutdown-cancelled sends get re-queued, not dropped.
-	allProcessed := true
+	run := newRecipientRun(g)
 
 	for _, u := range chatIDs {
-		if _, skip := skipSet[u]; skip {
+		if run.skipped(u) {
 			continue
 		}
 
-		// Check before rl.Take() so shutdown is not blocked on a token.
+		// Before rl.Take(), so shutdown is not blocked on a token.
 		if ctx.Err() != nil {
-			allProcessed = false
+			run.interrupt()
 
 			break
 		}
@@ -192,40 +167,28 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 		)
 		if err != nil {
 			if isPermanentSendErr(err) {
-				// Permanent (channel_not_found, not_in_channel): drop, don't requeue.
+				// channel_not_found, not_in_channel: drop, don't requeue.
 				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrSlackSendingMessage, u, err)
 
-				poisonedIDs = append(poisonedIDs, u)
+				run.poison(u)
 
 				continue
 			}
 
 			logger.Error().Msgf("%v: %v", ErrSlackSendingMessage, err)
 
-			anyFailed = true
+			run.failed()
 
 			continue
 		}
 
-		successfulIDs = append(successfulIDs, u)
+		run.delivered(u)
 	}
 
-	if anyFailed || !allProcessed {
-		// Skip successful and poisoned recipients on retry; dedup bounds growth.
-		g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, append(successfulIDs, poisonedIDs...))
-
-		// Shutdown-tolerant: queue write must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err := queue.StoreFailedMsgs(sctx, eDB, SlackQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
-	}
+	run.finish(ctx, eDB, SlackQueueName, g)
 }
 
-// slackInit lazily creates the shared Slack client, rebuilding it when the
-// token changes (see credGuard).
+// slackInit lazily builds the shared client, rebuilding on a token change.
 func slackInit(token string) error {
 	slackMu.Lock()
 	defer slackMu.Unlock()
