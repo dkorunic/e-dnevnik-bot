@@ -23,16 +23,16 @@ const (
 	EventDescription = "Napomena"     // exam remark field description (typically a target of the exam)
 )
 
-// eventDescriptions is a shared, immutable slice used for all exam event messages to avoid per-event allocations.
+// Shared and immutable, to avoid an allocation per exam event.
 var eventDescriptions = []string{
 	EventSummary,
 	DateDescription,
 	EventDescription,
 }
 
-// Course-page tables sit inside div.tab-content, so the descendant combinator
-// is required here: "div.content >" reaches none of them, and finds nothing
-// rather than failing.
+// Course-page tables sit inside div.tab-content, so the descendant combinator is
+// required: "div.content >" reaches none of them, and finds nothing rather than
+// failing.
 var (
 	selNewGradesTable             = cascadia.MustCompile("div.content div.flex-table.new-grades-table")
 	selRowHeaderNotFirstCell      = cascadia.MustCompile("div.row.header:not(.first) div.cell")
@@ -51,18 +51,17 @@ var (
 	selCellBoldFirstSpan          = cascadia.MustCompile("div.cell.bold.first > span")
 	selCellNotBoldFirstSpan       = cascadia.MustCompile("div.cell:not(.bold.first) > span")
 
-	// selNoRecords matches the portal's explicit empty state, e.g. /grade/all
-	// rendering "Učenik nema upisanih ocjena.".
+	// The portal's explicit empty state, e.g. "Učenik nema upisanih ocjena.".
 	selNoRecords = cascadia.MustCompile("div.content.no-records")
 
 	selTabContent       = cascadia.MustCompile("div.tab-content")
 	selTabContentActive = cascadia.MustCompile("div.tab-content.active")
 )
 
-// tabScope keeps tables to the school year on screen. The descendant
-// combinators above are needed to reach through div.tab-content at all, but
-// they also match inactive years — a past closing grade would then alert under
-// the current class's name.
+// tabScope keeps tables to the school year on screen. The descendant combinators
+// above are needed to reach through div.tab-content at all, but they also match
+// inactive years, where a past closing grade would alert under the current
+// class's name.
 //
 // Fails open on both no tabs and no .active: a silent empty scrape reads as a
 // quiet school day, which is worse than a duplicate.
@@ -88,8 +87,8 @@ func (s tabScope) includes(sel *goquery.Selection) bool {
 }
 
 // logEmptyResult separates the portal's own empty state from selectors that
-// stopped matching. Both yield zero rows, but conflating them is how a drifted
-// scrape stays invisible: it reads as a quiet school day.
+// stopped matching. Both yield zero rows, and conflating them is how a drifted
+// scrape stays invisible — it reads as a quiet school day.
 func logEmptyResult(doc *goquery.Document, username, what string) {
 	if doc.FindMatcher(selNoRecords).Length() > 0 {
 		logger.Debug().Msgf("Portal reports no %v recorded for user %v", what, username)
@@ -101,8 +100,7 @@ func logEmptyResult(doc *goquery.Document, username, what string) {
 		what, username)
 }
 
-// parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
-// constructs grade messages and sends them a message channel, optionally returning an error.
+// parseGrades emits one message per grade row, per subject.
 func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username string, rawGrades []byte, multiClass bool, className string) error {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawGrades))
 	if err != nil {
@@ -130,21 +128,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 				subject += " / " + className
 			}
 
-			// :not(.first) drops the title row, whose lone subject-name cell
-			// would offset every column.
-			headerCells := table.FindMatcher(selRowHeaderNotFirstCell)
-			descriptions := make([]string, 0, headerCells.Length())
-
-			headerCells.Each(func(_ int, column *goquery.Selection) {
-				txt := strings.TrimSpace(column.Text())
-				if len(txt) > 0 {
-					// Whole-cell .Text() carries whitespace between nested
-					// elements; cellValues normalises values the same way.
-					txt = trimAllSpace(txt)
-				}
-
-				descriptions = append(descriptions, txt)
-			})
+			descriptions := headerDescriptions(table)
 
 			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
@@ -154,7 +138,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 					fields, hasValue := cellValues(row)
 
-					// Skip contentless rows (mirrors parseCourse) — no fieldless alert.
+					// No fieldless alerts.
 					if !hasValue || len(descriptions) == 0 {
 						return
 					}
@@ -185,7 +169,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 	return nil
 }
 
-// cleanEventDescription trims the exam event description, returning only the right side of the colon if it exists.
+// cleanEventDescription keeps only the text after a colon, when there is one.
 func cleanEventDescription(summary string) string {
 	if _, after, ok := strings.Cut(summary, ":"); ok {
 		return strings.TrimSpace(after)
@@ -194,8 +178,7 @@ func cleanEventDescription(summary string) string {
 	return summary
 }
 
-// parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
-// error.
+// parseEvents emits one exam message per calendar event.
 func parseEvents(ctx context.Context, ch chan<- msgtypes.Message, username string, events fetch.Events, multiClass bool, className string) error {
 	if len(events) == 0 {
 		logger.Info().Msgf("No scheduled exams for user %v", username)
@@ -231,8 +214,7 @@ func parseEvents(ctx context.Context, ch chan<- msgtypes.Message, username strin
 	return nil
 }
 
-// parseClasses extracts active classes from raw string (classes scrape response body) and constructs Classes structure
-// with class ID, name, school name and year of enlistment.
+// parseClasses extracts the active classes: ID, name, school and year.
 func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawClasses))
 	if err != nil {
@@ -285,9 +267,9 @@ func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
 				})
 		})
 
-	// Legitimate over summer break, so not an error — but downstream this is
-	// indistinguishable from a healthy poll, making it the only signal that a
-	// login succeeded while alerts silently never fire.
+	// Legitimate over the summer break, so not an error — but downstream it is
+	// indistinguishable from a healthy poll, which makes this the only signal
+	// that a login succeeded while alerts silently never fire.
 	if parsedClasses == 0 {
 		logger.Warn().Msgf("No active classes found in the scraped content for user %v", username)
 	}
@@ -295,8 +277,7 @@ func parseClasses(username string, rawClasses []byte) (fetch.Classes, error) {
 	return classes, nil
 }
 
-// parseCourses takes a raw HTML string of all courses a user is enrolled in, extracts
-// the course name, teacher name, and URL, and returns a slice of fetch.Course objects.
+// parseCourses extracts the name and URL of every enrolled course.
 func parseCourses(username string, rawCourses []byte) (fetch.Courses, error) {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawCourses))
 	if err != nil {
@@ -336,8 +317,60 @@ func parseCourses(username string, rawCourses []byte) (fetch.Courses, error) {
 	return courses, nil
 }
 
-// parseCourse extracts course information (national exams, readings, final grades) from raw string
-// and sends messages to a message channel, optionally returning an error.
+// emitFlexTable emits one message per content-carrying row of every table
+// matching sel, pairing each row's cells with that table's header labels.
+//
+// National exams and readings differ only in selector and event code, so they
+// share this reader — the row handling once existed three times over and was
+// fixed in only one (see cellValues). Add a new flex table as another call,
+// never another copy.
+//
+// Reports cancellation so the caller can surface ctx.Err() rather than report a
+// truncated scrape as complete.
+func emitFlexTable(ctx context.Context, ch chan<- msgtypes.Message, doc *goquery.Document, scope tabScope,
+	sel goquery.Matcher, code msgtypes.EventCode, username, subject string,
+) bool {
+	var cancelled bool
+
+	doc.FindMatcher(sel).
+		Each(func(_ int, table *goquery.Selection) {
+			if cancelled || !scope.includes(table) {
+				return
+			}
+
+			descriptions := headerDescriptions(table)
+
+			table.FindMatcher(selRowNotHeader).
+				Each(func(_ int, row *goquery.Selection) {
+					if cancelled {
+						return
+					}
+
+					fields, hasValue := cellValues(row)
+
+					// No fieldless alerts.
+					if !hasValue || len(descriptions) == 0 {
+						return
+					}
+
+					select {
+					case ch <- msgtypes.Message{
+						Code:         code,
+						Username:     username,
+						Subject:      subject,
+						Fields:       fields,
+						Descriptions: descriptions,
+					}:
+					case <-ctx.Done():
+						cancelled = true
+					}
+				})
+		})
+
+	return cancelled
+}
+
+// parseCourse emits a course page's national exams, readings and final grade.
 func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username string, rawCourse []byte, multiClass bool, className, subject string) error {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(rawCourse))
 	if err != nil {
@@ -350,106 +383,22 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 	scope := newTabScope(doc)
 
-	var cancelled bool
-
-	doc.FindMatcher(selNationalExamTable).
-		Each(func(_ int, table *goquery.Selection) {
-			if cancelled || !scope.includes(table) {
-				return
-			}
-
-			// Whole cells, matching cellValues: a `> span` read would miscount.
-			headerCells := table.FindMatcher(selRowHeaderNotFirstCell)
-			descriptions := make([]string, 0, headerCells.Length())
-
-			headerCells.Each(func(_ int, column *goquery.Selection) {
-				txt := strings.TrimSpace(column.Text())
-				if len(txt) > 0 {
-					// Whole-cell .Text() carries whitespace between nested
-					// elements; cellValues normalises values the same way.
-					txt = trimAllSpace(txt)
-				}
-
-				descriptions = append(descriptions, txt)
-			})
-
-			table.FindMatcher(selRowNotHeader).
-				Each(func(_ int, row *goquery.Selection) {
-					if cancelled {
-						return
-					}
-
-					fields, hasValue := cellValues(row)
-
-					if hasValue && len(descriptions) > 0 {
-						select {
-						case ch <- msgtypes.Message{
-							Code:         msgtypes.NationalExam,
-							Username:     username,
-							Subject:      subject,
-							Fields:       fields,
-							Descriptions: descriptions,
-						}:
-						case <-ctx.Done():
-							cancelled = true
-						}
-					}
-				})
-		})
-
-	doc.FindMatcher(selReadingsTable).
-		Each(func(_ int, table *goquery.Selection) {
-			if cancelled || !scope.includes(table) {
-				return
-			}
-
-			// Whole cells, matching cellValues: a `> span` read would miscount.
-			headerCells := table.FindMatcher(selRowHeaderNotFirstCell)
-			descriptions := make([]string, 0, headerCells.Length())
-
-			headerCells.Each(func(_ int, column *goquery.Selection) {
-				txt := strings.TrimSpace(column.Text())
-				if len(txt) > 0 {
-					// Whole-cell .Text() carries whitespace between nested
-					// elements; cellValues normalises values the same way.
-					txt = trimAllSpace(txt)
-				}
-
-				descriptions = append(descriptions, txt)
-			})
-
-			table.FindMatcher(selRowNotHeader).
-				Each(func(_ int, row *goquery.Selection) {
-					if cancelled {
-						return
-					}
-
-					fields, hasValue := cellValues(row)
-
-					if hasValue && len(descriptions) > 0 {
-						select {
-						case ch <- msgtypes.Message{
-							Code:         msgtypes.Reading,
-							Username:     username,
-							Subject:      subject,
-							Fields:       fields,
-							Descriptions: descriptions,
-						}:
-						case <-ctx.Done():
-							cancelled = true
-						}
-					}
-				})
-		})
-
-	if cancelled {
+	if emitFlexTable(ctx, ch, doc, scope, selNationalExamTable, msgtypes.NationalExam, username, subject) {
 		return ctx.Err()
 	}
 
-	// FinalGrade Subject must include className so hashes differ per school year.
+	if emitFlexTable(ctx, ch, doc, scope, selReadingsTable, msgtypes.Reading, username, subject) {
+		return ctx.Err()
+	}
+
+	// className must be in the Subject, or hashes collide across school years.
 	if !multiClass {
 		subject += " / " + className
 	}
+
+	// Not emitFlexTable: a single label/value row that deliberately compacts
+	// empty cells, rather than a padded flex table.
+	var cancelled bool
 
 	doc.FindMatcher(selFinalGradeRow).
 		Each(func(_ int, row *goquery.Selection) {
@@ -471,7 +420,7 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 			spanCells.Each(func(_ int, column *goquery.Selection) {
 				txt := strings.TrimSpace(column.Text())
 
-				// Skip divisor cells.
+				// Divisor cell.
 				if len(txt) > 0 {
 					spans = append(spans, txt)
 				}
@@ -499,14 +448,40 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 	return nil
 }
 
-// cellValues returns one entry per div.cell in row, in column order, reporting
-// whether any cell carried text.
+// headerDescriptions returns one entry per header cell, in column order — the
+// labels cellValues' values pair against.
 //
-// Cell text rather than a child <span>: the "Bilješka" column holds a <pre>, so
-// a span-only read omits it and slides every later value left of its header.
-// Empty cells stay as padding to keep Fields[i] aligned with Descriptions[i],
-// which is why callers need the bool — an all-empty row is still a non-empty
-// slice, so len() cannot decide whether it is worth alerting on.
+// Whole-cell .Text(), not a `> span` read, for the same reason cellValues uses
+// it: the two must count the same cells or every value lands under the wrong
+// header. Kept adjacent to cellValues so the pairing stays visible.
+//
+// :not(.first) drops the title row, whose lone subject-name cell would offset
+// every column.
+func headerDescriptions(table *goquery.Selection) []string {
+	headerCells := table.FindMatcher(selRowHeaderNotFirstCell)
+	descriptions := make([]string, 0, headerCells.Length())
+
+	headerCells.Each(func(_ int, column *goquery.Selection) {
+		txt := strings.TrimSpace(column.Text())
+		if len(txt) > 0 {
+			// Whole-cell .Text() carries whitespace between nested elements;
+			// cellValues normalises the same way.
+			txt = trimAllSpace(txt)
+		}
+
+		descriptions = append(descriptions, txt)
+	})
+
+	return descriptions
+}
+
+// cellValues returns one entry per div.cell in row, in column order, reporting
+// whether any carried text.
+//
+// Cell text, not a child <span>: the "Bilješka" column holds a <pre>, which a
+// span-only read omits, sliding every later value left of its header. Empty
+// cells stay as padding so Fields[i] lines up with Descriptions[i] — hence the
+// bool, since an all-empty row is still a non-empty slice.
 func cellValues(row *goquery.Selection) ([]string, bool) {
 	cells := row.FindMatcher(selCell)
 	values := make([]string, 0, cells.Length())
@@ -516,7 +491,7 @@ func cellValues(row *goquery.Selection) ([]string, bool) {
 	cells.Each(func(_ int, cell *goquery.Selection) {
 		txt := strings.TrimSpace(cell.Text())
 		if len(txt) > 0 {
-			// <pre> note cells arrive with newlines.
+			// <pre> notes arrive with newlines.
 			txt = trimAllSpace(txt)
 			hasValue = true
 		}
@@ -527,8 +502,8 @@ func cellValues(row *goquery.Selection) ([]string, bool) {
 	return values, hasValue
 }
 
-// trimAllSpace removes all leading, trailing, and repeated spaces from the input string.
-// It returns a single-space separated string.
+// trimAllSpace collapses every run of whitespace to a single space and trims
+// the ends.
 func trimAllSpace(s string) string {
 	needsMod := false
 	inSpace := false

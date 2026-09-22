@@ -14,29 +14,29 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// scrapeRetryMaxJitter caps backoff jitter to smooth simultaneous reconnect storms.
+// Caps backoff jitter, smoothing simultaneous reconnect storms.
 const scrapeRetryMaxJitter = 500 * time.Millisecond
 
-// scrapeMaxAttempts caps retries so attempts*fetch.Timeout cannot overflow int64 nanoseconds.
+// Caps retries so attempts*fetch.Timeout cannot overflow int64 nanoseconds.
 const scrapeMaxAttempts = 100
 
-// maxSessionRecoveries caps consecutive re-logins per scrape. A drifted auth
-// marker makes every endpoint report expiry, which without a ceiling becomes a
-// login POST per attempt per step — the rate limiter markPermanent avoids.
+// Caps consecutive re-logins per scrape. A drifted auth marker makes every
+// endpoint report expiry, which uncapped becomes a login POST per attempt per
+// step — straight into the rate limiter markPermanent exists to avoid.
 //
-// Consecutive rather than total: -r up to 100 lets budgetCtx span hours and
-// outlive several sessions legitimately.
+// Consecutive, not total: -r up to 100 lets budgetCtx span hours and legitimately
+// outlive several sessions.
 const maxSessionRecoveries = 2
 
-// recoverSession re-authenticates on a lapsed session and re-runs fn in place,
-// so recovery survives retry-go's final attempt (-r 1 makes every attempt the
-// final one). budget spans the whole scrape; see maxSessionRecoveries.
+// recoverSession re-authenticates and re-runs fn in place, so recovery survives
+// retry-go's final attempt — with -r 1 every attempt is the final one. budget
+// spans the whole scrape.
 func recoverSession(fn, login func() error, budget *int, username string) error {
 	for {
 		err := fn()
 
 		if err == nil {
-			// Progress proves the session live; only unbroken failure means drift.
+			// Progress proves the session live; only unbroken failure is drift.
 			*budget = maxSessionRecoveries
 
 			return nil
@@ -64,18 +64,14 @@ func recoverSession(fn, login func() error, budget *int, username string) error 
 	}
 }
 
-// markPermanent wraps fetch-level errors that cannot succeed on retry in
-// retry.Unrecoverable so retry-go short-circuits the remaining attempts:
-//   - ErrInvalidLogin: bad credentials — retrying just re-submits the same
-//     POST and re-trips the portal's rate limiter.
-//   - ErrAuthMarkerMissing: login page named no error and carried no marker —
-//     either drifted alert markup with bad credentials, or a drifted marker on a
-//     successful login. Retrying fixes neither.
-//   - ErrBodyTooLarge: response exceeded MaxBodySize — a deterministic
-//     server/content condition, not a transient network fault.
+// markPermanent short-circuits retry-go on fetch errors that cannot succeed:
+//   - ErrInvalidLogin: retrying re-submits the same POST into the rate limiter.
+//   - ErrAuthMarkerMissing: either drifted alert markup with bad credentials or
+//     a drifted marker on a successful login. Retrying fixes neither.
+//   - ErrBodyTooLarge: a deterministic server condition, not a network fault.
 //
-// fetch.ErrSessionExpired is absent by design: recoverSession re-authenticates,
-// and marks it unrecoverable once its budget is spent.
+// ErrSessionExpired is absent by design — recoverSession re-authenticates, and
+// marks it unrecoverable once its budget is spent.
 func markPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -90,18 +86,18 @@ func markPermanent(err error) error {
 	return err
 }
 
-// GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
-// individual messages to a message channel and optionally returning an error.
+// GetGradesAndEvents scrapes one user's subjects, grades and exam events,
+// emitting a message per event.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
-	// Caller passes a flag-clamped value >= 1; cap only the top so
-	// attempts*fetch.Timeout can't overflow int64 nanoseconds.
+	// Already clamped to >= 1 by the caller; cap only the top so
+	// attempts*fetch.Timeout cannot overflow int64 nanoseconds.
 	attempts := min(retries, scrapeMaxAttempts)
 
 	r64 := int64(attempts)
 
 	// One deadline for the whole per-user scrape. NOTE: this couples -r to total
-	// pipeline time, not per-request retries — a large -r (up to 100) permits a
-	// multi-hour cycle and can starve later steps. Keep -r modest.
+	// pipeline time rather than per-request retries, so a large -r permits a
+	// multi-hour cycle that starves later steps. Keep -r modest.
 	budgetCtx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
 	defer stop()
 
@@ -114,7 +110,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	recoveries := maxSessionRecoveries
 
-	// Every scrape step shares one retry policy; close over attempts/budgetCtx.
+	// One retry policy for every scrape step.
 	withRetry := func(fn func() error) error {
 		return retry.New(
 			retry.Attempts(attempts),
@@ -208,9 +204,12 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
-		var rawCourse []byte
-
 		for _, s := range subjects {
+			// Scoped to the iteration: hoisted, it keeps the previous
+			// subject's page alive, so one missed error check would emit a
+			// whole subject's data under the next subject's name.
+			var rawCourse []byte
+
 			err = withRetry(func() error {
 				var err error
 				rawCourse, err = client.GetCourse(s.URL)
