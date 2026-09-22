@@ -27,13 +27,13 @@ var (
 	ErrSqliteCreateTable = errors.New("could not create table")
 )
 
-// Edb holds e-dnevnik structure including sql.DB struct.
+// Edb is the dedup and queue store.
 type Edb struct {
 	db         *sql.DB
 	isExisting bool // already created/initialized db
 }
 
-// New opens a new database, flagging if the database already preexisting.
+// New opens the database, recording whether it already held entries.
 func New(ctx context.Context, filePath string) (*Edb, error) {
 	if filePath == "" {
 		filePath = DefaultDBPath
@@ -47,7 +47,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	logger.Debug().Msgf("Opening database: %v", filePath)
 
-	// Encode the path so a '?'/'#'/'%' in it can't corrupt the pragma query.
+	// Encoded so a '?', '#' or '%' cannot corrupt the pragma query.
 	sqlitePath := "file:" + sqliteURIEscape(filePath) + DefaultDBOptions
 
 	db, err := sql.Open("sqlite", sqlitePath)
@@ -55,7 +55,7 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 		return nil, fmt.Errorf("%w: %w", ErrSqliteOpen, err)
 	}
 
-	// WAL: concurrent readers with one writer; busy_timeout handles contention.
+	// WAL gives concurrent readers one writer; busy_timeout covers contention.
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
@@ -75,9 +75,9 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	edb := &Edb{db: db, isExisting: isExisting}
 
-	// A present-but-empty kv table must behave as a fresh DB: silent seeding
-	// beats flooding. This subsumes the stat/open TOCTOU (file deleted in
-	// between), truncated or purged files, and crashed first runs.
+	// A present-but-empty table must read as fresh, so seeding stays silent.
+	// This subsumes the stat/open TOCTOU, truncated or purged files, and
+	// crashed first runs.
 	hasRows, err := edb.hasAnyRow(ctx)
 	if err != nil {
 		logger.Error().Msgf("Unable to probe database for existing entries, falling back to file presence: %v", err)
@@ -90,23 +90,22 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 	return edb, nil
 }
 
-// Close closes database.
+// Close releases the connection pool.
 func (db *Edb) Close() error {
 	logger.Debug().Msg("Closing database")
 
 	return db.db.Close()
 }
 
-// CheckAndFlagTTL reports whether (bucket, subBucket, target) was already seen,
-// flagging it with a 1+ year TTL if not. Returns true for an existing live key.
+// CheckAndFlagTTL reports whether the key was already seen, flagging it with a
+// 1+ year TTL if not.
 //
-// Runs under BEGIN IMMEDIATE on a dedicated conn (BeginTx's BEGIN DEFERRED
-// would race the SELECT) so two callers can't both flag the same key.
+// BEGIN IMMEDIATE on a dedicated conn: BeginTx's BEGIN DEFERRED would let the
+// SELECT race, and two callers could both flag the same key.
 //
-// A missing current-format key falls back to the legacy separator-less hash:
-// a live legacy hit counts as seen and is re-flagged under the current key,
-// letting the old row age out. This dual lookup stops an upgrade from
-// re-alerting every historical event.
+// A missing current-format key falls back to the legacy separator-less hash. A
+// live legacy hit counts as seen and is re-flagged under the current key, so the
+// old row ages out and an upgrade does not re-alert every historical event.
 func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, target []string) (bool, error) {
 	key := hashContent(bucket, subBucket, target)
 
@@ -126,7 +125,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 
 	defer func() { //nolint:contextcheck // detaching is the point, see below
 		if !committed {
-			// Fresh ctx: rollback must run even if caller's ctx is cancelled.
+			// Fresh ctx: rollback must run even once the caller's is cancelled.
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
@@ -139,7 +138,7 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	migrated := false
 
 	if !found {
-		// Fallback: row flagged by a pre-separator release.
+		// Flagged by a pre-separator release.
 		migrated, err = keyLive(ctx, conn, hashContentLegacy(bucket, subBucket, target), now)
 		if err != nil {
 			return false, err
@@ -156,9 +155,8 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 		return true, nil
 	}
 
-	// Not found (or expired): flag under the current-format key. For a legacy
-	// hit this migrates the row forward with a fresh TTL; the legacy row is
-	// left to expire on its own.
+	// Absent or expired: flag under the current key. A legacy hit migrates
+	// forward with a fresh TTL, and the old row expires on its own.
 	expiry := now.Add(DefaultEntryTTL).Unix()
 	if _, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
 		key, []byte(""), expiry); err != nil {
@@ -174,8 +172,8 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	return migrated, nil
 }
 
-// keyLive reports whether key exists and is still within its TTL. Expired
-// rows are treated as absent so stale events re-fire after ~1 year.
+// keyLive reports whether key exists and is within its TTL. An expired row reads
+// as absent, so stale events re-fire after ~1 year.
 func keyLive(ctx context.Context, conn *sql.Conn, key []byte, now time.Time) (bool, error) {
 	var expiresAt sql.NullInt64
 
@@ -190,18 +188,16 @@ func keyLive(ctx context.Context, conn *sql.Conn, key []byte, now time.Time) (bo
 	}
 }
 
-// Existing reports whether the database held any dedup entries at open time.
-// A present-but-empty DB reads as fresh so the first run seeds silently
-// instead of flooding.
+// Existing reports whether the database held entries at open time. An empty one
+// reads as fresh, so the first run seeds silently rather than flooding.
 func (db *Edb) Existing() bool {
 	return db.isExisting
 }
 
-// FetchAndStore atomically reads key, passes the value to f, and writes f's
-// result back (empty result deletes the row). The read-modify-write runs under
-// BEGIN IMMEDIATE on a dedicated conn — BeginTx's BEGIN DEFERRED would leave
-// the SELECT racing other writers — so concurrent callers on the same key
-// cannot lose each other's updates. Queue rows carry no TTL.
+// FetchAndStore atomically applies f to key's value, an empty result deleting
+// the row. BEGIN IMMEDIATE on a dedicated conn: BeginTx's BEGIN DEFERRED would
+// leave the SELECT racing other writers, and concurrent callers could lose each
+// other's updates. Queue rows carry no TTL.
 func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte) ([]byte, error)) error {
 	conn, err := db.db.Conn(ctx)
 	if err != nil {
@@ -217,7 +213,7 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 
 	defer func() { //nolint:contextcheck // detaching is the point, see below
 		if !committed {
-			// Fresh ctx: rollback must run even if caller's ctx is cancelled.
+			// Fresh ctx: rollback must run even once the caller's is cancelled.
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
@@ -247,7 +243,7 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 		return err
 	}
 
-	// Skip write when unchanged; expired rows always write to refresh expiry.
+	// Unchanged needs no write; an expired row always writes, to refresh expiry.
 	if !wasExpired && bytes.Equal(val, newVal) {
 		if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
 			return err
@@ -259,10 +255,10 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	}
 
 	if len(newVal) == 0 {
-		// Drained queue: delete row to avoid a NULL-TTL zombie.
+		// Drained: delete rather than leave a NULL-TTL zombie.
 		_, err = conn.ExecContext(ctx, "DELETE FROM kv WHERE key = ?", key)
 	} else {
-		// Queue rows: NULL expires_at (no TTL).
+		// Queue rows never expire.
 		_, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, newVal)
 	}
 
@@ -279,9 +275,8 @@ func (db *Edb) FetchAndStore(ctx context.Context, key []byte, f func(old []byte)
 	return nil
 }
 
-// Put stores a key/value pair with no TTL (expires_at NULL), replacing any
-// existing row. Queue rows use this: they must never expire via the TTL
-// cleanup pass — queue aging is handled at fetch time by MaxQueueAge.
+// Put writes a row with no TTL, replacing any existing one. Queue rows use this:
+// their ageing is MaxQueueAge's job at fetch time, not the TTL sweep's.
 func (db *Edb) Put(ctx context.Context, key, value []byte) error {
 	_, err := db.db.ExecContext(ctx,
 		"INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)", key, value)
@@ -289,7 +284,7 @@ func (db *Edb) Put(ctx context.Context, key, value []byte) error {
 	return err
 }
 
-// Delete removes a key. Deleting a non-existent key is a no-op, not an error.
+// Delete removes a key; an absent one is a no-op, not an error.
 func (db *Edb) Delete(ctx context.Context, key []byte) error {
 	_, err := db.db.ExecContext(ctx, "DELETE FROM kv WHERE key = ?", key)
 
@@ -302,11 +297,10 @@ type KV struct {
 	Value []byte
 }
 
-// ScanPrefix returns all rows whose key starts with prefix, ordered by key
-// ascending. The upper bound is computed by incrementing the last prefix
-// byte; a prefix ending in a run of 0xFF bytes falls back to a full ordered
-// scan filtered client-side (never the case for our queue prefixes, which
-// end in a 0x00 separator).
+// ScanPrefix returns every row under prefix, key-ascending. The upper bound
+// increments the last prefix byte; an all-0xFF tail falls back to a full ordered
+// scan filtered client-side, which our 0x00-terminated queue prefixes never
+// hit.
 func (db *Edb) ScanPrefix(ctx context.Context, prefix []byte) ([]KV, error) {
 	upper := prefixUpperBound(prefix)
 
@@ -347,8 +341,8 @@ func (db *Edb) ScanPrefix(ctx context.Context, prefix []byte) ([]KV, error) {
 	return out, rows.Err()
 }
 
-// prefixUpperBound returns the smallest key strictly greater than every key
-// with the given prefix, or nil if no such bound exists (all-0xFF prefix).
+// prefixUpperBound returns the smallest key above every key under prefix, or nil
+// when none exists.
 func prefixUpperBound(prefix []byte) []byte {
 	upper := bytes.Clone(prefix)
 	for i := len(upper) - 1; i >= 0; i-- {
@@ -362,7 +356,7 @@ func prefixUpperBound(prefix []byte) []byte {
 	return nil
 }
 
-// hasAnyRow reports whether the kv table holds at least one row.
+// hasAnyRow reports whether the table holds any row.
 func (db *Edb) hasAnyRow(ctx context.Context) (bool, error) {
 	var one int
 
@@ -378,13 +372,12 @@ func (db *Edb) hasAnyRow(ctx context.Context) (bool, error) {
 	return false, err
 }
 
-// cleanupBatchSize caps per-pass deletes so concurrent queue writes don't stall on the writer lock.
+// Caps per-pass deletes so concurrent queue writes don't stall on the lock.
 const cleanupBatchSize = 10000
 
 // cleanup removes expired keys. modernc.org/sqlite is built without
-// SQLITE_ENABLE_UPDATE_DELETE_LIMIT, so `DELETE ... LIMIT` is not a valid
-// statement. The subquery-with-LIMIT form is portable and achieves the same
-// batch-size bound.
+// SQLITE_ENABLE_UPDATE_DELETE_LIMIT, so `DELETE ... LIMIT` will not parse; the
+// subquery form bounds the batch the same way.
 func (db *Edb) cleanup(ctx context.Context) {
 	_, err := db.db.ExecContext(ctx,
 		`DELETE FROM kv WHERE key IN (

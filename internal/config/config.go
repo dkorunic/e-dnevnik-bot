@@ -16,20 +16,18 @@ import (
 	"github.com/google/renameio/v2/maybe"
 )
 
-// LoadConfig decodes the TOML config at file and runs per-messenger
-// validation, enabling each messenger whose block validates. Fatal on an
-// invalid block or when no messenger is enabled.
+// LoadConfig decodes the TOML config and enables each messenger whose block
+// validates. Fatal on an invalid block, or when none is enabled.
 //
-// The config holds plain-text credentials, so LoadConfig best-effort tightens
-// the file to 0600 — an accidental 0644 must not leave tokens
-// group/world-readable.
+// The file holds plain-text credentials, so it is tightened to 0600 best-effort:
+// an accidental 0644 must not leave tokens group- or world-readable.
 func LoadConfig(file string) (TomlConfig, error) {
 	var config TomlConfig
 	if _, err := toml.DecodeFile(file, &config); err != nil {
 		return config, fmt.Errorf("failed to parse config file %s: %w", file, err)
 	}
 
-	// Best-effort: warn and continue on failure (read-only fs, foreign owner).
+	// Warn and continue: read-only fs, foreign owner.
 	if err := os.Chmod(file, 0o600); err != nil {
 		logger.Warn().Msgf("Unable to tighten permissions on config file %q to 0600: %v", file, err)
 	}
@@ -55,7 +53,7 @@ func LoadConfig(file string) (TomlConfig, error) {
 	return config, nil
 }
 
-// SaveConfig atomically writes config to file as TOML with 0600 permissions.
+// SaveConfig atomically writes config as 0600 TOML.
 func SaveConfig(file string, config TomlConfig) error {
 	buf := new(bytes.Buffer)
 	if err := toml.NewEncoder(buf).Encode(config); err != nil {
@@ -69,11 +67,11 @@ func SaveConfig(file string, config TomlConfig) error {
 	return nil
 }
 
-// LoadConfigRaw decodes the TOML config at file WITHOUT validation. It exists
-// for in-place rewrites (WhatsApp group resolution, Telegram chat-ID remap)
-// that run from messenger goroutines mid-cycle: LoadConfig's fail-fast
-// logger.Fatal on a broken config would os.Exit mid-cycle, bypassing graceful
-// shutdown and queue writes. Startup must use LoadConfig — never this.
+// LoadConfigRaw decodes without validation, for the in-place rewrites that run
+// from messenger goroutines mid-cycle. LoadConfig's fail-fast Fatal would
+// os.Exit there, bypassing graceful shutdown and queue writes.
+//
+// Startup must use LoadConfig, never this.
 func LoadConfigRaw(file string) (TomlConfig, error) {
 	var config TomlConfig
 	if _, err := toml.DecodeFile(file, &config); err != nil {
@@ -83,9 +81,8 @@ func LoadConfigRaw(file string) (TomlConfig, error) {
 	return config, nil
 }
 
-// checkWhatsAppConf validates the WhatsApp block (phone format, JIDs, group
-// names), sorts groups for binary search, and enables the messenger. Fatal on
-// any invalid entry.
+// checkWhatsAppConf validates the WhatsApp block and sorts groups for binary
+// search. Fatal on any invalid entry.
 func checkWhatsAppConf(config *TomlConfig) {
 	if len(config.WhatsApp.UserIDs) > 0 || len(config.WhatsApp.Groups) > 0 {
 		if config.WhatsApp.PhoneNumber != "" && !isValidPhone(config.WhatsApp.PhoneNumber) {
@@ -105,17 +102,17 @@ func checkWhatsAppConf(config *TomlConfig) {
 			}
 		}
 
-		// Log after validators so a Fatal leaves the error as the last line.
+		// After the validators, so a Fatal leaves the error as the last line.
 		logger.Info().Msg("Configuration: Whatsapp messenger enabled (pending check during initialization)")
 
-		// Pre-sort for binary search in messenger.
+		// filterGroupsByName binary-searches this.
 		slices.SortFunc(config.WhatsApp.Groups, strings.Compare)
 
 		config.WhatsAppEnabled = true
 	}
 }
 
-// checkCalendarConf enables the Calendar messenger when a calendar name is set.
+// checkCalendarConf enables Calendar when a name is set.
 func checkCalendarConf(config *TomlConfig) {
 	if config.Calendar.Name != "" {
 		logger.Info().Msg("Configuration: Google Calendar messenger enabled")
@@ -124,17 +121,16 @@ func checkCalendarConf(config *TomlConfig) {
 	}
 }
 
-// checkMailConf validates the mail block (recipients, From, optional port) and
-// enables the messenger. Fatal on any invalid entry.
+// checkMailConf validates the mail block. Fatal on any invalid entry.
 func checkMailConf(config *TomlConfig) {
 	if config.Mail.Server != "" {
 		if len(config.Mail.To) == 0 {
 			logger.Fatal().Msg("Configuration error: no mail to addresses defined")
 		}
 
-		// Mandatory, unlike Subject: go-mail rejects the empty address and
-		// processMail poison-drops every recipient for it, silently losing
-		// alerts that dedup has already flagged.
+		// Mandatory, unlike Subject: go-mail rejects an empty address, and
+		// processMail would poison-drop every recipient for it, losing alerts
+		// dedup has already flagged.
 		if config.Mail.From == "" {
 			logger.Fatal().Msg("Configuration error: no mail from address defined")
 		}
@@ -151,16 +147,15 @@ func checkMailConf(config *TomlConfig) {
 			}
 		}
 
-		// Log after validators so a Fatal leaves the error as the last line.
+		// After the validators, so a Fatal leaves the error as the last line.
 		logger.Info().Msg("Configuration: mail messenger enabled")
 
 		config.MailEnabled = true
 	}
 }
 
-// checkMailPort rejects a malformed port at config load instead of letting the
-// first send fail hours later. Empty is valid and defers to mail.go's own 587
-// default; anything else is Fatal (exits the process).
+// checkMailPort rejects a malformed port at load rather than let the first send
+// fail hours later. Empty defers to mail.go's 587 default.
 func checkMailPort(port string) {
 	if port == "" {
 		return
@@ -172,8 +167,7 @@ func checkMailPort(port string) {
 	}
 }
 
-// checkSlackConf validates the Slack block (token and chat IDs) and enables the
-// messenger. Fatal on any invalid entry.
+// checkSlackConf validates the Slack block. Fatal on any invalid entry.
 func checkSlackConf(config *TomlConfig) {
 	if config.Slack.Token != "" {
 		if !isValidSlackToken(config.Slack.Token) {
@@ -196,8 +190,7 @@ func checkSlackConf(config *TomlConfig) {
 	}
 }
 
-// checkTelegramConf validates the Telegram block (token and chat IDs) and
-// enables the messenger. Fatal on any invalid entry.
+// checkTelegramConf validates the Telegram block. Fatal on any invalid entry.
 func checkTelegramConf(config *TomlConfig) {
 	if config.Telegram.Token != "" {
 		if !isValidTelegramToken(config.Telegram.Token) {
@@ -220,8 +213,7 @@ func checkTelegramConf(config *TomlConfig) {
 	}
 }
 
-// checkDiscordConf validates the Discord block (token and user IDs) and enables
-// the messenger. Fatal on any invalid entry.
+// checkDiscordConf validates the Discord block. Fatal on any invalid entry.
 func checkDiscordConf(config *TomlConfig) {
 	if config.Discord.Token != "" {
 		if !isValidDiscordToken(config.Discord.Token) {
@@ -244,15 +236,15 @@ func checkDiscordConf(config *TomlConfig) {
 	}
 }
 
-// checkUserConf validates the [[user]] blocks: at least one entry, each with
-// username+password in User@domain form, no duplicates. Fatal on violation; a
-// non-@skole.hr domain only warns.
+// checkUserConf requires at least one [[user]], each with a username and
+// password in User@domain form and no duplicates. A non-@skole.hr domain only
+// warns.
 func checkUserConf(config *TomlConfig) {
 	if len(config.User) == 0 {
 		logger.Fatal().Msg("Configuration error: No users defined")
 	}
 
-	// Dupes cause redundant logins; key on Username only.
+	// Duplicates cost a redundant login.
 	seen := make(map[string]struct{}, len(config.User))
 
 	for _, u := range config.User {

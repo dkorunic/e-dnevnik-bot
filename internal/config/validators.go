@@ -14,9 +14,8 @@ import (
 var (
 	phoneRegex        = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 	userAtDomainRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-	// Any xox?- family token (xoxb/xoxp/xoxe/xoxa/...): the regex exists for
-	// typo detection, not as a security boundary, so it accepts the whole
-	// family rather than tracking Slack's per-type prefixes.
+	// The whole xox?- family. This catches typos, it is not a security
+	// boundary, so it does not track Slack's per-type prefixes.
 	slackTokenRegex     = regexp.MustCompile(`^xox[a-z]-(?:\d+-)+[a-zA-Z0-9]+$`)
 	slackChatIDRegex    = regexp.MustCompile(`^[UWCGD][A-Z0-9]{8,}$|^\d{10}\.\d{6}$`)
 	discordTokenRegex   = regexp.MustCompile(`^[MNO][a-zA-Z\d_-]{23,35}\.[a-zA-Z\d_-]{6}\.[a-zA-Z\d_-]{27,38}$`)
@@ -24,17 +23,17 @@ var (
 	telegramChatIDRegex = regexp.MustCompile(`^-?\d{5,19}$`)
 )
 
-// isValidPhone reports whether phone is a valid E.164 number (+ and 2-15 digits).
+// isValidPhone reports whether phone is E.164.
 func isValidPhone(phone string) bool {
 	return phoneRegex.MatchString(phone)
 }
 
-// isValidUserAtDomain reports whether user matches User@domain.tld.
+// isValidUserAtDomain reports whether user is User@domain.tld.
 func isValidUserAtDomain(user string) bool {
 	return userAtDomainRegex.MatchString(user)
 }
 
-// isValidMail reports whether mail is a parseable RFC 5322 address.
+// isValidMail reports whether mail parses as RFC 5322.
 func isValidMail(mail string) bool {
 	_, err := stdmail.ParseAddress(mail)
 
@@ -73,9 +72,8 @@ func isValidTelegramChatID(id string) bool {
 	return telegramChatIDRegex.MatchString(id)
 }
 
-// isValidWhatsAppJID reports whether jid parses and targets a user or group.
-// Broadcast lists are rejected: whatsmeow can't send to non-status broadcast
-// lists (ErrBroadcastListUnsupported), so they only ever fail delivery.
+// isValidWhatsAppJID reports whether jid targets a user or group. Broadcast
+// lists are rejected: whatsmeow cannot send to them, so they only ever fail.
 func isValidWhatsAppJID(jid string) bool {
 	parsedJID, err := types.ParseJID(jid)
 	if err != nil {

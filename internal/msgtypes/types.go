@@ -5,10 +5,11 @@ package msgtypes
 
 import "time"
 
-// EventCode is an enum for event types.
+// EventCode identifies an event's kind.
 type EventCode int
 
-// Event codes enum.
+// Appended to, never reordered: these ordinals are a persisted wire format in
+// the CBOR queue, so inserting one makes older rows decode as the wrong type.
 const (
 	Grade EventCode = iota
 	Exam
@@ -17,7 +18,7 @@ const (
 	NationalExam
 )
 
-// Message structure holds alert subject and description as well as grades fields, as well as corresponding username.
+// Message is the pipeline's canonical event.
 type Message struct {
 	Timestamp      time.Time // event timestamp
 	QueuedAt       time.Time // time the message first entered the failed-message queue; zero value for non-queued/legacy entries

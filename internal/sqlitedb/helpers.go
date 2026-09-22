@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-// hashBufPoolMaxCap caps recycled buffers; oversized ones are dropped to bound pool memory.
+// Oversized buffers are dropped rather than recycled, bounding pool memory.
 const hashBufPoolMaxCap = 4 * 1024
 
 var hashBufPool = sync.Pool{
@@ -22,16 +22,15 @@ var hashBufPool = sync.Pool{
 	},
 }
 
-// sqliteURIEscape percent-encodes the characters that break a "file:" SQLite
-// DSN — '%' (encoding introducer), '?' (query separator), '#' (fragment) — so a
-// path containing them can't truncate the filename or corrupt the pragma query.
-// SQLite's URI parser decodes them back. The Replacer encodes each byte once.
+// sqliteURIEscape encodes the characters that break a "file:" DSN — '%', '?'
+// and '#' — so a path containing them cannot truncate the filename or corrupt
+// the pragma query. SQLite decodes them back; the Replacer encodes each once.
 func sqliteURIEscape(path string) string {
 	return strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(path)
 }
 
-// dbExists reports whether filePath exists. os.Stat (not Lstat) so a dangling
-// symlink reads as absent — otherwise first-run seeding is skipped and the next
+// dbExists reports whether filePath exists. Stat, not Lstat, so a dangling
+// symlink reads as absent: otherwise first-run seeding is skipped and the next
 // run floods.
 func dbExists(filePath string) bool {
 	_, err := os.Stat(filePath)
@@ -39,39 +38,35 @@ func dbExists(filePath string) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-// hashSep separates hash inputs so boundary shifts between adjacent parts
-// cannot collide. target holds scraped portal content (grade fields), so
-// without a delimiter e.g. target=["10.","5"] and target=["10",".5"] would
-// produce identical digests and a changed grade could be misread as a
-// duplicate. 0x00 never occurs in the portal's text content.
+// Separates hash inputs so a boundary shift cannot collide: without it
+// ["10.","5"] and ["10",".5"] digest identically, and a changed grade reads as a
+// duplicate. 0x00 never occurs in the portal's text.
 const hashSep = byte(0x00)
 
-// hashContent creates a SHA-256 hash from (bucket, subBucket, []target) joined
-// with hashSep separators and returns the raw 32-byte digest.
+// hashContent digests (bucket, subBucket, target) with hashSep separators.
 //
-// NOTE: rows written by older releases used a separator-less concatenation
-// (see hashContentLegacy). CheckAndFlagTTL performs a dual lookup so existing
-// installs migrate lazily instead of re-alerting on every historical event.
+// NOTE: older releases wrote a separator-less concatenation. CheckAndFlagTTL
+// looks up both so existing installs migrate lazily rather than re-alerting on
+// every historical event.
 func hashContent(bucket, subBucket string, target []string) []byte {
 	return hashParts(bucket, subBucket, target, true)
 }
 
-// hashContentLegacy is the pre-separator digest format, kept only so
-// CheckAndFlagTTL can recognise rows flagged by older releases. Do not use
-// for new writes.
+// hashContentLegacy is the pre-separator format, kept only to recognise rows
+// flagged by older releases. Never use it for new writes.
 func hashContentLegacy(bucket, subBucket string, target []string) []byte {
 	return hashParts(bucket, subBucket, target, false)
 }
 
 // hashParts implements both digest formats over a pooled scratch buffer.
 func hashParts(bucket, subBucket string, target []string, withSep bool) []byte {
-	// +len(target)+1 covers the worst-case separator count.
+	// The extra len(target)+1 covers the separators.
 	totalLen := len(bucket) + len(subBucket) + len(target) + 1
 	for i := range target {
 		totalLen += len(target[i])
 	}
 
-	// Pooled buffer; grow when input exceeds capacity.
+	// Grow when the input exceeds capacity.
 	bufp := hashBufPool.Get().(*[]byte) //nolint:forcetypeassert // package-private pool; New returns this type
 
 	if cap(*bufp) < totalLen {
@@ -97,7 +92,7 @@ func hashParts(bucket, subBucket string, target []string, withSep bool) []byte {
 
 	targetHash256 := sha256.Sum256(buf)
 
-	// Skip re-pooling oversized buffers to bound steady-state pool memory.
+	// Bounds steady-state pool memory.
 	if cap(buf) <= hashBufPoolMaxCap {
 		*bufp = buf
 		hashBufPool.Put(bufp)

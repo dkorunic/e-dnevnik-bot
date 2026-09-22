@@ -12,14 +12,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// initLog sets the global log level from -v or LOG_LEVEL (default Info) and
-// switches to colorized console output when -l is set.
+// initLog sets the global level from -v or LOG_LEVEL, defaulting to Info, and
+// switches to console output when -l is set.
 func initLog() {
 	logLevel := zerolog.InfoLevel
 	if *debug {
 		logLevel = zerolog.DebugLevel
 	} else if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
-		// Range-check avoids silent reinterpret of out-of-range casts.
+		// Range-checked: an out-of-range cast would silently reinterpret.
 		if l, err := strconv.Atoi(v); err == nil &&
 			l >= int(zerolog.TraceLevel) && l <= int(zerolog.Disabled) {
 			logLevel = zerolog.Level(l)
@@ -29,7 +29,7 @@ func initLog() {
 	zerolog.SetGlobalLevel(logLevel)
 
 	if *colorLogs {
-		// NO_COLOR (https://no-color.org) suppresses colour even when -l is set.
+		// NO_COLOR (https://no-color.org) wins over -l.
 		noColor := os.Getenv("NO_COLOR") != ""
 
 		logger.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339, NoColor: noColor}).

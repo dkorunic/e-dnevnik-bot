@@ -9,13 +9,13 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// noEscape is the identity escaper. Naming it makes "this format escapes
-// nothing" a stated choice rather than an inherited one: MarkupMsg reached
-// Slack's mrkdwn unescaped by reusing the plain-text renderer.
+// noEscape is the identity escaper. Naming it makes "escapes nothing" a stated
+// choice rather than an inherited one — MarkupMsg once reached Slack's mrkdwn
+// unescaped by reusing the plain-text renderer.
 func noEscape(s string) string { return s }
 
-// formatSubject writes the "<prefix><user> / <subject>" header line. escape
-// covers both portal-derived fields and is mandatory (see noEscape).
+// formatSubject writes the "<prefix><user> / <subject>" header. escape is
+// mandatory: both fields are portal-derived.
 func formatSubject(sb *strings.Builder, user, subject string, code msgtypes.EventCode, escape func(string) string) {
 	switch code {
 	case msgtypes.Exam:
@@ -36,11 +36,10 @@ func formatSubject(sb *strings.Builder, user, subject string, code msgtypes.Even
 	sb.WriteString(escape(subject))
 }
 
-// formatGrades renders description/value pairs, skipping blank columns — the
-// scraper pads those for alignment. escape covers both halves and is mandatory
-// (see noEscape).
+// formatGrades renders description/value pairs, skipping the blanks the scraper
+// pads for alignment. escape is mandatory and covers both halves.
 func formatGrades(sb *strings.Builder, descriptions, grade []string, escape func(string) string) {
-	// Reslicing rather than bounding the loop is what makes the paired index
+	// Reslicing, rather than bounding the loop, is what makes the paired index
 	// provably in range for gosec.
 	n := min(len(descriptions), len(grade))
 	descriptions, grade = descriptions[:n], grade[:n]

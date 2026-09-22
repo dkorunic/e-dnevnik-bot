@@ -3,31 +3,31 @@
 
 package config
 
-// User struct holds a single AAI/SSO username.
+// User is one AAI/SSO credential pair.
 type User struct {
 	Username string `toml:"username,omitempty"`
 	Password string `toml:"password,omitempty"`
 }
 
-// Telegram struct holds Telegram messenger configuration.
+// Telegram messenger configuration.
 type Telegram struct {
 	Token   string   `toml:"token,omitempty"`
 	ChatIDs []string `toml:"chatids,omitempty"`
 }
 
-// Discord struct holds Discord messenger configuration.
+// Discord messenger configuration.
 type Discord struct {
 	Token   string   `toml:"token,omitempty"`
 	UserIDs []string `toml:"userids,omitempty"`
 }
 
-// Slack struct holds Slack messenger configuration.
+// Slack messenger configuration.
 type Slack struct {
 	Token   string   `toml:"token,omitempty"`
 	ChatIDs []string `toml:"chatids,omitempty"`
 }
 
-// Mail struct hold mail messenger configuration.
+// Mail messenger configuration.
 type Mail struct {
 	Server   string   `toml:"server,omitempty"`
 	Port     string   `toml:"port,omitempty"`
@@ -38,19 +38,19 @@ type Mail struct {
 	To       []string `toml:"to,omitempty"`
 }
 
-// Calendar struct hold Google Calendar configuration.
+// Calendar holds the Google Calendar configuration.
 type Calendar struct {
 	Name string `toml:"name,omitempty"`
 }
 
-// WhatsApp struct holds WhatsApp messenger configuration.
+// WhatsApp messenger configuration.
 type WhatsApp struct {
 	PhoneNumber string   `toml:"phonenumber,omitempty"`
 	UserIDs     []string `toml:"userids,omitempty"`
 	Groups      []string `toml:"groups,omitempty"`
 }
 
-// TomlConfig struct holds all other configuration structures.
+// TomlConfig is the whole configuration file.
 type TomlConfig struct {
 	Calendar        Calendar `toml:"calendar,omitempty"`
 	Mail            Mail     `toml:"mail,omitempty"`
@@ -65,8 +65,7 @@ type TomlConfig struct {
 	MailEnabled     bool     `toml:"-"`
 	CalendarEnabled bool     `toml:"-"`
 	WhatsAppEnabled bool     `toml:"-"`
-	// CalendarDeferred: Calendar is configured but not yet initialized (e.g.
-	// headless daemon before OAuth); msgSend runs a queue-only stub to preserve
-	// exams.
+	// Configured but not yet initialisable — a headless daemon before OAuth.
+	// msgSend runs a queue-only stub so exams survive.
 	CalendarDeferred bool `toml:"-"`
 }

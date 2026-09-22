@@ -10,7 +10,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// HTMLMsg formats grade report as preformatted HTML block in a string.
+// HTMLMsg renders the report as a preformatted HTML block.
 func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	var sb strings.Builder
 
@@ -25,8 +25,8 @@ func HTMLMsg(username, subject string, code msgtypes.EventCode, descriptions, gr
 	return sb.String()
 }
 
-// htmlAddHeader adds bold header containing username and subject name, and a
-// delimiter. Escaped to keep portal content out of Telegram's HTML parse mode.
+// htmlAddHeader writes the bold header. Escaped to keep portal content out of
+// Telegram's HTML parse mode.
 func htmlAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	sb.WriteString("<b>")
 	formatSubject(sb, user, subject, code, html.EscapeString)

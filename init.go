@@ -32,7 +32,7 @@ const (
 	initialWhatsAppDelay = 2 * time.Minute // 2 minutes sleep after successful sync
 	WhatsAppDBOldName    = ".e-dnevnik.sqlite"
 
-	// whatsAppPairingTimeout bounds interactive pairing so an absent user can't hang the process.
+	// Bounds interactive pairing, so an absent user cannot hang the process.
 	whatsAppPairingTimeout = 10 * time.Minute
 )
 
@@ -41,7 +41,7 @@ var (
 	whatsAppSynced     = make(chan struct{}, 1)
 )
 
-// init trims whitespace from the ldflags-injected build vars.
+// Trims the ldflags-injected build vars.
 //
 //nolint:gochecknoinits
 func init() {
@@ -51,16 +51,16 @@ func init() {
 	BuildTime = strings.TrimSpace(BuildTime)
 }
 
-// checkCalendar runs first-run Calendar OAuth when no token file exists,
-// deferring the integration (a queue-only stub preserves exams) if setup fails,
-// no interactive terminal is present, or the token file cannot be stat'd.
+// checkCalendar runs first-run OAuth when no token file exists, deferring to the
+// queue-only stub if setup fails, no terminal is present, or the file cannot be
+// stat'd.
 func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
 	}
 
-	// deferCal disables live Calendar but leaves the queue-only stub (via
-	// CalendarDeferred) so exams are preserved until OAuth is completed.
+	// Disables live delivery but leaves the stub, so exams survive until
+	// OAuth completes.
 	deferCal := func() {
 		config.CalendarEnabled = false
 		config.CalendarDeferred = true
@@ -70,15 +70,15 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 
 	switch {
 	case err == nil:
-		// Token present — but it must at least decode: a truncated or
-		// hand-edited file would otherwise fail every poll cycle at runtime.
+		// Present, but it must decode: a truncated or hand-edited file
+		// would otherwise fail every poll cycle at runtime.
 		if verr := oauth.ValidateTokenFile(*calTokFile); verr != nil {
 			logger.Error().Msgf("Google Calendar token file %q is unreadable (%v). Deferring Calendar integration (exams will be queued); delete the file and re-run interactively to re-authenticate.",
 				*calTokFile, verr)
 			deferCal()
 		}
 	case !errors.Is(err, fs.ErrNotExist):
-		// Unexpected stat error (e.g. EACCES): defer rather than fail confusingly later.
+		// EACCES and friends: defer rather than fail confusingly later.
 		logger.Error().Msgf("Cannot stat Google Calendar token file %q: %v. Deferring Calendar integration.", *calTokFile, err)
 		deferCal()
 	case !isTerminal():
@@ -92,15 +92,15 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	}
 }
 
-// checkWhatsApp runs first-run WhatsApp pairing (QR code or phone PIN) when the
-// device is not yet linked, requesting a 3-month history sync. It holds
-// WhatsAppPairingMu so the runtime client can't race the store handoff.
+// checkWhatsApp runs first-run pairing — QR code or phone PIN — when the device
+// is not yet linked, requesting a 3-month sync. Holds WhatsAppPairingMu so the
+// runtime client cannot race the store handoff.
 func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
 	}
 
-	// LIFO defers ensure Disconnect/Close complete before messenger's whatsAppInit sees the lock released.
+	// LIFO: Disconnect and Close complete before whatsAppInit sees the unlock.
 	messenger.WhatsAppPairingMu.Lock()
 	defer messenger.WhatsAppPairingMu.Unlock()
 
@@ -109,7 +109,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		_ = os.Rename(WhatsAppDBOldName, messenger.WhatsAppDBName)
 	}
 
-	// Request 3-month sync only.
+	// 3-month sync only.
 	store.DeviceProps.RequireFullSync = new(false)
 
 	store.DeviceProps.Os = new(messenger.WhatsAppOS)
@@ -127,7 +127,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableUpgrade, err)
 	}
 
-	// Single-device only; multi-session is unsupported.
+	// Multi-session is unsupported.
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableDeviceID, err)
@@ -181,8 +181,8 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		logger.Fatal().Msgf("Failed to connect to WhatsApp: %v", err)
 	}
 
-	// Cancel the QR context before disconnecting (LIFO: this runs first) so a
-	// late "code" event can't PairPhone on a tearing-down client.
+	// LIFO: cancel before disconnecting, so a late "code" event cannot
+	// PairPhone on a tearing-down client.
 	defer func() {
 		qrCancel()
 		whatsAppPairingCli.Disconnect()
@@ -205,7 +205,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 
 	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 
-	// Extra grace period for full sync; honours cancellation.
+	// Grace period for the full sync.
 	select {
 	case <-time.After(initialWhatsAppDelay):
 	case <-ctx.Done():
@@ -213,9 +213,9 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	}
 }
 
-// whatsappPairingEventHandler is the pairing-time whatsmeow callback. It
-// signals whatsAppSynced once app-state sync completes; a failed link or logout
-// deletes the session DB and is fatal (still in interactive setup, no queue yet).
+// whatsappPairingEventHandler is the pairing-time whatsmeow callback, signalling
+// whatsAppSynced once app-state sync completes. A failed link or logout deletes
+// the session and is fatal — this is still interactive setup, with no queue.
 func whatsappPairingEventHandler(rawEvt any) {
 	switch evt := rawEvt.(type) {
 	case *events.OfflineSyncPreview:
@@ -243,12 +243,12 @@ func whatsappPairingEventHandler(rawEvt any) {
 			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceUnavailable)
 		}
 	case *events.PairError:
-		// Always a failure, regardless of any stale Store.ID.
+		// A failure regardless of any stale Store.ID.
 		messenger.RemoveWhatsAppSession()
 
 		logger.Fatal().Msgf("%v", messenger.ErrWhatsAppFailLinkDevice)
 	case *events.PairSuccess:
-		// A success without a stored device ID is really a failure.
+		// Success without a device ID is really a failure.
 		if whatsAppPairingCli.Store.ID == nil {
 			messenger.RemoveWhatsAppSession()
 
@@ -270,9 +270,8 @@ func whatsappPairingEventHandler(rawEvt any) {
 	}
 }
 
-// isTerminal reports whether stdout is an interactive terminal, gating
-// first-run flows. TERM=dumb counts as non-interactive. NO_COLOR does not gate
-// here — it controls colour only (see initLog); a NO_COLOR TTY is interactive.
+// isTerminal gates the first-run flows. TERM=dumb counts as non-interactive;
+// NO_COLOR does not, controlling only colour (see initLog).
 func isTerminal() bool {
 	fd := os.Stdout.Fd()
 

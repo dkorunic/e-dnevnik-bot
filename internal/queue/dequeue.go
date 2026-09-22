@@ -14,36 +14,31 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
-// legacyChecked tracks queues whose pre-redesign aggregate row has been
-// migrated or proven absent this process, so FetchFailedMsgs skips the probe
-// transaction after the first pass instead of paying it per messenger per
-// cycle forever.
+// Queues whose pre-redesign aggregate row is migrated or proven absent, so the
+// probe transaction is paid once per process rather than every cycle.
 var legacyChecked sync.Map // map[string]struct{}, keyed by queue name
 
-// Queued couples a fetched message with the row key it was read from so the
-// caller can Dequeue exactly that row once the message has been processed.
+// Queued pairs a message with its row key, so the caller can Dequeue exactly
+// that row once it is processed.
 type Queued struct {
 	Key []byte
 	Msg msgtypes.Message
 }
 
-// FetchFailedMsgs returns the failed messages queued under queueKey, oldest
-// first, without removing them: rows stay in the database until the caller
-// confirms processing via Dequeue, so a crash mid-resend re-delivers instead
-// of losing messages.
+// FetchFailedMsgs returns queueKey's messages oldest first without removing
+// them: rows survive until the caller Dequeues, so a crash mid-resend
+// re-delivers rather than loses.
 //
-// Messages older than MaxQueueAge are dropped (their rows deleted) here.
-// Legacy aggregate-blob queues written by older releases are transparently
-// split into per-message rows on first encounter; any multi-message row is
-// also split so every returned Queued has a unique key.
+// Messages past MaxQueueAge are dropped here. Legacy aggregate rows are split
+// into per-message rows on first encounter, as is any multi-message row, so
+// every returned Queued has a unique key.
 //
-// If any of the operations fail, the function logs an error and returns
-// whatever could be read.
+// A failure logs and returns whatever could be read.
 func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []Queued {
 	queueKeyStr := string(queueKey)
 
-	// Probe for a legacy aggregate row once per process per queue; a failed
-	// migration reports not-done and is retried on the next fetch.
+	// Once per process per queue; a failed migration reports not-done and
+	// retries on the next fetch.
 	if _, done := legacyChecked.Load(queueKeyStr); !done {
 		if migrateLegacyQueue(ctx, eDB, queueKey) {
 			legacyChecked.Store(queueKeyStr, struct{}{})
@@ -75,8 +70,8 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			continue
 		}
 
-		// Classify the whole row before mutating it: a legacy row may hold >1
-		// message, and deleting on the first expiry would orphan live siblings.
+		// Classify the whole row first: a legacy row may hold several messages,
+		// and deleting on the first expiry would orphan live siblings.
 		survivors := make([]msgtypes.Message, 0, len(msgs))
 
 		rowDropped := 0
@@ -89,9 +84,9 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 				continue
 			}
 
-			// Stamp legacy zero QueuedAt so MaxQueueAge applies from now on.
-			// The stamp must be persisted (see the rewrite below) — otherwise
-			// every fetch re-bases the age and the row never expires.
+			// Stamp a legacy zero QueuedAt so MaxQueueAge applies. It must be
+			// persisted below, or every fetch re-bases the age and the row
+			// never expires.
 			if m.QueuedAt.IsZero() {
 				m.QueuedAt = now
 				rowStamped = true
@@ -102,18 +97,16 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 
 		dropped += rowDropped
 
-		// Whole row expired: delete it.
+		// Whole row expired.
 		if len(survivors) == 0 {
 			Dequeue(ctx, eDB, row.Key)
 
 			continue
 		}
 
-		// Multiple survivors: split into per-message rows so the caller's
-		// per-message Dequeue stays crash-safe — with a shared key, the first
-		// Dequeue would orphan live siblings. On split failure the original row
-		// is left intact and the row is skipped this cycle (retried on the next
-		// fetch), losing nothing.
+		// Split so the caller's per-message Dequeue stays crash-safe: under a
+		// shared key the first Dequeue would orphan live siblings. A failed
+		// split leaves the original intact and skips the row this cycle.
 		if len(survivors) > 1 {
 			newKeys := splitRow(ctx, eDB, queueKey, row.Key, survivors)
 			if newKeys == nil {
@@ -127,8 +120,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 			continue
 		}
 
-		// Single survivor: rewrite in place when expiry or a QueuedAt stamp
-		// actually changed the contents.
+		// Rewrite in place only if expiry or a stamp changed the contents.
 		if rowDropped > 0 || rowStamped {
 			if val, encErr := codec.EncodeMsgs(survivors); encErr != nil {
 				logger.Error().Msgf("%v: %v", ErrQueueing, encErr)
@@ -151,10 +143,10 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 	return kept
 }
 
-// splitRow rewrites a multi-message row as one row per message, returning the
-// new keys in survivor order, and removes the original row. On any failure it
-// rolls back the partial split (leaving the original intact) and returns nil
-// so the caller skips the row this cycle — no loss, no duplication.
+// splitRow rewrites a multi-message row as one row per message and removes the
+// original, returning the new keys in survivor order. Any failure rolls the
+// partial split back and returns nil, so the caller skips the row — no loss, no
+// duplication.
 func splitRow(ctx context.Context, eDB rowStore, queueKey, origKey []byte, survivors []msgtypes.Message) [][]byte {
 	newKeys := make([][]byte, 0, len(survivors))
 
@@ -183,20 +175,18 @@ func splitRow(ctx context.Context, eDB rowStore, queueKey, origKey []byte, survi
 	return newKeys
 }
 
-// migrateLegacyQueue splits a pre-redesign aggregate row (whole queue as one
-// CBOR list under the bare queue name) into per-message rows. The aggregate is
-// deleted only once every message is re-stored, so a crash mid-migration
-// duplicates rather than loses.
+// migrateLegacyQueue splits a pre-redesign aggregate row into per-message rows,
+// deleting the aggregate only once every message is re-stored — a crash
+// mid-migration duplicates rather than loses.
 //
-// Reports whether the legacy row is gone — absent, undecodable, or migrated —
-// so the caller can latch the probe. A store failure reports not-done and is
-// retried on the next fetch.
+// Reports whether the legacy row is gone, absent, undecodable or migrated alike,
+// so the caller can latch the probe.
 func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) bool {
 	var legacy []msgtypes.Message
 
-	// Read-only peek: returning old unchanged skips the write. A row that no
-	// longer decodes is unrecoverable — delete it (return empty) so it does
-	// not linger and re-warn on every subsequent fetch.
+	// Returning old unchanged skips the write. A row that no longer decodes
+	// is unrecoverable, so returning empty deletes it rather than let it
+	// re-warn on every fetch.
 	err := eDB.FetchAndStore(ctx, queueKey, func(old []byte) ([]byte, error) {
 		var decErr error
 
@@ -227,15 +217,15 @@ func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte)
 		if err := StoreFailedMsgs(ctx, eDB, queueKey, m); err != nil {
 			logger.Error().Msgf("%v: %v", ErrQueueing, err)
 
-			// Keep the aggregate row so nothing is lost; retry next fetch.
+			// Keep the aggregate so nothing is lost; retry next fetch.
 			return false
 		}
 	}
 
 	if err := eDB.Delete(ctx, queueKey); err != nil {
-		// The rows are already migrated and the leftover aggregate is
-		// invisible to the prefix scan — re-migrating would duplicate, so a
-		// failed delete still counts as done.
+		// Already migrated, and the leftover aggregate is invisible to the
+		// prefix scan. Re-migrating would duplicate, so this still counts
+		// as done.
 		logger.Error().Msgf("%v: %v", ErrQueueing, err)
 	}
 

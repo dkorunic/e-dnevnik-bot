@@ -17,7 +17,7 @@ const (
 	NationalExamPrefix = "✍️ Nacionalni ispit: "
 )
 
-// PlainMsg formats grade report as cleartext block in a string.
+// PlainMsg renders the report as cleartext.
 func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, grade []string) string {
 	var sb strings.Builder
 
@@ -29,7 +29,7 @@ func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, g
 	return sb.String()
 }
 
-// PlainSubject returns the prefix + user + " / " + subject header as a string.
+// PlainSubject renders just the header line.
 func PlainSubject(user, subject string, code msgtypes.EventCode) string {
 	var sb strings.Builder
 
@@ -40,12 +40,12 @@ func PlainSubject(user, subject string, code msgtypes.EventCode) string {
 	return sb.String()
 }
 
-// PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.
+// PlainFormatSubject writes the cleartext header.
 func PlainFormatSubject(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	formatSubject(sb, user, subject, code, noEscape)
 }
 
-// plainAddHeader adds cleartext header containing username and subject name, and a delimiter.
+// plainAddHeader writes the cleartext header and its delimiter.
 func plainAddHeader(sb *strings.Builder, user, subject string, code msgtypes.EventCode) {
 	formatSubject(sb, user, subject, code, noEscape)
 	sb.WriteString("\n\n")

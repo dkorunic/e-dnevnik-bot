@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Dinko Korunic
 // SPDX-License-Identifier: MIT
 
-// Package codec serialises and deserialises the persistent failed-message
-// queue using CBOR (RFC 8949) via github.com/fxamacker/cbor. Despite the
-// historical name "encdec", no encryption is performed: the queue is stored in
-// plaintext CBOR inside the local sqlite database. The on-disk database is
-// operator-owned, so confidentiality is assumed at the filesystem level rather
-// than at the payload level.
+// Package codec serialises the persistent failed-message queue as CBOR
+// (RFC 8949).
+//
+// Despite the historical name "encdec", nothing is encrypted: the queue is
+// plaintext CBOR in the local sqlite database, which is operator-owned, so
+// confidentiality rests on the filesystem rather than the payload.
 package codec
 
 import (
@@ -18,27 +18,26 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-// ErrDecodePanic signals cbor.Decode panicked on malformed input rather than returning cleanly.
+// ErrDecodePanic reports that cbor.Decode panicked rather than returned.
 var ErrDecodePanic = errors.New("panic while decoding message queue")
 
-// encMode encodes time.Time as an RFC3339 string with nanosecond precision
-// (CBOR tag 0) instead of the library default of integer Unix seconds, which
-// would silently truncate sub-second precision on msgtypes.Message.Timestamp.
+// Encodes time.Time as RFC3339 with nanoseconds rather than the library default
+// of integer Unix seconds, which would truncate Message.Timestamp.
 var encMode = mustEncMode()
 
 func mustEncMode() cbor.EncMode { //nolint:ireturn // cbor exposes no concrete EncMode
 	em, err := cbor.EncOptions{Time: cbor.TimeRFC3339Nano}.EncMode()
 	if err != nil {
-		// Options are static, so this can only fail on a programming error.
+		// Static options: only a programming error can fail here.
 		panic(err)
 	}
 
 	return em
 }
 
-// DecodeMsgs CBOR-decodes val into a message slice. A decode panic on
-// corrupted or older-format on-disk bytes is recovered into ErrDecodePanic so
-// a bad queue entry never crashes the daemon.
+// DecodeMsgs decodes val into a message slice, recovering a panic on corrupted
+// or older-format bytes into ErrDecodePanic so one bad entry cannot crash the
+// daemon.
 //
 //nolint:nonamedreturns // the recover below assigns both returns
 func DecodeMsgs(val []byte) (msgs []msgtypes.Message, err error) {
@@ -61,9 +60,7 @@ func DecodeMsgs(val []byte) (msgs []msgtypes.Message, err error) {
 	return msgs, err
 }
 
-// EncodeMsgs encodes a given list of messages using CBOR encoding and returns
-// the []byte representation of the messages. If there is an error during encoding,
-// the function returns it.
+// EncodeMsgs encodes msgs as CBOR.
 func EncodeMsgs(msgs []msgtypes.Message) ([]byte, error) {
 	if len(msgs) == 0 {
 		return []byte{}, nil
