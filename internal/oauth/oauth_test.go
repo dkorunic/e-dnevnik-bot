@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -450,5 +452,156 @@ func TestGetTokenFromWebRejectsMissingCode(t *testing.T) {
 	_, err := getTokenFromWeb(context.Background(), cfg)
 	if !errors.Is(err, ErrInvalidCallbackState) {
 		t.Fatalf("getTokenFromWeb() error = %v, want ErrInvalidCallbackState for a callback with no code", err)
+	}
+}
+
+// TestServeCallbackReportsFailureInsteadOfExiting is the regression guard for a
+// callback server that used to end the process. logger.Fatal from that
+// goroutine called os.Exit, which skips getTokenFromWeb's deferred Shutdown and
+// leaks the listener, so the *next* run cannot bind the callback port either —
+// one transient bind failure poisoning every subsequent attempt.
+//
+// The failure must instead reach the caller through tokChan as an ordinary
+// error wrapping ErrOAuthHTTPServer.
+func TestServeCallbackReportsFailureInsteadOfExiting(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("net.Listen() failed: %v", err)
+	}
+
+	// Closed before serving, so Serve fails with something other than
+	// ErrServerClosed — standing in for any unexpected listener fault.
+	if err := listener.Close(); err != nil {
+		t.Fatalf("closing the listener failed: %v", err)
+	}
+
+	tokChan := make(chan authCallback, 1)
+
+	var once sync.Once
+
+	srv := &http.Server{Addr: "localhost:0", ReadHeaderTimeout: ReadHeaderTimeout}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		serveCallback(srv, listener, tokChan, &once)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("serveCallback did not return on a dead listener")
+	}
+
+	select {
+	case cb := <-tokChan:
+		if cb.err == nil {
+			t.Fatal("serveCallback reported no error; the caller would wait out the full AuthTimeout for a server that is already gone")
+		}
+
+		if !errors.Is(cb.err, ErrOAuthHTTPServer) {
+			t.Errorf("error = %v, want it wrapping ErrOAuthHTTPServer", cb.err)
+		}
+	default:
+		t.Fatal("serveCallback sent nothing to tokChan; the failure was swallowed")
+	}
+}
+
+// TestServeCallbackStaysSilentOnOrdinaryShutdown: the deferred Shutdown in
+// getTokenFromWeb makes Serve return ErrServerClosed on every successful flow.
+// Reporting that as a failure would turn each completed consent into an error.
+func TestServeCallbackStaysSilentOnOrdinaryShutdown(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("net.Listen() failed: %v", err)
+	}
+
+	tokChan := make(chan authCallback, 1)
+
+	var once sync.Once
+
+	srv := &http.Server{Addr: listener.Addr().String(), ReadHeaderTimeout: ReadHeaderTimeout}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		serveCallback(srv, listener, tokChan, &once)
+	}()
+
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), WriteTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("serveCallback did not return after Shutdown")
+	}
+
+	select {
+	case cb := <-tokChan:
+		t.Errorf("an ordinary shutdown reported %+v; every successful consent flow would fail", cb)
+	default:
+	}
+}
+
+// TestServeCallbackLosesRaceToDeliveredCallback: the shared sync.Once is what
+// lets the consent handler and the server goroutine both finish safely. A
+// delivered auth code must win, and the later server stop must neither overwrite
+// it nor send on the closed channel — which would panic and take the process
+// down by a different route than the one this fix removed.
+func TestServeCallbackLosesRaceToDeliveredCallback(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("net.Listen() failed: %v", err)
+	}
+
+	if err := listener.Close(); err != nil {
+		t.Fatalf("closing the listener failed: %v", err)
+	}
+
+	tokChan := make(chan authCallback, 1)
+
+	var once sync.Once
+
+	// The consent handler got there first.
+	once.Do(func() {
+		tokChan <- authCallback{code: "the-real-code"}
+		close(tokChan)
+	})
+
+	srv := &http.Server{Addr: "localhost:0", ReadHeaderTimeout: ReadHeaderTimeout}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		// Must not panic on the closed channel, and must not replace the code.
+		serveCallback(srv, listener, tokChan, &once)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("serveCallback did not return")
+	}
+
+	cb := <-tokChan
+	if cb.code != "the-real-code" || cb.err != nil {
+		t.Errorf("callback = %+v, want the delivered auth code preserved", cb)
 	}
 }

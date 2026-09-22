@@ -54,13 +54,14 @@ var (
 	ErrOAuthGrantRevoked    = errors.New("OAuth grant revoked or expired")
 )
 
-// browserOpen is a seam for tests: production uses browser.OpenURL.
+// browserOpen is a test seam; production uses browser.OpenURL.
 var browserOpen = browser.OpenURL
 
 //go:embed templates/*html assets/*ico
 var contentFS embed.FS
 
-// persistingTokenSource persists refreshed OAuth tokens to disk so restarts survive token rotation.
+// persistingTokenSource writes refreshed tokens to disk, so a restart survives
+// rotation.
 type persistingTokenSource struct {
 	src       oauth2.TokenSource
 	last      *oauth2.Token
@@ -69,16 +70,14 @@ type persistingTokenSource struct {
 	warnOnce  sync.Once
 }
 
-// Token returns a cached/refreshed token, and persists it to tokenPath on
-// disk whenever the AccessToken (or RefreshToken) differs from the last
-// token we observed. A persistence error is logged rather than returned —
-// the caller still gets a usable token, we just lose the ability to reuse
-// it across restarts until the next refresh.
+// Token returns a cached or refreshed token, persisting it whenever it differs
+// from the last one seen. A write failure is logged rather than returned: the
+// caller still has a usable token, only reuse across restarts is lost.
 func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	tok, err := p.src.Token()
 	if err != nil {
 		if IsInvalidGrant(err) {
-			// Loud once per process: every API call will keep failing until re-auth.
+			// Once per process: every call fails until re-authentication.
 			p.warnOnce.Do(func() {
 				logger.Error().Msgf("Google Calendar OAuth grant was revoked or expired; delete %q and re-run the bot interactively to re-authenticate",
 					p.tokenPath)
@@ -88,7 +87,7 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 
-	// Hold across saveToken so concurrent refreshes can't reorder the atomic rename.
+	// Held across saveToken so concurrent refreshes cannot reorder the rename.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -106,9 +105,8 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	return tok, nil
 }
 
-// GetClient returns an OAuth2 HTTP client, loading the token from tokenPath —
-// or running the interactive web flow if none exists — and persisting any
-// rotated token so restarts survive refresh-token rotation.
+// GetClient returns an authenticated client, running the interactive flow if
+// tokenPath holds no token, and persisting any rotation.
 func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*http.Client, error) {
 	tok, err := tokenFromFile(tokenPath)
 	saveToFile := false
@@ -128,7 +126,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 				return nil, err
 			}
 
-			// Persist rotated refresh tokens; otherwise startup bricks after old one expires.
+			// Unpersisted, startup bricks once the old token expires.
 			if newTok.AccessToken != tok.AccessToken || newTok.RefreshToken != tok.RefreshToken {
 				saveToFile = true
 				tok = newTok
@@ -149,7 +147,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 		}
 	}
 
-	// Persist refreshes so restarts survive token rotation.
+	// Persist refreshes so restarts survive rotation.
 	ts := &persistingTokenSource{
 		src:       config.TokenSource(ctx, tok),
 		tokenPath: tokenPath,
@@ -159,31 +157,53 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 	return oauth2.NewClient(ctx, ts), nil
 }
 
-// getTokenFromWeb runs the interactive consent flow: it serves a loopback
-// callback, opens the browser, and exchanges the returned code for a token.
-// State is CSRF-checked and the wait is bounded by AuthTimeout.
+// authCallback carries the consent flow's outcome: an auth code, or the terminal
+// cause — state mismatch, denial, or a server that stopped serving.
+type authCallback struct {
+	err  error
+	code string
+}
+
+// serveCallback runs the loopback consent server, reporting an unexpected stop
+// through tokChan rather than ending the process.
+//
+// Reporting, not logger.Fatal: os.Exit here would skip getTokenFromWeb's
+// deferred Shutdown and leak the listener, so the next run could not bind the
+// callback port — exactly what that Shutdown exists to prevent.
+//
+// once is shared with the callback handlers, so the first outcome wins and the
+// channel closes once; tokChan is buffered, so this send never blocks even after
+// the caller stops listening. ErrServerClosed is the ordinary stop.
+func serveCallback(s *http.Server, listener net.Listener, tokChan chan<- authCallback, once *sync.Once) {
+	logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
+
+	// Serve on pre-bound listener; ListenAndServe would race by re-binding.
+	if err := s.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		once.Do(func() {
+			tokChan <- authCallback{err: fmt.Errorf("%w: %w", ErrOAuthHTTPServer, err)}
+			close(tokChan)
+		})
+	}
+}
+
+// getTokenFromWeb runs the interactive consent flow: serve a loopback callback,
+// open the browser, exchange the returned code. State is CSRF-checked and the
+// wait is bounded by AuthTimeout.
 func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token, error) {
-	// Random state for CSRF protection on the OAuth callback.
+	// CSRF protection for the callback.
 	authReqState, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOAuthUUID, err)
-	}
-
-	// authCallback carries the callback outcome: an auth code on success, or
-	// the terminal cause (state mismatch, consent denial) otherwise.
-	type authCallback struct {
-		err  error
-		code string
 	}
 
 	tokChan := make(chan authCallback, 1)
 
 	var once sync.Once
 
-	// Bind first so authURL carries the actual port; loopback is required by Google.
+	// Bind first, so authURL carries the actual port. Google requires loopback.
 	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
 
-	// ListenConfig so a cancelled ctx aborts the bind.
+	// ListenConfig: a cancelled ctx aborts the bind.
 	var lc net.ListenConfig
 
 	listener, err := lc.Listen(ctx, "tcp", authListenHost)
@@ -215,8 +235,8 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		Addr:              listener.Addr().String(),
 		Handler:           r,
 	}
-	// Detached ctx: shutdown needs its grace period even once ctx is cancelled,
-	// or the listener leaks and the next run cannot bind the callback port.
+	// Detached: shutdown needs its grace period even once ctx is cancelled, or
+	// the listener leaks and the next run cannot bind the callback port.
 	defer func() { //nolint:contextcheck
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), WriteTimeout)
 		defer cancel()
@@ -244,7 +264,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 		q := req.URL.Query()
 
-		// Constant-time compare to avoid timing leaks on malformed callbacks.
+		// Constant-time, to avoid a timing leak on malformed callbacks.
 		expectedState := authReqState.String()
 		if receivedState := q.Get("state"); subtle.ConstantTimeCompare([]byte(receivedState), []byte(expectedState)) != 1 {
 			w.WriteHeader(http.StatusBadRequest)
@@ -261,8 +281,8 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 			return
 		}
 
-		// Google signals consent denial / flow errors via the error param —
-		// report the actual cause instead of rendering a false success page.
+		// Google signals denial through the error param; report the real cause
+		// rather than render a false success page.
 		if cbErr := q.Get("error"); cbErr != "" {
 			if err := t.ExecuteTemplate(w, "failure.html", map[string]any{"error": cbErr}); err != nil {
 				logger.Error().Msgf("template execution failed: %v", err)
@@ -290,14 +310,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		http.ServeFileFS(w, req, contentFS, "assets/favicon.ico")
 	})
 
-	go func() {
-		logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
-
-		// Serve on pre-bound listener; ListenAndServe would race by re-binding.
-		if err := s.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Fatal().Msgf("%v: %v", ErrOAuthHTTPServer, err)
-		}
-	}()
+	go serveCallback(&s, listener, tokChan, &once)
 
 	logger.Info().Msgf("Opening local Web server through system browser: %v", authURL)
 
@@ -316,7 +329,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	case <-authTimer.C:
 		return nil, ErrOAuthTimeout
 	case <-ctx.Done():
-		// SIGTERM during consent must abort promptly, not block for AuthTimeout.
+		// SIGTERM must abort promptly, not wait out AuthTimeout.
 		return nil, ctx.Err()
 	}
 
@@ -324,7 +337,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		return nil, cb.err
 	}
 
-	// A valid-state callback carrying neither error nor code is malformed.
+	// Valid state but neither error nor code: malformed.
 	if cb.code == "" {
 		return nil, ErrInvalidCallbackState
 	}
@@ -337,7 +350,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	return tok, nil
 }
 
-// tokenFromFile reads and JSON-decodes an OAuth2 token from tokenPath.
+// tokenFromFile decodes the token at tokenPath.
 func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	b, err := os.ReadFile(tokenPath)
 	if err != nil {
@@ -351,26 +364,24 @@ func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	return tok, err
 }
 
-// ValidateTokenFile reports whether tokenPath holds a decodable OAuth2 token.
-// File presence alone is not sufficient — a truncated or hand-edited file
-// otherwise fails every poll cycle at runtime instead of once, clearly, at
-// startup.
+// ValidateTokenFile reports whether tokenPath decodes. Presence alone is not
+// enough: a truncated or hand-edited file would otherwise fail every poll cycle
+// at runtime instead of once, clearly, at startup.
 func ValidateTokenFile(tokenPath string) error {
 	_, err := tokenFromFile(tokenPath)
 
 	return err
 }
 
-// IsInvalidGrant reports whether err is an OAuth2 invalid_grant response from
-// the token endpoint — the refresh token was revoked or expired and only
-// interactive re-authentication helps; retrying is pointless.
+// IsInvalidGrant reports a revoked or expired refresh token. Only interactive
+// re-authentication helps; retrying is pointless.
 func IsInvalidGrant(err error) bool {
 	var re *oauth2.RetrieveError
 
 	return errors.As(err, &re) && re.ErrorCode == "invalid_grant"
 }
 
-// saveToken atomically writes token to tokenPath as JSON with DefaultPerms.
+// saveToken atomically writes token as JSON at DefaultPerms.
 func saveToken(tokenPath string, token *oauth2.Token) error {
 	buf := new(bytes.Buffer)
 
@@ -386,7 +397,7 @@ func saveToken(tokenPath string, token *oauth2.Token) error {
 	return nil
 }
 
-// LoggingMiddleware logs method, URI, status, client IP, and duration per request.
+// LoggingMiddleware logs one line per request.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
