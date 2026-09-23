@@ -185,6 +185,7 @@
         ├──▶ Slack goroutine
         ├──▶ Mail goroutine
         ├──▶ Calendar goroutine
+        ├──▶ CalDAV goroutine
         └──▶ WhatsApp goroutine
               Each: drain failed queue → send live msgs → queue failures
                     wgMsg.Wait()
@@ -280,11 +281,13 @@
 - WhatsApp session key material stored in `.e-dnevnik.wa.sqlite` (local file, user permissions).
 - Google Calendar OAuth2 token stored in `calendar_token.json` (written 0600 via `renameio`).
 - OAuth2 state parameter is a UUID — prevents CSRF on the local callback server.
+- CalDAV sends its username/password as HTTP Basic Auth on every `PUT`; `https` is required except to loopback (`localhost`, `127.0.0.0/8`, `::1`), and redirects are refused outright rather than followed — `net/http` would otherwise replay `Authorization` across a scheme or host downgrade.
 
 ### Credential storage
 
 - TOML config file contains plain-text passwords. `LoadConfig` best-effort tightens the file to 0600 on every load (warn-only on failure, e.g. read-only fs); `SaveConfig` writes 0600 atomically via `renameio`.
 - Bot tokens (Discord, Telegram, Slack) stored as plain strings in the TOML config.
+- CalDAV credentials (`url`, `username`, `password`) live in plain text in that same 0600 TOML — no separate token or keychain storage.
 
 ### Input validation
 

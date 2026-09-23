@@ -63,6 +63,19 @@ chatids = [ "chat_id", "chat_id2" ]
 #[calendar]
 #name = "Djeca ispiti"
 
+# CalDAV block (alternative to Google Calendar; exam events only)
+##################################################
+# Needs no Google account and no interactive first run. url is the full URL of
+# the calendar collection, not the server root -- Nextcloud shows it under the
+# calendar's "Copy private link" menu; Radicale uses
+# http://127.0.0.1:5232/<user>/<calendar>/. Use an app-specific password where
+# the provider supports one. https is required except to loopback.
+#
+#[caldav]
+#url = "https://cloud.example.com/remote.php/dav/calendars/pero/ispiti/"
+#username = "pero"
+#password = "app-password"
+
 # WhatsApp block
 ##################################################
 # If the phone number is provided, it will be used to initiate code linking with

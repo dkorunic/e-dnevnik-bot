@@ -111,7 +111,7 @@ Other flags:
 - `-f`: path to the configuration file containing usernames, passwords, and messaging service settings (in [TOML](https://github.com/toml-lang/toml) format),
 - `-i`: interval between polls in daemon/service mode (minimum 1h, default 1h),
 - `-r`: number of retry attempts on scraping or delivery failures (default: 3),
-- `-t`: sends a test message to all configured messaging services,
+- `-t`: sends a test message to all configured messaging services; calendar backends (Google Calendar, CalDAV) only ever receive exam events, so they are not exercised by `-t`,
 - `-v`: enables verbose/debug logging for detailed insight into bot operation; disabled by default,
 - `-l`: enables colorized console logging with JSON output disabled,
 - `-g`: path to the Google Calendar API token file for reading and storing the OAuth2 token,
@@ -251,6 +251,9 @@ An alternative to Google Calendar that needs no Google account and no interactiv
 3. The URL must use `https`. Plain `http` is accepted only for `localhost`, `127.0.0.0/8` or `::1`, so a Radicale on the same machine works without TLS.
 4. Redirects are not followed. If the server redirects, the log names the target — put that URL in the config.
 5. Only exam events are added, as all-day entries. Google Calendar and CalDAV can be enabled together.
+6. Credentials and the URL are only exercised when the first exam arrives — `-t` emulation sends a grade, which calendar backends ignore, so it does not test CalDAV. A `401`/`403`/`404` on that first exam is treated as permanent, and that exam is dropped rather than retried. Verify the URL and app password with a CalDAV client beforehand (e.g. by subscribing to the same URL) rather than finding out on the first real exam.
+7. Plain `http` is loopback-only (see point 3): a Docker-network hostname such as `http://radicale:5232/` is rejected even though it never leaves your infrastructure. Use `https`, or run the bot on the same host network as the CalDAV server so it can reach it via `localhost`.
+8. iCloud does not show collection URLs in its web UI; discovering the correct one requires a CalDAV client — the bot does no discovery of its own.
 
 ## HOWTO
 
