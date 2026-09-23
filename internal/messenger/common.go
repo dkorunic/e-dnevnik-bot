@@ -55,14 +55,14 @@ func isPermanentSendErr(err error) bool {
 	return errors.As(err, &perr)
 }
 
-// QueueAccepts reports whether anything will read g back. Calendar takes exams
-// alone and its deferred stub never reads its queue, so anything else sits
-// unconsumable until MaxQueueAge.
+// QueueAccepts reports whether anything will read g back. Both calendar
+// backends take exams alone, and Calendar's deferred stub never reads its
+// queue, so anything else sits unconsumable until MaxQueueAge.
 //
 // Keyed on the queue rather than passed in: the overflow spill, init failure and
 // panic drain must all agree, and a parameter is something a new route forgets.
 func QueueAccepts(queueName []byte, g msgtypes.Message) bool {
-	if bytes.Equal(queueName, CalendarQueueName) {
+	if bytes.Equal(queueName, CalendarQueueName) || bytes.Equal(queueName, CalDAVQueueName) {
 		return g.Code == msgtypes.Exam
 	}
 

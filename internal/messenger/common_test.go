@@ -13,6 +13,7 @@ import (
 
 	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/go-telegram/bot"
 	"github.com/slack-go/slack"
 	"go.mau.fi/whatsmeow"
@@ -281,6 +282,7 @@ func TestMarkPermanentWrapping(t *testing.T) {
 		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}}, markDiscordPermanent},
 		{"slack", slack.StatusCodeError{Code: http.StatusForbidden}, markSlackPermanent},
 		{"calendar", &googleapi.Error{Code: http.StatusForbidden}, markCalendarPermanent},
+		{"caldav", &caldavStatusError{code: http.StatusForbidden}, markCalDAVPermanent},
 	}
 
 	for _, tc := range cases {
@@ -295,5 +297,50 @@ func TestMarkPermanentWrapping(t *testing.T) {
 				t.Errorf("mark(%v) = %v, want classified transient", unknown, got)
 			}
 		})
+	}
+}
+
+// TestMarkCalDAVPermanentClasses: a redirect means the configured URL is wrong
+// and will never succeed; 408/429/5xx may.
+func TestMarkCalDAVPermanentClasses(t *testing.T) {
+	t.Parallel()
+
+	for code, wantPermanent := range map[int]bool{
+		http.StatusFound:               true,
+		http.StatusPermanentRedirect:   true,
+		http.StatusPreconditionFailed:  true,
+		http.StatusNotFound:            true,
+		http.StatusRequestTimeout:      false,
+		http.StatusTooManyRequests:     false,
+		http.StatusInternalServerError: false,
+		http.StatusBadGateway:          false,
+	} {
+		got := isPermanentSendErr(markCalDAVPermanent(&caldavStatusError{code: code}))
+		if got != wantPermanent {
+			t.Errorf("status %d permanent = %v, want %v", code, got, wantPermanent)
+		}
+	}
+}
+
+// TestQueueAcceptsExamOnlyQueues: both calendar queues discard non-exams, so a
+// spilled grade there sits unread until MaxQueueAge.
+func TestQueueAcceptsExamOnlyQueues(t *testing.T) {
+	t.Parallel()
+
+	exam := msgtypes.Message{Code: msgtypes.Exam}
+	grade := msgtypes.Message{Code: msgtypes.Grade}
+
+	for _, q := range [][]byte{CalendarQueueName, CalDAVQueueName} {
+		if !QueueAccepts(q, exam) {
+			t.Errorf("%s rejected an exam", q)
+		}
+
+		if QueueAccepts(q, grade) {
+			t.Errorf("%s accepted a grade it will never deliver", q)
+		}
+	}
+
+	if !QueueAccepts(DiscordQueueName, grade) {
+		t.Error("a general-purpose queue rejected a grade")
 	}
 }
