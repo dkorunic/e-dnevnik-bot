@@ -623,29 +623,35 @@ func TestMsgSendDeferredCalendarOverflowDropsNonExams(t *testing.T) {
 func TestDispatchSkipsUnqueueableOverflow(t *testing.T) {
 	t.Parallel()
 
-	eDB := openExistingDB(t, t.TempDir()+"/dispatch-queueable.db")
-	defer eDB.Close() //nolint:errcheck
+	// The real queues, not an injected predicate: the rule lives with the
+	// queue, so this exercises the wiring an operator actually gets.
+	for _, q := range [][]byte{messenger.CalendarQueueName, messenger.CalDAVQueueName} {
+		t.Run(string(q), func(t *testing.T) {
+			t.Parallel()
 
-	// Capacity one, already occupied: every further send takes the spill branch.
-	// The real Calendar queue, not an injected predicate: the rule lives with
-	// the queue, so this exercises the wiring an operator actually gets.
-	s := messengerSink{
-		ch:    make(chan msgtypes.Message, 1),
-		queue: messenger.CalendarQueueName,
-	}
-	s.ch <- msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "already-buffered"}
+			eDB := openExistingDB(t, t.TempDir()+"/dispatch-queueable.db")
+			defer eDB.Close() //nolint:errcheck
 
-	dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Grade, Username: "u", Subject: "dropped-grade"})
+			// Capacity one, already occupied: every further send takes the spill branch.
+			s := messengerSink{
+				ch:    make(chan msgtypes.Message, 1),
+				queue: q,
+			}
+			s.ch <- msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "already-buffered"}
 
-	if got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.CalendarQueueName); len(got) != 0 {
-		t.Fatalf("FetchFailedMsgs = %+v, want nothing queued: this messenger discards non-exams, so the row would be unconsumable", got)
-	}
+			dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Grade, Username: "u", Subject: "dropped-grade"})
 
-	dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "spilled-exam"})
+			if got := queue.FetchFailedMsgs(t.Context(), eDB, q); len(got) != 0 {
+				t.Fatalf("FetchFailedMsgs = %+v, want nothing queued: this messenger discards non-exams, so the row would be unconsumable", got)
+			}
 
-	got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.CalendarQueueName)
-	if len(got) != 1 || got[0].Msg.Subject != "spilled-exam" {
-		t.Fatalf("FetchFailedMsgs = %+v, want only the exam spilled; the filter must not become a general drop", got)
+			dispatch(t.Context(), eDB, s, msgtypes.Message{Code: msgtypes.Exam, Username: "u", Subject: "spilled-exam"})
+
+			got := queue.FetchFailedMsgs(t.Context(), eDB, q)
+			if len(got) != 1 || got[0].Msg.Subject != "spilled-exam" {
+				t.Fatalf("FetchFailedMsgs = %+v, want only the exam spilled; the filter must not become a general drop", got)
+			}
+		})
 	}
 }
 

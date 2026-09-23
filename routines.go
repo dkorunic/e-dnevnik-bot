@@ -42,6 +42,7 @@ var (
 	ErrSlack        = errors.New("Slack messenger issue")    //nolint:staticcheck
 	ErrMail         = errors.New("Mail messenger issue")     //nolint:staticcheck
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
+	ErrCalDAV       = errors.New("CalDAV issue")             //nolint:staticcheck
 	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:staticcheck
 
 	// Parses the portal's "D.M." grade date column. Do not normalise —
@@ -200,6 +201,19 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 		if cfg.CalendarDeferred {
 			start(messenger.CalendarQueueName, func(ch <-chan msgtypes.Message) {
 				messenger.CalendarDeferred(ctx, eDB, ch)
+			})
+		}
+
+		if cfg.CalDAVEnabled {
+			start(messenger.CalDAVQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.CalDAV(ctx, eDB, ch, messenger.CalDAVConfig{
+					URL:      cfg.CalDAV.URL,
+					Username: cfg.CalDAV.Username,
+					Password: cfg.CalDAV.Password,
+					Retries:  *retries,
+				}); err != nil {
+					flagMessengerError(ctx, ErrCalDAV, err)
+				}
 			})
 		}
 
