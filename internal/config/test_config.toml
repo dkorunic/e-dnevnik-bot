@@ -26,6 +26,11 @@ to = ["to@example.com"]
 [calendar]
 name = "test"
 
+[caldav]
+url = "https://cloud.example/remote.php/dav/calendars/test/ispiti/"
+username = "test"
+password = "app-password"
+
 [whatsapp]
 phonenumber = "+1234567890"
 userids = ["1234567890@s.whatsapp.net"]

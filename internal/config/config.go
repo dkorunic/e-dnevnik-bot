@@ -6,6 +6,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -38,6 +39,7 @@ func LoadConfig(file string) (TomlConfig, error) {
 	checkSlackConf(&config)
 	checkMailConf(&config)
 	checkCalendarConf(&config)
+	checkCalDAVConf(&config)
 	checkWhatsAppConf(&config)
 
 	noMessengerEnabled := !config.WhatsAppEnabled &&
@@ -45,7 +47,8 @@ func LoadConfig(file string) (TomlConfig, error) {
 		!config.TelegramEnabled &&
 		!config.SlackEnabled &&
 		!config.MailEnabled &&
-		!config.CalendarEnabled
+		!config.CalendarEnabled &&
+		!config.CalDAVEnabled
 	if noMessengerEnabled {
 		logger.Fatal().Msg("Configuration error: no messenger enabled")
 	}
@@ -119,6 +122,55 @@ func checkCalendarConf(config *TomlConfig) {
 
 		config.CalendarEnabled = true
 	}
+}
+
+// checkCalDAVConf validates the CalDAV block. Fatal on any invalid entry.
+//
+// Basic auth is sent on every request, so plain http is refused unless it never
+// leaves the machine. The URL is never logged whole: it is the one field a user
+// might paste credentials into.
+func checkCalDAVConf(config *TomlConfig) {
+	if config.CalDAV.URL == "" {
+		return
+	}
+
+	u, err := url.Parse(config.CalDAV.URL)
+	if err != nil {
+		logger.Fatal().Msg("Configuration error: CalDAV url is not a valid URL")
+	}
+
+	if u.User != nil {
+		logger.Fatal().Msgf("Configuration error: CalDAV url %v must not embed credentials; use username and password",
+			u.Redacted())
+	}
+
+	if u.Hostname() == "" {
+		logger.Fatal().Msgf("Configuration error: CalDAV url %v has no host", u.Redacted())
+	}
+
+	switch u.Scheme {
+	case "https":
+	case "http":
+		if !isLoopbackHost(u.Hostname()) {
+			logger.Fatal().Msgf("Configuration error: CalDAV url %v must use https; plain http is allowed only for localhost",
+				u.Redacted())
+		}
+	default:
+		logger.Fatal().Msgf("Configuration error: CalDAV url %v must use https", u.Redacted())
+	}
+
+	if config.CalDAV.Username == "" {
+		logger.Fatal().Msg("Configuration error: CalDAV username not defined")
+	}
+
+	if config.CalDAV.Password == "" {
+		logger.Fatal().Msg("Configuration error: CalDAV password not defined")
+	}
+
+	// After the validators, so a Fatal leaves the error as the last line.
+	logger.Info().Msg("Configuration: CalDAV messenger enabled")
+
+	config.CalDAVEnabled = true
 }
 
 // checkMailConf validates the mail block. Fatal on any invalid entry.

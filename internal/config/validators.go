@@ -5,8 +5,10 @@ package config
 
 import (
 	stdmail "net/mail"
+	"net/netip"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"go.mau.fi/whatsmeow/types"
 )
@@ -81,4 +83,17 @@ func isValidWhatsAppJID(jid string) bool {
 	}
 
 	return parsedJID.Server == "s.whatsapp.net" || parsedJID.Server == "g.us"
+}
+
+// isLoopbackHost reports whether host — as url.URL.Hostname returns it — names
+// this machine: "localhost" or a loopback IP. Exact matches only, so
+// localhost.evil.example is not loopback.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip, err := netip.ParseAddr(host)
+
+	return err == nil && ip.IsLoopback()
 }

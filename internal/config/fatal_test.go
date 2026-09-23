@@ -24,6 +24,11 @@ const (
 	validUsername      = "pero.peric@skole.hr"
 )
 
+// validCalDAV is a block that passes validation except, possibly, for rawURL.
+func validCalDAV(rawURL string) CalDAV {
+	return CalDAV{URL: rawURL, Username: "pero", Password: "tajna-lozinka"}
+}
+
 // fatalCaseEnv names the fatal case a re-executed child process should run.
 const fatalCaseEnv = "EDNEVNIK_CONFIG_FATAL_CASE"
 
@@ -182,6 +187,52 @@ var fatalCases = []struct {
 			}})
 		},
 	},
+	{
+		// Basic-auth credentials would cross the network in cleartext.
+		name: "caldav plain http to a remote host",
+		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("http://cal.example/dav/")}) },
+	},
+	{
+		name: "caldav http host that only starts with localhost",
+		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("http://localhost.evil.example/dav/")}) },
+	},
+	{
+		name: "caldav non-http scheme",
+		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("ftp://cal.example/dav/")}) },
+	},
+	{
+		name: "caldav url without scheme",
+		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("cal.example/dav/")}) },
+	},
+	{
+		name: "caldav url without host",
+		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("https:///dav/")}) },
+	},
+	{
+		name: "caldav url is unparseable",
+		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("https://cal.example/%zz")}) },
+	},
+	{
+		// Credentials belong in their own fields; in the URL they get logged.
+		name: "caldav url embeds credentials",
+		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("https://pero:tajna@cal.example/dav/")}) },
+	},
+	{
+		name: "caldav without username",
+		run: func() {
+			c := validCalDAV("https://cal.example/dav/")
+			c.Username = ""
+			checkCalDAVConf(&TomlConfig{CalDAV: c})
+		},
+	},
+	{
+		name: "caldav without password",
+		run: func() {
+			c := validCalDAV("https://cal.example/dav/")
+			c.Password = ""
+			checkCalDAVConf(&TomlConfig{CalDAV: c})
+		},
+	},
 }
 
 // TestConfigFatalCases covers the fail-fast validators. They abort via
@@ -285,6 +336,12 @@ func TestConfigValidBlocksAreAccepted(t *testing.T) {
 			check:   checkCalendarConf,
 			enabled: func(c TomlConfig) bool { return c.CalendarEnabled },
 		},
+		{
+			name:    "caldav",
+			cfg:     TomlConfig{CalDAV: validCalDAV("https://cloud.example/remote.php/dav/calendars/pero/ispiti/")},
+			check:   checkCalDAVConf,
+			enabled: func(c TomlConfig) bool { return c.CalDAVEnabled },
+		},
 	}
 
 	for _, tt := range tests {
@@ -315,9 +372,10 @@ func TestCheckConfLeavesEmptyBlocksDisabled(t *testing.T) {
 	checkDiscordConf(&cfg)
 	checkWhatsAppConf(&cfg)
 	checkCalendarConf(&cfg)
+	checkCalDAVConf(&cfg)
 
 	if cfg.MailEnabled || cfg.SlackEnabled || cfg.TelegramEnabled ||
-		cfg.DiscordEnabled || cfg.WhatsAppEnabled || cfg.CalendarEnabled {
+		cfg.DiscordEnabled || cfg.WhatsAppEnabled || cfg.CalendarEnabled || cfg.CalDAVEnabled {
 		t.Errorf("an empty configuration enabled a messenger: %+v", cfg)
 	}
 }

@@ -43,6 +43,13 @@ type Calendar struct {
 	Name string `toml:"name,omitempty"`
 }
 
+// CalDAV holds a CalDAV collection and its basic-auth credentials.
+type CalDAV struct {
+	URL      string `toml:"url,omitempty"`
+	Username string `toml:"username,omitempty"`
+	Password string `toml:"password,omitempty"`
+}
+
 // WhatsApp messenger configuration.
 type WhatsApp struct {
 	PhoneNumber string   `toml:"phonenumber,omitempty"`
@@ -53,6 +60,7 @@ type WhatsApp struct {
 // TomlConfig is the whole configuration file.
 type TomlConfig struct {
 	Calendar        Calendar `toml:"calendar,omitempty"`
+	CalDAV          CalDAV   `toml:"caldav,omitempty"`
 	Mail            Mail     `toml:"mail,omitempty"`
 	Telegram        Telegram `toml:"telegram,omitempty"`
 	Discord         Discord  `toml:"discord,omitempty"`
@@ -64,6 +72,7 @@ type TomlConfig struct {
 	SlackEnabled    bool     `toml:"-"`
 	MailEnabled     bool     `toml:"-"`
 	CalendarEnabled bool     `toml:"-"`
+	CalDAVEnabled   bool     `toml:"-"`
 	WhatsAppEnabled bool     `toml:"-"`
 	// Configured but not yet initialisable — a headless daemon before OAuth.
 	// msgSend runs a queue-only stub so exams survive.

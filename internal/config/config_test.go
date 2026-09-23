@@ -318,3 +318,51 @@ func TestIsValidPhoneRejectsLeadingZero(t *testing.T) {
 		t.Error("isValidPhone(\"+01234567890\") returned true — phone numbers with leading zero after + must be rejected")
 	}
 }
+
+// TestIsLoopbackHost: only the machine itself may be reached over plain http.
+// A prefix or suffix match would wave through localhost.evil.example.
+func TestIsLoopbackHost(t *testing.T) {
+	t.Parallel()
+
+	for host, want := range map[string]bool{
+		"localhost":              true,
+		"LOCALHOST":              true,
+		"127.0.0.1":              true,
+		"127.1.2.3":              true,
+		"::1":                    true,
+		"localhost.evil.example": false,
+		"127.0.0.1.example.com":  false,
+		"cal.example":            false,
+		"10.0.0.5":               false,
+		"0.0.0.0":                false,
+		"":                       false,
+	} {
+		if got := isLoopbackHost(host); got != want {
+			t.Errorf("isLoopbackHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+// TestCheckCalDAVConfAcceptsLoopbackHTTP: a Radicale on the same machine is a
+// supported setup and must not be forced behind TLS.
+func TestCheckCalDAVConfAcceptsLoopbackHTTP(t *testing.T) {
+	t.Parallel()
+
+	for _, rawURL := range []string{
+		"http://localhost/dav/",
+		"http://LOCALHOST:5232/pero/ispiti/",
+		"http://127.0.0.1:5232/pero/ispiti/",
+		"http://127.1.2.3/",
+		"http://[::1]:5232/pero/ispiti/",
+		"https://cal.example/dav/",
+	} {
+		cfg := TomlConfig{CalDAV: CalDAV{URL: rawURL, Username: "pero", Password: "tajna"}}
+
+		// Reaching the next statement means no Fatal fired.
+		checkCalDAVConf(&cfg)
+
+		if !cfg.CalDAVEnabled {
+			t.Errorf("%q did not enable CalDAV", rawURL)
+		}
+	}
+}
