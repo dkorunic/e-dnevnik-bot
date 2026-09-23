@@ -42,8 +42,8 @@ var (
 	ErrSlack        = errors.New("Slack messenger issue")    //nolint:staticcheck
 	ErrMail         = errors.New("Mail messenger issue")     //nolint:staticcheck
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
-	ErrCalDAV       = errors.New("CalDAV issue")             //nolint:staticcheck
-	ErrWhatsApp     = errors.New("WhatsApp issue")           //nolint:staticcheck
+	ErrCalDAV       = errors.New("CalDAV issue")
+	ErrWhatsApp     = errors.New("WhatsApp issue")
 
 	// Parses the portal's "D.M." grade date column. Do not normalise —
 	// values like "15.4." would stop parsing.

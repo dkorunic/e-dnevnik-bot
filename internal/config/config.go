@@ -137,6 +137,8 @@ func checkCalDAVConf(config *TomlConfig) {
 	u, err := url.Parse(config.CalDAV.URL)
 	if err != nil {
 		logger.Fatal().Msg("Configuration error: CalDAV url is not a valid URL")
+
+		return
 	}
 
 	if u.User != nil {
