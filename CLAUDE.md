@@ -18,7 +18,7 @@ All sub-packages live under `internal/` (enforced by the Go toolchain — nothin
 | `internal/sqlitedb` | SQLite KV dedup store. |
 | `internal/codec` | CBOR (`fxamacker/cbor/v2`) encode/decode for `[]Message` queue persistence. |
 | `internal/queue` | Dead-letter queue built on `sqlitedb` + `codec`. |
-| `internal/messenger` | Six messenger backends (Discord/Telegram/Slack/Mail/Calendar/WhatsApp). |
+| `internal/messenger` | Seven messenger backends (Discord/Telegram/Slack/Mail/Calendar/CalDAV/WhatsApp). |
 | `internal/format` | Plain/HTML/Markdown formatters consumed by messengers. |
 | `internal/oauth` | Google Calendar OAuth2 interactive flow (local HTTP server). |
 | `internal/config` | TOML config load + validation. |
@@ -180,6 +180,10 @@ Two rules that were each established by sending a real message and reading it ba
 
 - **Slack honours no backslash escape. Never escape mrkdwn metacharacters.** `\*` reaches the reader as a literal backslash followed by an asterisk — confirmed on a live render, where every username carrying an underscore arrived as `pero\_peric`. `markupEscape` therefore escapes only what Slack does interpret: the `&`/`<`/`>` entities, which are required *everywhere* including inside a code fence. A backtick is substituted rather than escaped, because it cannot be escaped either and three in a row would close `MarkupMsg`'s fence. One escaper serves header and body — splitting them is how the two halves came to hold contradictory beliefs about the same renderer. Accepted cost: a literal `*` in a subject ends the header's bold early.
 - **Truncate the input, never the rendered output** (`truncateRendered`). Cutting the finished string splits whatever it lands in: a `<b>`/`<pre>` tag Telegram's parser rejects, the closing ``` of a Slack fence, or an `&amp;` that arrives as `&am`. Dropping whole description/value pairs and re-rendering can only ever lose rows. `truncateWithEllipsis` is for unstructured text only — plain-text bodies, mail subjects, Discord field values — and using it on rendered markup is the bug this rule exists to prevent.
+
+### Calendar event identity — `internal/messenger/exam.go`
+
+`examEventOf` is the single source of which messages reach a calendar and of the event ID both calendar backends dedupe on (Google 409, CalDAV 412). The ID's input bytes are frozen; `TestExamEventOfGolden` and `TestProcessCalendarEventIDGolden` pin them. Changing them re-inserts every future exam already in users' calendars. CalDAV bodies are written by `ical.go`, not goics' encoder, which splits `\r\n` when a fold lands between them.
 
 ---
 

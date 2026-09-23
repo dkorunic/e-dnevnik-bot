@@ -19,6 +19,7 @@
     - [Mail/SMTP configuration](#mailsmtp-configuration)
     - [WhatsApp configuration](#whatsapp-configuration)
     - [Google Calendar configuration](#google-calendar-configuration)
+    - [CalDAV configuration](#caldav-configuration)
 - [HOWTO](#howto)
   - [Integration with Systemd](#integration-with-systemd)
   - [Running as a Docker container](#running-as-a-docker-container)
@@ -47,6 +48,7 @@ The bot can log in as multiple AAI/AOSI users from the skole.hr domain and check
 - [WhatsApp](https://www.whatsapp.com/)
 - Regular e-mail (e.g. Gmail SMTP, etc.)
 - [Google Calendar](https://calendar.google.com/) (exam events only)
+- Any [CalDAV](https://en.wikipedia.org/wiki/CalDAV) calendar — Nextcloud, Radicale, Baïkal, Fastmail, iCloud, … (exam events only)
 
 Each alert can be broadcast through multiple services simultaneously, and each service can have multiple recipients. All authentication credentials remain exclusively on your PC or server.
 
@@ -66,7 +68,7 @@ The bot requires:
 
 - A working directory and a small amount of disk space for the database: approximately 1 MiB for ~50 grades,
 - AAI/AOSI credentials belonging to the skole.hr domain for e-Dnevnik,
-- One or more Discord, Telegram, Slack, WhatsApp, e-mail, or Google Calendar accounts/targets.
+- One or more Discord, Telegram, Slack, WhatsApp, e-mail, Google Calendar or CalDAV accounts/targets.
 
 The bot runs on virtually any embedded device and any supported operating system, using approximately 20–25 MB of RSS memory during normal service operation.
 
@@ -232,6 +234,23 @@ Steps required:
 1. Set up the Google Calendar API by following the [Go Quickstart guide](https://developers.google.com/calendar/api/quickstart/go#set_up_your_environment) to create a project, enable the Calendar API, and download `credentials.json` to the working directory.
 2. On the **first run**, the bot must be launched interactively in a terminal — it will open a browser for OAuth2 authorization and store the resulting token in `calendar_token.json` (configurable with `-g`). Subsequent runs use the cached token automatically.
 3. The `name` field specifies the target Google Calendar by name (e.g. a calendar you created called `Djeca ispiti`). Only exam events are added as calendar entries.
+
+#### CalDAV configuration
+
+```toml
+[caldav]
+url = "https://cloud.example.com/remote.php/dav/calendars/pero/ispiti/"
+username = "pero"
+password = "app-password"
+```
+
+An alternative to Google Calendar that needs no Google account and no interactive first run.
+
+1. `url` is the full URL of the calendar *collection*, not the server root. Nextcloud shows it under the calendar's "Copy private link" menu; Radicale uses `http://127.0.0.1:5232/<user>/<calendar>/`; Fastmail lists it under Settings → Calendars → Calendar sharing / CalDAV.
+2. Use an app-specific password where the provider supports one (Nextcloud, Fastmail, iCloud).
+3. The URL must use `https`. Plain `http` is accepted only for `localhost`, `127.0.0.0/8` or `::1`, so a Radicale on the same machine works without TLS.
+4. Redirects are not followed. If the server redirects, the log names the target — put that URL in the config.
+5. Only exam events are added, as all-day entries. Google Calendar and CalDAV can be enabled together.
 
 ## HOWTO
 

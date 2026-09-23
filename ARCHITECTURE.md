@@ -8,7 +8,7 @@
 
 - Notify parents/students immediately when new grades, exams, reading lists, final grades, or national exam results are posted on e-Dnevnik.
 - Support multi-user polling (multiple children with separate accounts).
-- Deliver alerts across Discord, Telegram, Slack, SMTP mail, WhatsApp, and Google Calendar.
+- Deliver alerts across Discord, Telegram, Slack, SMTP mail, WhatsApp, Google Calendar, and CalDAV.
 
 **Target users:** Croatian parents and students; self-hosted via binary or container.
 
@@ -23,7 +23,7 @@
 **External dependencies:**
 
 - CARNet e-Dnevnik portal (SSO/SAML-authenticated, HTML scraped)
-- Messaging APIs: Discord, Telegram, Slack, WhatsApp (whatsmeow), Google Calendar (OAuth2), SMTP
+- Messaging APIs: Discord, Telegram, Slack, WhatsApp (whatsmeow), Google Calendar (OAuth2), SMTP, CalDAV (basic auth, net/http)
 - GitHub Releases API (optional version check)
 
 ```
@@ -104,9 +104,9 @@
 
 ### `internal/messenger/`
 
-**Responsibility:** Six independent messenger goroutines, each draining its own buffered channel from `msgSend`'s non-blocking fan-out.
+**Responsibility:** Seven independent messenger goroutines, each draining its own buffered channel from `msgSend`'s non-blocking fan-out.
 **Key deps:** `go.uber.org/ratelimit`, per-backend SDK
-**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Each entry point installs a deferred `recoverMessenger` panic guard that requeues the in-flight message and drains its channel to the queue on panic, so a send-path panic degrades one messenger instead of crashing the process (the queued-resend path is exempt — its row survives undequeued). Permanent send errors (unrecoverable per `markNamePermanent`, invalid recipients) are poison-dropped — logged loudly and skipped on retry — rather than requeued until `MaxQueueAge`. When Calendar is configured but cannot yet initialize (headless first run before interactive OAuth), `msgSend` substitutes a queue-only `CalendarDeferred` stub for the live Calendar goroutine: it queues exam events to the Calendar queue so they are delivered once OAuth completes, instead of being dedup-flagged and lost. Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence uses a shutdown-tolerant context (`queueStoreCtx` / `storeTimeout = 5s`, built on `context.WithoutCancel`) so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries.
+**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Each entry point installs a deferred `recoverMessenger` panic guard that requeues the in-flight message and drains its channel to the queue on panic, so a send-path panic degrades one messenger instead of crashing the process (the queued-resend path is exempt — its row survives undequeued). Permanent send errors (unrecoverable per `markNamePermanent`, invalid recipients) are poison-dropped — logged loudly and skipped on retry — rather than requeued until `MaxQueueAge`. When Calendar is configured but cannot yet initialize (headless first run before interactive OAuth), `msgSend` substitutes a queue-only `CalendarDeferred` stub for the live Calendar goroutine: it queues exam events to the Calendar queue so they are delivered once OAuth completes, instead of being dedup-flagged and lost. Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence uses a shutdown-tolerant context (`queueStoreCtx` / `storeTimeout = 5s`, built on `context.WithoutCancel`) so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries. CalDAV writes each exam as a create-only `PUT` (`If-None-Match: *`); a 412 is idempotent success, mirroring Calendar's 409, and redirects are refused because net/http would replay the PUT as a bodiless GET.
 
 | Messenger | Backend Library               | Rate Limit | Format   | Max body/subject   |
 | --------- | ----------------------------- | ---------- | -------- | ------------------ |
@@ -115,6 +115,7 @@
 | Slack     | `slack-go/slack`              | 20/min     | Markdown | 3000 chars         |
 | Mail      | `wneessen/go-mail`            | 20/hr      | HTML     | 256 chars subject  |
 | Calendar  | `google/google-api-go-client` | 20/min     | Event    | —                  |
+| CalDAV    | `net/http` + RFC 5545 writer  | 30/min     | Event    | —                  |
 | WhatsApp  | `go.mau.fi/whatsmeow`         | 10/min     | Plain    | 4096 chars         |
 
 ### `internal/format/`
