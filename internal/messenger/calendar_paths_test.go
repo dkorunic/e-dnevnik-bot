@@ -511,3 +511,54 @@ func TestProcessCalendarShortFieldsNoDescription(t *testing.T) {
 		})
 	}
 }
+
+// TestProcessCalendarEventIDGolden pins the exact event ID Google Calendar has
+// been receiving. Every exam already in a user's calendar carries an ID derived
+// this way; if the derivation drifts, the next insert gets a fresh ID instead of
+// a 409 and the user sees each exam twice.
+func TestProcessCalendarEventIDGolden(t *testing.T) {
+	t.Parallel()
+
+	ids := make(chan string, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/events") {
+			var body struct {
+				ID string `json:"id"`
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&body)
+
+			select {
+			case ids <- body.ID:
+			default:
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"evt"}`))
+	}))
+
+	t.Cleanup(srv.Close)
+
+	svc, err := calendar.NewService(t.Context(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("calendar.NewService() failed: %v", err)
+	}
+
+	g := futureExam()
+	g.Timestamp = time.Date(2099, 9, 24, 0, 0, 0, 0, time.UTC)
+
+	processCalendar(t.Context(), calendarTestDB(t), g, ratelimit.NewUnlimited(), svc, "primary", 1)
+
+	const want = "b1fc26040a20d97909464aeea740e92687c9c1db5c1ba79cee7e67db67678851"
+
+	select {
+	case got := <-ids:
+		if got != want {
+			t.Errorf("event ID = %q, want %q — the ID derivation changed, which re-inserts every stored exam", got, want)
+		}
+	default:
+		t.Fatal("no event was inserted")
+	}
+}

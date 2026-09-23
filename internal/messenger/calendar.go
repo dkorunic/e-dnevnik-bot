@@ -5,11 +5,8 @@ package messenger
 
 import (
 	"context"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -187,60 +184,30 @@ func markCalendarPermanent(err error) error {
 	return err
 }
 
-// processCalendar inserts g as an all-day event, re-queueing on failure and
-// skipping non-exams, past exams and field-less exams. The deterministic event
-// ID makes a retried insert dedupe server-side.
+// processCalendar inserts g as an all-day event, re-queueing on failure.
+// examEventOf decides what is inserted and supplies the deterministic ID that
+// makes a retried insert dedupe server-side.
 func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, rl ratelimit.Limiter,
 	srv *calendar.Service, calID string, retries uint,
 ) {
 	var err error
 
-	// Only exams are delivered here.
-	if g.Code != msgtypes.Exam {
-		logger.Debug().Msgf("Calendar: skipping non-exam event for %v/%v (code %v)", g.Username, g.Subject, g.Code)
-
+	ev, ok := examEventOf("Google Calendar", g)
+	if !ok {
 		return
 	}
-
-	// Recomputed per call so a long-running daemon never uses a stale boundary,
-	// and compared as dates rather than instants: exam timestamps are midnight-UTC
-	// all-day markers, so an instant comparison would drop an exam first seen on
-	// the day itself.
-	if g.Timestamp.Format(time.DateOnly) < time.Now().UTC().Format(time.DateOnly) {
-		logger.Info().Msgf("Skipping old exam event for %v/%v: %+v", g.Username, g.Subject, g)
-
-		return
-	}
-
-	if len(g.Fields) == 0 {
-		logger.Warn().Msgf("Calendar: skipping exam event for %v/%v with no fields: %+v", g.Username, g.Subject, g)
-
-		return
-	}
-
-	// Keyed on (username, subject, date), not g.Fields, so a later edit to the
-	// note on the same date is a 409 no-op that keeps the original. Accepted:
-	// notes rarely change once dated.
-	idHash := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s",
-		g.Username, g.Subject, g.Timestamp.Format(time.DateOnly)))
 
 	// All-day event spanning a single date.
 	newEvent := &calendar.Event{
-		Id:      hex.EncodeToString(idHash[:]),
-		Summary: g.Username + CalendarExamSep + g.Subject,
+		Id:          ev.ID,
+		Summary:     ev.Summary,
+		Description: ev.Description,
 		Start: &calendar.EventDateTime{
-			Date: g.Timestamp.Format(time.DateOnly),
+			Date: ev.Date.Format(time.DateOnly),
 		},
 		End: &calendar.EventDateTime{
-			Date: g.Timestamp.AddDate(0, 0, 1).Format(time.DateOnly),
+			Date: ev.Date.AddDate(0, 0, 1).Format(time.DateOnly),
 		},
-	}
-
-	// Third field of scrape's exam layout (subject, date, note). A short
-	// row — a legacy queue entry — gets no description rather than a
-	// mis-picked field.
-	if len(g.Fields) >= 3 {
-		newEvent.Description = g.Fields[2]
 	}
 
 	// Cancelled before insert: re-queue rather than be dropped.
