@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -66,6 +67,39 @@ func caldavStub(t *testing.T, status int) (string, func() []caldavRequest) {
 
 func caldavTestConfig(collection string, retries uint) CalDAVConfig {
 	return CalDAVConfig{URL: collection, Username: "pero", Password: "tajna-lozinka", Retries: retries}
+}
+
+// caldavSequenceStub answers successive requests with the statuses in seq (the
+// last entry repeats once seq is exhausted) and records what it saw.
+func caldavSequenceStub(t *testing.T, seq []int) (string, func() []caldavRequest) {
+	t.Helper()
+
+	var (
+		mu   sync.Mutex
+		seen []caldavRequest
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+
+		mu.Lock()
+		idx := len(seen)
+		seen = append(seen, caldavRequest{Header: r.Header.Clone(), Method: r.Method, Path: r.URL.Path, Body: string(body)})
+		mu.Unlock()
+
+		status := seq[min(idx, len(seq)-1)]
+
+		w.WriteHeader(status)
+	}))
+
+	t.Cleanup(srv.Close)
+
+	return srv.URL + caldavCollectionPath, func() []caldavRequest {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return slices.Clone(seen)
+	}
 }
 
 // TestProcessCalDAVRequestShape pins the create-only PUT: resource name from
@@ -188,6 +222,77 @@ func TestProcessCalDAVStatusHandling(t *testing.T) {
 				t.Errorf("queued %d rows, want queued=%v", len(queued), tt.wantQueued)
 			}
 		})
+	}
+}
+
+// TestPutCalDAVPreconditionFailedIsSuccess: If-None-Match: * means the event
+// is already stored, so putCalDAV must treat a 412 as success at the source.
+// A post-loop check keyed on retry-go's error tree would otherwise miss this
+// after a preceding transient failure (see
+// TestProcessCalDAV502ThenPreconditionFailedIsNotQueued) because
+// errors.AsType finds the FIRST attempt's error, not the 412.
+func TestPutCalDAVPreconditionFailedIsSuccess(t *testing.T) {
+	t.Parallel()
+
+	collection, _ := caldavStub(t, http.StatusPreconditionFailed)
+
+	target, err := url.JoinPath(collection, "abc123.ics")
+	if err != nil {
+		t.Fatalf("url.JoinPath() failed: %v", err)
+	}
+
+	cfg := caldavTestConfig(collection, 1)
+
+	if err := putCalDAV(t.Context(), cfg, target, []byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")); err != nil {
+		t.Errorf("putCalDAV() = %v, want nil for a 412 (already stored)", err)
+	}
+}
+
+// TestProcessCalDAV502ThenPreconditionFailedIsNotQueued: a transient 502
+// followed by a 412 must finish as a stored event, not a permanent-failure
+// drop or a requeue — exactly two PUTs, and nothing left in the queue.
+func TestProcessCalDAV502ThenPreconditionFailedIsNotQueued(t *testing.T) {
+	t.Parallel()
+
+	collection, seen := caldavSequenceStub(t, []int{http.StatusBadGateway, http.StatusPreconditionFailed})
+	eDB := calendarTestDB(t)
+
+	processCalDAV(t.Context(), eDB, futureExam(), ratelimit.NewUnlimited(), caldavTestConfig(collection, 2))
+
+	if got := len(seen()); got != 2 {
+		t.Fatalf("server saw %d PUTs, want 2", got)
+	}
+
+	if got := queue.FetchFailedMsgs(t.Context(), eDB, CalDAVQueueName); len(got) != 0 {
+		t.Errorf("queued %+v; a 502 then 412 means the event is stored, not queued", got)
+	}
+}
+
+// TestPutCalDAVRedactsRedirectLocationUserinfo: a Location header can carry
+// embedded credentials; the resulting error string must never leak them.
+func TestPutCalDAVRedactsRedirectLocationUserinfo(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://u:secret@host/x/")
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	collection := srv.URL + caldavCollectionPath
+
+	target, err := url.JoinPath(collection, "abc123.ics")
+	if err != nil {
+		t.Fatalf("url.JoinPath() failed: %v", err)
+	}
+
+	err = putCalDAV(t.Context(), caldavTestConfig(collection, 1), target, []byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"))
+	if err == nil {
+		t.Fatal("putCalDAV() = nil, want an error for a 302")
+	}
+
+	if strings.Contains(err.Error(), "secret") {
+		t.Errorf("error leaks redirect userinfo: %v", err)
 	}
 }
 

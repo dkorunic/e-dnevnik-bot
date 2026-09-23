@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -122,9 +123,12 @@ func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, 
 }
 
 // markCalDAVPermanent stops retry-go on an answer that will never change: a
-// redirect (the configured URL is wrong) or a permanent 4xx. 412 is permanent
-// too but the caller reads it as success: If-None-Match: * means the event is
-// already stored. 408, 429, 5xx and transport errors stay transient.
+// redirect (the configured URL is wrong) or a permanent 4xx. putCalDAV
+// intercepts 412 before it ever reaches here — If-None-Match: * means the
+// event is already stored, so it is success, not a permanent failure — but
+// this still classifies a 412 as permanent if ever handed one directly (see
+// TestMarkCalDAVPermanentClasses). 408, 429, 5xx and transport errors stay
+// transient.
 func markCalDAVPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -183,14 +187,9 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 		return
 	}
 
-	if se, ok := errors.AsType[*caldavStatusError](err); ok && se.code == http.StatusPreconditionFailed {
-		logger.Debug().Msgf("CalDAV event already exists (idempotent insert): %v", ev.ID)
-
-		return
-	}
-
 	if isPermanentSendErr(err) {
-		// Permanent and not a 412: drop, don't requeue.
+		// putCalDAV already turned a 412 into a nil-error success above, so
+		// anything permanent reaching here is a real drop, don't requeue.
 		logger.Error().Msgf("Permanently dropping CalDAV event for %v/%v (will not retry): %v",
 			g.Username, g.Subject, err)
 
@@ -230,9 +229,25 @@ func putCalDAV(ctx context.Context, cfg CalDAVConfig, target string, body []byte
 		return nil
 	}
 
+	// If-None-Match: * means the event is already stored — treat it as success
+	// here, at the source, rather than through markCalDAVPermanent: retry-go's
+	// returned error carries every attempt, and a post-loop check keyed on it
+	// would find an earlier transient attempt's error first, misreporting a
+	// stored event as a permanent failure.
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		logger.Debug().Msgf("CalDAV event already exists (idempotent insert): %v", path.Base(target))
+
+		return nil
+	}
+
 	se := &caldavStatusError{code: resp.StatusCode}
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		se.location = resp.Header.Get("Location")
+		loc := resp.Header.Get("Location")
+		if u, err := url.Parse(loc); err == nil {
+			loc = u.Redacted()
+		}
+
+		se.location = loc
 	}
 
 	return markCalDAVPermanent(se)
