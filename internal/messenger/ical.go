@@ -18,8 +18,8 @@ const (
 	icalDateTimeUTC = "20060102T150405Z"
 )
 
-// icalTextEscaper escapes an RFC 5545 TEXT value (§3.3.11). "\r\n" precedes
-// its parts so a Windows line ending becomes one \n, not two.
+// icalTextEscaper escapes an RFC 5545 TEXT value (§3.3.11). "\r\n" is listed
+// before its parts so it becomes one \n, not two.
 var icalTextEscaper = strings.NewReplacer(
 	`\`, `\\`,
 	`;`, `\;`,
@@ -29,11 +29,11 @@ var icalTextEscaper = strings.NewReplacer(
 	"\r", `\n`,
 )
 
-// buildICalEvent renders ev as a single all-day VEVENT in a VCALENDAR. stamp
-// becomes DTSTAMP; it is a parameter so the output is deterministic under test.
+// buildICalEvent renders ev as a one-event VCALENDAR. stamp is DTSTAMP, passed
+// in so tests are deterministic.
 //
-// Hand-written rather than goics' encoder, which folds after appending CRLF and
-// so splits "\r\n" whenever a fold lands between the two.
+// Hand-written because goics' encoder folds after appending CRLF and splits
+// "\r\n" whenever a fold lands between them.
 func buildICalEvent(ev examEvent, stamp time.Time) []byte {
 	lines := []string{
 		"BEGIN:VCALENDAR",
@@ -44,7 +44,7 @@ func buildICalEvent(ev examEvent, stamp time.Time) []byte {
 		"UID:" + ev.ID + CalDAVUIDSuffix,
 		"DTSTAMP:" + stamp.UTC().Format(icalDateTimeUTC),
 		"DTSTART;VALUE=DATE:" + ev.Date.Format(icalDate),
-		// Exclusive end: a single day ends on the next date.
+		// DTEND is exclusive.
 		"DTEND;VALUE=DATE:" + ev.Date.AddDate(0, 0, 1).Format(icalDate),
 		"SUMMARY:" + icalTextEscaper.Replace(ev.Summary),
 	}
@@ -53,7 +53,7 @@ func buildICalEvent(ev examEvent, stamp time.Time) []byte {
 		lines = append(lines, "DESCRIPTION:"+icalTextEscaper.Replace(ev.Description))
 	}
 
-	// An exam should not block the day as busy.
+	// Don't mark the day busy.
 	lines = append(lines, "TRANSP:TRANSPARENT", "END:VEVENT", "END:VCALENDAR")
 
 	var b strings.Builder
@@ -64,8 +64,7 @@ func buildICalEvent(ev examEvent, stamp time.Time) []byte {
 	return []byte(b.String())
 }
 
-// writeICalLine writes line folded per RFC 5545 §3.1: at most 75 octets per
-// physical line, each continuation led by one space, never inside a UTF-8
+// writeICalLine folds line per RFC 5545 §3.1 without splitting a UTF-8
 // sequence.
 func writeICalLine(b *strings.Builder, line string) {
 	limit := icalLineOctets
@@ -76,7 +75,7 @@ func writeICalLine(b *strings.Builder, line string) {
 			cut--
 		}
 
-		// Only reachable on invalid UTF-8; a byte split beats looping forever.
+		// Invalid UTF-8 only; a byte split beats looping forever.
 		if cut == 0 {
 			cut = limit
 		}
@@ -85,7 +84,7 @@ func writeICalLine(b *strings.Builder, line string) {
 		b.WriteString("\r\n ")
 		line = line[cut:]
 
-		// The leading space counts toward the limit.
+		// The continuation's leading space counts.
 		limit = icalLineOctets - 1
 	}
 

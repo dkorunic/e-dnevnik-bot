@@ -301,7 +301,7 @@ func TestMarkPermanentWrapping(t *testing.T) {
 }
 
 // TestMarkCalDAVPermanentClasses: a redirect means the configured URL is wrong
-// and will never succeed; 408/429/5xx may.
+// and will never succeed; 408, 423, 429 and 5xx may.
 func TestMarkCalDAVPermanentClasses(t *testing.T) {
 	t.Parallel()
 

@@ -24,22 +24,22 @@ import (
 )
 
 const (
-	CalDAVAPILimit = 30 // self-hosted servers publish no quota; keeps a burst polite
+	CalDAVAPILimit = 30 // no published quota; polite to self-hosted servers
 	CalDAVWindow   = 1 * time.Minute
 	CalDAVMinDelay = CalDAVWindow / CalDAVAPILimit
 	CalDAVTimeout  = 30 * time.Second
 	CalDAVQueue    = "caldav-queue"
 
-	// caldavMaxDrain bounds the response body read only to recycle the
-	// connection.
+	// caldavMaxDrain bounds the discarded body read that lets the connection
+	// be reused.
 	caldavMaxDrain = 64 << 10
 )
 
 var (
 	CalDAVQueueName = []byte(CalDAVQueue)
 
-	// Shared for connection reuse. It carries no credentials — they go on each
-	// request — so unlike the SDK-backed messengers it needs no credGuard.
+	// Shared for connection reuse. Credentials travel per request, so no
+	// credGuard.
 	caldavClient = newCalDAVClient()
 )
 
@@ -66,13 +66,12 @@ func (e *caldavStatusError) Error() string {
 	return fmt.Sprintf("CalDAV server answered %d %s", e.code, http.StatusText(e.code))
 }
 
-// newCalDAVClient builds a client on its own transport, never
-// http.DefaultTransport, so nothing else in the process can reconfigure it.
+// newCalDAVClient owns its transport so nothing else in the process can
+// reconfigure it.
 //
-// Redirects are refused. net/http replays a 301/302/303 PUT as a bodiless GET,
-// whose 200 would read as a stored exam while nothing was written; and it keeps
-// Authorization across a same-host https→http hop, sending the password in
-// cleartext.
+// Redirects are refused: net/http replays a redirected PUT as a bodiless GET,
+// whose 200 would pass for a stored exam, and keeps Authorization across a
+// same-host https→http hop.
 func newCalDAVClient() *http.Client {
 	return &http.Client{
 		Timeout: CalDAVTimeout,
@@ -92,8 +91,8 @@ func newCalDAVClient() *http.Client {
 }
 
 // CalDAV resends queued failures, then PUTs ch's exams into the configured
-// collection. There is no fallible init — credentials are checked by the first
-// PUT — so, unlike Calendar, there is no drain-on-init-failure branch.
+// collection. Nothing is initialised up front — the first PUT is the credential
+// check — so, unlike Calendar, there is no drain-on-init-failure path.
 func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cfg CalDAVConfig) (err error) {
 	// Panic guard; stays nil on the resend path (see recoverMessenger).
 	var inflight *msgtypes.Message
@@ -122,14 +121,10 @@ func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, 
 	return nil
 }
 
-// markCalDAVPermanent stops retry-go on an answer that will never change: a
-// redirect (the configured URL is wrong) or a permanent 4xx. putCalDAV
-// intercepts 412 before it ever reaches here — If-None-Match: * means the
-// event is already stored, so it is success, not a permanent failure — but
-// this still classifies a 412 as permanent if ever handed one directly (see
-// TestMarkCalDAVPermanentClasses). 408, 423, 429, 5xx and transport errors stay
-// transient: WebDAV's 423 Locked means another client holds a lock, which is
-// released, so dropping on it would lose the exam for good.
+// markCalDAVPermanent stops retry-go on an answer that cannot change: a
+// redirect (the configured URL is wrong) or a 4xx. 423 Locked stays transient
+// alongside 408, 429 and 5xx — another client's lock is released, and dropping
+// would lose the exam. 412 never gets here: putCalDAV reads it as success.
 func markCalDAVPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -156,7 +151,6 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 		return
 	}
 
-	// Cancelled before the PUT: re-queue rather than be dropped.
 	if ctx.Err() != nil {
 		storeCalDAV(ctx, eDB, g)
 
@@ -190,8 +184,6 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 	}
 
 	if isPermanentSendErr(err) {
-		// putCalDAV already turned a 412 into a nil-error success above, so
-		// anything permanent reaching here is a real drop, don't requeue.
 		logger.Error().Msgf("Permanently dropping CalDAV event for %v/%v (will not retry): %v",
 			g.Username, g.Subject, err)
 
@@ -203,10 +195,9 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 	storeCalDAV(ctx, eDB, g)
 }
 
-// putCalDAV sends one create-only PUT and classifies the answer.
+// putCalDAV sends one create-only PUT and classifies the answer for retry-go.
 func putCalDAV(ctx context.Context, cfg CalDAVConfig, target string, body []byte) error {
-	// A bytes.Reader body makes NewRequest set GetBody, so a replayed request
-	// can rewind.
+	// bytes.Reader gives the request a GetBody, so a replay can rewind.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target, bytes.NewReader(body))
 	if err != nil {
 		return retry.Unrecoverable(permanentError{err})
@@ -231,11 +222,9 @@ func putCalDAV(ctx context.Context, cfg CalDAVConfig, target string, body []byte
 		return nil
 	}
 
-	// If-None-Match: * means the event is already stored — treat it as success
-	// here, at the source, rather than through markCalDAVPermanent: retry-go's
-	// returned error carries every attempt, and a post-loop check keyed on it
-	// would find an earlier transient attempt's error first, misreporting a
-	// stored event as a permanent failure.
+	// Already stored. Decided here, not after retry.Do: its error aggregates
+	// every attempt, so a post-loop check would see an earlier transient error
+	// first and report a stored event as dropped.
 	if resp.StatusCode == http.StatusPreconditionFailed {
 		logger.Debug().Msgf("CalDAV event already exists (idempotent insert): %v", path.Base(target))
 
@@ -244,6 +233,7 @@ func putCalDAV(ctx context.Context, cfg CalDAVConfig, target string, body []byte
 
 	se := &caldavStatusError{code: resp.StatusCode}
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		// Server-supplied, so it may carry userinfo.
 		loc := resp.Header.Get("Location")
 		if u, err := url.Parse(loc); err == nil {
 			loc = u.Redacted()

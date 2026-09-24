@@ -512,10 +512,9 @@ func TestProcessCalendarShortFieldsNoDescription(t *testing.T) {
 	}
 }
 
-// TestProcessCalendarEventIDGolden pins the exact event ID Google Calendar has
-// been receiving. Every exam already in a user's calendar carries an ID derived
-// this way; if the derivation drifts, the next insert gets a fresh ID instead of
-// a 409 and the user sees each exam twice.
+// TestProcessCalendarEventIDGolden pins the event ID Google Calendar has always
+// received. If it drifts, a stored exam gets a fresh ID instead of a 409 and
+// appears twice.
 func TestProcessCalendarEventIDGolden(t *testing.T) {
 	t.Parallel()
 

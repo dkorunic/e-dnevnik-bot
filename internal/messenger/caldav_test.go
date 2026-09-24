@@ -143,10 +143,7 @@ func TestProcessCalDAVRequestShape(t *testing.T) {
 		t.Errorf("If-None-Match = %q, want * — without it a repeat overwrites instead of answering 412", got)
 	}
 
-	// The event ID is a 64-hex SHA-256 digest, so "UID:"+ID+CalDAVUIDSuffix is
-	// 82 octets — over ical.go's 75-octet fold limit — and always wraps onto a
-	// continuation line. Undo the RFC 5545 fold (a lone space after CRLF) before
-	// checking, exactly as a reader would.
+	// The 82-octet UID line always folds; unfold as a reader would.
 	unfolded := strings.ReplaceAll(r.Body, "\r\n ", "")
 	if !strings.Contains(unfolded, "UID:"+ev.ID+CalDAVUIDSuffix+"\r\n") {
 		t.Errorf("body lacks the expected UID:\n%s", r.Body)
@@ -226,12 +223,9 @@ func TestProcessCalDAVStatusHandling(t *testing.T) {
 	}
 }
 
-// TestPutCalDAVPreconditionFailedIsSuccess: If-None-Match: * means the event
-// is already stored, so putCalDAV must treat a 412 as success at the source.
-// A post-loop check keyed on retry-go's error tree would otherwise miss this
-// after a preceding transient failure (see
-// TestProcessCalDAV502ThenPreconditionFailedIsNotQueued) because
-// errors.AsType finds the FIRST attempt's error, not the 412.
+// TestPutCalDAVPreconditionFailedIsSuccess: under If-None-Match: *, 412 means
+// already stored. It must be success at the source; after retry.Do,
+// errors.AsType finds the first attempt's error instead.
 func TestPutCalDAVPreconditionFailedIsSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -249,9 +243,8 @@ func TestPutCalDAVPreconditionFailedIsSuccess(t *testing.T) {
 	}
 }
 
-// TestProcessCalDAV502ThenPreconditionFailedIsNotQueued: a transient 502
-// followed by a 412 must finish as a stored event, not a permanent-failure
-// drop or a requeue — exactly two PUTs, and nothing left in the queue.
+// TestProcessCalDAV502ThenPreconditionFailedIsNotQueued: a 412 after a
+// transient failure is a stored event — neither a drop nor a requeue.
 func TestProcessCalDAV502ThenPreconditionFailedIsNotQueued(t *testing.T) {
 	t.Parallel()
 
@@ -386,9 +379,8 @@ func TestProcessCalDAVTransportErrorRequeues(t *testing.T) {
 	}
 }
 
-// TestCalDAVResendsQueuedThenDrainsChannel covers the entry point's lifecycle:
-// last cycle's failures go first, then the live channel, and the queue ends
-// empty.
+// TestCalDAVResendsQueuedThenDrainsChannel: last cycle's failures go first,
+// then the live channel, and the queue ends empty.
 func TestCalDAVResendsQueuedThenDrainsChannel(t *testing.T) {
 	t.Parallel()
 

@@ -126,9 +126,9 @@ func checkCalendarConf(config *TomlConfig) {
 
 // checkCalDAVConf validates the CalDAV block. Fatal on any invalid entry.
 //
-// Basic auth is sent on every request, so plain http is refused unless it never
-// leaves the machine. The URL is never logged whole: it is the one field a user
-// might paste credentials into.
+// Basic auth rides every request, so plain http is allowed only to loopback.
+// The URL is logged redacted or not at all: users paste credentials into it.
+// Rejecting unparseable URLs here also keeps the messenger from logging one.
 func checkCalDAVConf(config *TomlConfig) {
 	if config.CalDAV.URL == "" {
 		return

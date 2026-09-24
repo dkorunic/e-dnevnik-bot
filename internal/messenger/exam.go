@@ -13,8 +13,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
-// examEvent is an exam as both calendar backends insert it: one all-day entry
-// on Date.
+// examEvent is an exam as both calendar backends insert it: one all-day entry.
 type examEvent struct {
 	Date        time.Time
 	ID          string
@@ -25,9 +24,8 @@ type examEvent struct {
 // examEventOf maps g to its calendar entry, reporting false for what no
 // calendar should receive: non-exams, past exams and field-less exams.
 //
-// ID is the idempotency key for both backends — Google answers a repeat with
-// 409, CalDAV with 412 — so its input bytes must never change: a new ID
-// re-inserts every future exam already in a user's calendar.
+// ID is both backends' idempotency key (Google 409, CalDAV 412). Its input
+// bytes are frozen: a new ID re-inserts every future exam already stored.
 func examEventOf(backend string, g msgtypes.Message) (examEvent, bool) {
 	if g.Code != msgtypes.Exam {
 		logger.Debug().Msgf("%v: skipping non-exam event for %v/%v (code %v)", backend, g.Username, g.Subject, g.Code)
@@ -35,10 +33,8 @@ func examEventOf(backend string, g msgtypes.Message) (examEvent, bool) {
 		return examEvent{}, false
 	}
 
-	// Recomputed per call so a long-running daemon never uses a stale boundary,
-	// and compared as dates rather than instants: exam timestamps are midnight-UTC
-	// all-day markers, so an instant comparison would drop an exam first seen on
-	// the day itself.
+	// Dates, not instants, recomputed per call: exam timestamps are midnight-UTC
+	// markers, so an instant comparison would drop an exam on its own day.
 	if g.Timestamp.Format(time.DateOnly) < time.Now().UTC().Format(time.DateOnly) {
 		logger.Info().Msgf("%v: skipping old exam event for %v/%v: %+v", backend, g.Username, g.Subject, g)
 
@@ -51,9 +47,8 @@ func examEventOf(backend string, g msgtypes.Message) (examEvent, bool) {
 		return examEvent{}, false
 	}
 
-	// Keyed on (username, subject, date), not g.Fields, so a later edit to the
-	// note on the same date is a conflict no-op that keeps the original.
-	// Accepted: notes rarely change once dated.
+	// Not keyed on g.Fields: an edited note on the same date conflicts and the
+	// original stands. Accepted — notes rarely change once dated.
 	idHash := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s",
 		g.Username, g.Subject, g.Timestamp.Format(time.DateOnly)))
 
@@ -63,9 +58,8 @@ func examEventOf(backend string, g msgtypes.Message) (examEvent, bool) {
 		Summary: g.Username + CalendarExamSep + g.Subject,
 	}
 
-	// Third field of scrape's exam layout (subject, date, note). A short
-	// row — a legacy queue entry — gets no description rather than a
-	// mis-picked field.
+	// scrape's exam layout is (subject, date, note); a shorter legacy queue row
+	// gets no description rather than a mis-picked field.
 	if len(g.Fields) >= 3 {
 		ev.Description = g.Fields[2]
 	}
