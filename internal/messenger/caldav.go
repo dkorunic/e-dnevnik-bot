@@ -127,8 +127,9 @@ func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, 
 // intercepts 412 before it ever reaches here — If-None-Match: * means the
 // event is already stored, so it is success, not a permanent failure — but
 // this still classifies a 412 as permanent if ever handed one directly (see
-// TestMarkCalDAVPermanentClasses). 408, 429, 5xx and transport errors stay
-// transient.
+// TestMarkCalDAVPermanentClasses). 408, 423, 429, 5xx and transport errors stay
+// transient: WebDAV's 423 Locked means another client holds a lock, which is
+// released, so dropping on it would lose the exam for good.
 func markCalDAVPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -136,7 +137,8 @@ func markCalDAVPermanent(err error) error {
 
 	if se, ok := errors.AsType[*caldavStatusError](err); ok {
 		isRedirect := se.code >= 300 && se.code < 400
-		if isRedirect || isPermanentHTTPStatus(se.code) {
+		isLocked := se.code == http.StatusLocked
+		if isRedirect || (isPermanentHTTPStatus(se.code) && !isLocked) {
 			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
 		}

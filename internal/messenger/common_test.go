@@ -312,6 +312,7 @@ func TestMarkCalDAVPermanentClasses(t *testing.T) {
 		http.StatusNotFound:            true,
 		http.StatusRequestTimeout:      false,
 		http.StatusTooManyRequests:     false,
+		http.StatusLocked:              false,
 		http.StatusInternalServerError: false,
 		http.StatusBadGateway:          false,
 	} {

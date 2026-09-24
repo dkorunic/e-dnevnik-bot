@@ -200,6 +200,7 @@ func TestProcessCalDAVStatusHandling(t *testing.T) {
 		{name: "415 dropped", status: http.StatusUnsupportedMediaType, retries: 3, wantPuts: 1},
 		{name: "408 retried then queued", status: http.StatusRequestTimeout, retries: 2, wantPuts: 2, wantQueued: true},
 		{name: "429 retried then queued", status: http.StatusTooManyRequests, retries: 2, wantPuts: 2, wantQueued: true},
+		{name: "423 locked retried then queued", status: http.StatusLocked, retries: 2, wantPuts: 2, wantQueued: true},
 		{name: "500 retried then queued", status: http.StatusInternalServerError, retries: 2, wantPuts: 2, wantQueued: true},
 		{name: "503 retried then queued", status: http.StatusServiceUnavailable, retries: 2, wantPuts: 2, wantQueued: true},
 	}
