@@ -18,7 +18,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/oauth"
 	"github.com/hako/durafmt"
 	"github.com/mattn/go-isatty"
-	"github.com/mdp/qrterminal/v3"
+	"github.com/mdp/qrterminal/v4"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/store"
