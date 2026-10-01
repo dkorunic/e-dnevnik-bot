@@ -28,6 +28,8 @@ func formatSubject(sb *strings.Builder, user, subject string, code msgtypes.Even
 		sb.WriteString(FinalGradePrefix)
 	case msgtypes.NationalExam:
 		sb.WriteString(NationalExamPrefix)
+	case msgtypes.ExamDigest:
+		sb.WriteString(ExamDigestPrefix)
 	default:
 	}
 

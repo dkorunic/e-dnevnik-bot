@@ -92,7 +92,7 @@ func TestPlainSubjectMatchesFormatter(t *testing.T) {
 	t.Parallel()
 
 	for _, code := range []msgtypes.EventCode{
-		msgtypes.Grade, msgtypes.Exam, msgtypes.Reading, msgtypes.FinalGrade, msgtypes.NationalExam,
+		msgtypes.Grade, msgtypes.Exam, msgtypes.Reading, msgtypes.FinalGrade, msgtypes.NationalExam, msgtypes.ExamDigest,
 	} {
 		var sb strings.Builder
 

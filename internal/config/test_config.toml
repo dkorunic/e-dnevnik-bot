@@ -35,3 +35,8 @@ password = "app-password"
 phonenumber = "+1234567890"
 userids = ["1234567890@s.whatsapp.net"]
 groups = ["Test Group"]
+
+[digest]
+enabled = true
+day = "sunday"
+hour = 18

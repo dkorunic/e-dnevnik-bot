@@ -361,9 +361,21 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 		return
 	}
 
-	scrapeStage(ctx, &wgScrape, gradesScraped, cfg)
+	failed := &userSet{}
 
-	msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg)
+	var dg *digestRun
+	if cfg.Digest.Active {
+		dg = &digestRun{
+			failed: failed,
+			users:  usernames(cfg.User),
+			day:    cfg.Digest.Weekday,
+			hour:   cfg.Digest.SendHour,
+		}
+	}
+
+	scrapeStage(ctx, &wgScrape, gradesScraped, cfg, failed)
+
+	msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg, dg)
 
 	msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
 

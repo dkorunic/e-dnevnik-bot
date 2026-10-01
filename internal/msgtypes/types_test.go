@@ -25,6 +25,7 @@ func TestEventCodeOrdinalsAreStable(t *testing.T) {
 		msgtypes.Reading:      2,
 		msgtypes.FinalGrade:   3,
 		msgtypes.NationalExam: 4,
+		msgtypes.ExamDigest:   5,
 	}
 
 	for code, ordinal := range want {

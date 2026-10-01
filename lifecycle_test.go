@@ -241,7 +241,7 @@ func TestScrapersWithNoUsers(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	scrapers(t.Context(), &wg, ch, config.TomlConfig{})
+	scrapers(t.Context(), &wg, ch, config.TomlConfig{}, nil)
 
 	runWithinTimeout(t, 30*time.Second, "scrapers", wg.Wait)
 
@@ -392,7 +392,7 @@ func TestRunPollCycleKeepsDBOpenForMessengers(t *testing.T) {
 	const events = 300
 
 	origStage := scrapeStage
-	scrapeStage = func(_ context.Context, wg *sync.WaitGroup, ch chan<- msgtypes.Message, _ config.TomlConfig) {
+	scrapeStage = func(_ context.Context, wg *sync.WaitGroup, ch chan<- msgtypes.Message, _ config.TomlConfig, _ *userSet) {
 		wg.Go(func() {
 			for i := range events {
 				ch <- msgtypes.Message{

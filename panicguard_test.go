@@ -223,7 +223,7 @@ func TestMsgDedupPanicDoesNotKillTheProcess(t *testing.T) {
 	// A nil database panics at the first eDB.Existing() call, standing in for
 	// any unexpected fault inside the stage.
 	if !waitFor(t, 30*time.Second, func() {
-		msgDedup(t.Context(), nil, &wgFilter, gradesScraped, gradesMsg)
+		msgDedup(t.Context(), nil, &wgFilter, gradesScraped, gradesMsg, nil)
 		wgFilter.Wait()
 	}) {
 		t.Fatal("msgDedup did not return after a panic; the cycle is wedged")
@@ -265,7 +265,7 @@ func TestMsgDedupPanicDrainsGradesScraped(t *testing.T) {
 
 	var wgFilter sync.WaitGroup
 
-	msgDedup(t.Context(), nil, &wgFilter, gradesScraped, gradesMsg)
+	msgDedup(t.Context(), nil, &wgFilter, gradesScraped, gradesMsg, nil)
 
 	if !waitFor(t, 30*time.Second, func() { wgFilter.Wait() }) {
 		t.Fatal("msgDedup never finished after the panic")
@@ -412,7 +412,7 @@ func TestMsgDedupPanicInWindowForwardsFlaggedEvent(t *testing.T) {
 
 	var wgFilter sync.WaitGroup
 
-	msgDedup(t.Context(), eDB, &wgFilter, gradesScraped, gradesMsg)
+	msgDedup(t.Context(), eDB, &wgFilter, gradesScraped, gradesMsg, nil)
 
 	if !waitFor(t, 30*time.Second, func() { wgFilter.Wait() }) {
 		t.Fatal("msgDedup did not finish after panicking mid-window")

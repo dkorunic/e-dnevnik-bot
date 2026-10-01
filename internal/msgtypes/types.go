@@ -16,6 +16,7 @@ const (
 	Reading
 	FinalGrade
 	NationalExam
+	ExamDigest // weekly summary of next week's exams; bypasses dedup
 )
 
 // Message is the pipeline's canonical event.
@@ -27,5 +28,5 @@ type Message struct {
 	Descriptions   []string  // descriptions for fields
 	Fields         []string  // fields with actual grades/exams and remarks
 	SkipRecipients []string  // recipients already notified; skip on retry to prevent duplicates
-	Code           EventCode // type of event (grade, exam, reading or final grade)
+	Code           EventCode // type of event
 }

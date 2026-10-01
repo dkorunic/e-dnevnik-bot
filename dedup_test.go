@@ -41,7 +41,7 @@ func runDedup(t *testing.T, ctx context.Context, eDB *sqlitedb.Edb, msgs ...msgt
 
 	var wg sync.WaitGroup
 
-	msgDedup(ctx, eDB, &wg, gradesScraped, gradesMsg)
+	msgDedup(ctx, eDB, &wg, gradesScraped, gradesMsg, nil)
 	wg.Wait()
 
 	// msgDedup closes gradesMsg via defer, so this drain terminates. If it ever
@@ -251,7 +251,7 @@ func TestMsgDedupClosesOutputChannel(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg)
+	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, nil)
 	wg.Wait()
 
 	select {

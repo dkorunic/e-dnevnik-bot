@@ -41,6 +41,7 @@ func LoadConfig(file string) (TomlConfig, error) {
 	checkCalendarConf(&config)
 	checkCalDAVConf(&config)
 	checkWhatsAppConf(&config)
+	checkDigestConf(&config)
 
 	noMessengerEnabled := !config.WhatsAppEnabled &&
 		!config.DiscordEnabled &&

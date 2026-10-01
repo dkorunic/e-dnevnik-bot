@@ -233,6 +233,18 @@ var fatalCases = []struct {
 			checkCalDAVConf(&TomlConfig{CalDAV: c})
 		},
 	},
+	{
+		name: "digest day is not a weekday",
+		run:  func() { checkDigestConf(&TomlConfig{Digest: Digest{Day: "nedjelja"}}) },
+	},
+	{
+		name: "digest hour above range",
+		run:  func() { checkDigestConf(&TomlConfig{Digest: Digest{Hour: new(24)}}) },
+	},
+	{
+		name: "digest hour below range",
+		run:  func() { checkDigestConf(&TomlConfig{Digest: Digest{Hour: new(-1)}}) },
+	},
 }
 
 // TestConfigFatalCases covers the fail-fast validators. They abort via

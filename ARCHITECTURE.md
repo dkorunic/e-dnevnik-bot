@@ -80,7 +80,7 @@
 
 ### `internal/msgtypes/`
 
-**Responsibility:** Shared domain types — `Message` struct and `EventCode` enum (Grade/Exam/Reading/FinalGrade/NationalExam).
+**Responsibility:** Shared domain types — `Message` struct and `EventCode` enum (Grade/Exam/Reading/FinalGrade/NationalExam/ExamDigest).
 **Key deps:** none
 **Patterns:** Unified event model across all pipeline stages; `SkipRecipients` field enables partial retry on failure; `QueuedAt` tracks when a message first entered the failed-message queue (zero value for non-queued/legacy entries).
 
@@ -175,6 +175,11 @@
           (future day/month → previous year, else current year);
           parse failure is fail-open (event passed through)
     else → send to gradesMsg (buffered chan)
+  Unless [digest] enabled = false, every Exam is also collected per user, before dedup.
+  Once gradesScraped closes, if the weekly digest window is open
+  (digest.go: day@hour until the covered Monday), each user that scraped
+  cleanly and whose week is not yet claimed (KV row "digest-week\x00<user>")
+  gets one ExamDigest message on gradesMsg. An empty week is claimed but not sent.
     On ctx.Done: defer close(gradesMsg) unblocks the fan-out loop
         │
         ▼

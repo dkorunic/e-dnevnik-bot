@@ -156,7 +156,7 @@ func TestMsgDedupYearInferenceFutureMonth(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	msgDedup(context.Background(), eDB, &wg, gradesScraped, gradesMsg)
+	msgDedup(context.Background(), eDB, &wg, gradesScraped, gradesMsg, nil)
 	wg.Wait()
 
 	// Drain channel so assertion does not depend on buffer capacity.
@@ -205,7 +205,7 @@ func TestMsgDedupYearInferenceSameDayNotSuppressed(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	msgDedup(context.Background(), eDB, &wg, gradesScraped, gradesMsg)
+	msgDedup(context.Background(), eDB, &wg, gradesScraped, gradesMsg, nil)
 	wg.Wait()
 
 	// msgDedup closes gradesMsg via defer; drain it after Wait.

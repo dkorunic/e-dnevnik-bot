@@ -94,6 +94,7 @@ func TestPlainFormatSubjectAllCodes(t *testing.T) {
 		{msgtypes.Reading, ReadingPrefix},
 		{msgtypes.FinalGrade, FinalGradePrefix},
 		{msgtypes.NationalExam, NationalExamPrefix},
+		{msgtypes.ExamDigest, ExamDigestPrefix},
 	}
 
 	for _, tc := range cases {

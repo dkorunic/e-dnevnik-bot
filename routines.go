@@ -54,14 +54,17 @@ var (
 // only with events in flight, which otherwise needs the live portal.
 var scrapeStage = scrapers
 
-// scrapers scrapes grades and exams for every configured AAI/AOSI user.
-func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, cfg config.TomlConfig) {
+// scrapers scrapes every configured user, recording failed scrapes in failed.
+func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, cfg config.TomlConfig, failed *userSet) {
 	logger.Debug().Msg("Starting scrapers")
 
 	for _, i := range cfg.User {
 		wgScrape.Go(func() {
 			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
 			if err != nil {
+				// A failed scrape must not read as a quiet week.
+				failed.add(i.Username)
+
 				// A shutdown is not a cycle failure.
 				if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 					logger.Debug().Msgf("Scraping aborted by shutdown for user %v", i.Username)
@@ -328,7 +331,9 @@ func storeOverflow(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g m
 // msgDedup forwards only events the dedup store has not seen before, and only
 // once past the first run — a fresh database seeds silently instead of
 // flooding.
-func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message) {
+//
+// With dg set, it also emits due weekly digests once scraping ends.
+func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message, dg *digestRun) {
 	wgFilter.Go(func() {
 		// Close gradesMsg on exit so msgSend's fan-out loop unblocks.
 		defer close(gradesMsg)
@@ -352,6 +357,11 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 		now := time.Now()
 
+		var exams map[string][]msgtypes.Message
+		if dg != nil {
+			exams = make(map[string][]msgtypes.Message, len(dg.users))
+		}
+
 		for g := range gradesScraped {
 			// Previous iteration reached a decision.
 			flagged = nil
@@ -363,6 +373,11 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 			if *debugEvents {
 				logger.Debug().Msgf("Received event for: %v/%v: %+v", g.Username, g.Subject, g)
+			}
+
+			// Before dedup: the digest also lists already-announced exams.
+			if exams != nil && g.Code == msgtypes.Exam {
+				exams[g.Username] = append(exams[g.Username], g)
 			}
 
 			found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
@@ -404,6 +419,10 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			gradesMsg <- g
 
 			flagged = nil
+		}
+
+		if dg != nil {
+			sendDigests(ctx, eDB, dg, exams, gradesMsg)
 		}
 	})
 }

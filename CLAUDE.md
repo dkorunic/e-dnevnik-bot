@@ -115,6 +115,14 @@ A fresh DB (`!eDB.Existing()`) causes `msgDedup` to store hashes but forward not
 
 Course pages wrap tables in `div.tab-content` (observed: one, `.active`, with `data-schoolyear`); `/grade/all` has no wrapper. Reaching through it needs a descendant combinator, which would also reach inactive years, so every table reader is gated on `tabScope.includes`. It fails open on both no tabs and no `.active` — a silent empty scrape reads as a quiet school day, which is worse than a duplicate.
 
+### Weekly exam digest — `digest.go`, `routines.go:msgDedup`
+
+`msgDedup` collects every scraped `Exam` per user **before** the dedup check, and after the scrape channel closes `sendDigests` emits one `ExamDigest` per user. The digest skips both dedup and the first-run seed by design: it's a schedule, not an event. It is **on by default**: `Digest.Enabled` is a `*bool` so a missing key means on and only `enabled = false` turns it off. Runtime code reads the derived `Digest.Active`, never `Enabled`.
+
+- **At most once per week:** `claimDigestWeek` records the covered Monday under `digest-week\x00<user>` through `FetchAndStore`, *before* the blocking handoff. The handoff can't fail, but a claim written after it could, and then the digest would repeat every hourly cycle of the window.
+- **A failed scrape is not a quiet week:** `scrapers` records each user whose scrape returned an error in a per-cycle `userSet`. Those users are skipped *unclaimed* and retried on the next cycle while the window (`day@hour` → that Monday) is open. Don't drop that check: a portal outage would otherwise claim the week with no exams.
+- Calendar backends receive the digest through the fan-out but drop it: `examEventOf` and `QueueAccepts` both reject non-`Exam` codes.
+
 ### Bounded version check — `routines.go:versionCheck`
 
 `versionCheckTimeout = 30s`. A stalled GitHub Releases endpoint must not hold the goroutine past the poll interval. When modifying `versionCheck`, keep the timeout in place.

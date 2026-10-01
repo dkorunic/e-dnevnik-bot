@@ -255,6 +255,22 @@ An alternative to Google Calendar that needs no Google account and no interactiv
 7. Plain `http` is loopback-only (see point 3): a Docker-network hostname such as `http://radicale:5232/` is rejected even though it never leaves your infrastructure. Use `https`, or run the bot on the same host network as the CalDAV server so it can reach it via `localhost`.
 8. iCloud does not show collection URLs in its web UI; discovering the correct one requires a CalDAV client — the bot does no discovery of its own.
 
+#### Weekly exam digest
+
+```toml
+[digest]
+enabled = true   # set to false to turn the digest off
+day = "sunday"
+hour = 18
+```
+
+Once a week, each user gets one short message listing every exam in the coming week (Monday to Sunday), sent to all chat messengers (Telegram, Discord, Slack, mail, WhatsApp). Calendar backends ignore it, because they already hold each exam as its own entry.
+
+1. The digest is **on by default**, even with no `[digest]` section. To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is a local hour from 0 to 23 (default `18`).
+2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll fails to scrape a user, the next poll retries, until the week begins.
+3. Each user gets at most one digest per week. The bot stores the week it last handled in its database. A week with no exams sends nothing.
+4. Exams already announced individually are listed again. The digest is a summary, not a new-event alert.
+
 ## HOWTO
 
 ### Integration with Systemd
