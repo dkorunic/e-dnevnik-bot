@@ -129,7 +129,7 @@ func buildDigest(user string, exams []msgtypes.Message, monday time.Time) (msgty
 		return cmp.Or(cmp.Compare(a.date, b.date), cmp.Compare(a.subject, b.subject), cmp.Compare(a.note, b.note))
 	})
 
-	// Multi-class users can see one exam twice.
+	// Folds identical rows the portal lists twice.
 	rows = slices.Compact(rows)
 
 	msg := msgtypes.Message{
@@ -177,6 +177,9 @@ func claimDigestWeek(ctx context.Context, eDB *sqlitedb.Edb, user string, monday
 
 	return claimed && err == nil, err
 }
+
+// sendDigestsFn is a test seam: reaching recoverDedup from here needs a panic.
+var sendDigestsFn = sendDigests
 
 // sendDigests emits due digests; failed scrapes stay unclaimed for retry.
 // Empty weeks are claimed silently.

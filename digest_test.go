@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -316,5 +317,46 @@ func TestDigestOnFirstRun(t *testing.T) {
 
 	if !slices.Equal(codes, []msgtypes.EventCode{msgtypes.ExamDigest}) {
 		t.Errorf("first run forwarded %v, want only the digest", codes)
+	}
+}
+
+// TestDigestPanicDoesNotForwardSkippedEvent: a skipped last event must not be
+// resent by recoverDedup when sendDigests panics.
+// Not parallel: mutates package-level flag pointers and the sendDigestsFn seam.
+func TestDigestPanicDoesNotForwardSkippedEvent(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+	resetExitLatch(t)
+
+	eDB := openExistingDB(t, filepath.Join(t.TempDir(), "digest-panic.db"))
+	defer eDB.Close() //nolint:errcheck
+
+	// Flag it once, so the next cycle skips it as a duplicate.
+	if got := runDedup(t, t.Context(), eDB, grade("Matematika")); len(got) != 1 {
+		t.Fatalf("seeding cycle forwarded %d alerts, want 1", len(got))
+	}
+
+	orig := sendDigestsFn
+	sendDigestsFn = func(context.Context, *sqlitedb.Edb, *digestRun, map[string][]msgtypes.Message, chan<- msgtypes.Message) {
+		panic("injected digest failure")
+	}
+
+	t.Cleanup(func() { sendDigestsFn = orig })
+
+	dg := &digestRun{now: sundayEvening, users: []string{"testuser"}, day: time.Sunday, hour: 18}
+
+	gradesScraped := make(chan msgtypes.Message, 1)
+	gradesScraped <- grade("Matematika")
+	close(gradesScraped)
+
+	gradesMsg := make(chan msgtypes.Message, 2)
+
+	var wg sync.WaitGroup
+
+	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, dg)
+	wg.Wait()
+
+	for m := range gradesMsg {
+		t.Errorf("forwarded %v/%v after a digest panic; a skipped duplicate must stay skipped", m.Username, m.Subject)
 	}
 }

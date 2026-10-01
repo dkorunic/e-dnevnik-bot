@@ -352,7 +352,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 		}()
 
 		if !eDB.Existing() {
-			logger.Info().Msg("Newly initialized database, won't send alerts in this run")
+			logger.Info().Msg("Newly initialized database, won't send new-event alerts in this run")
 		}
 
 		now := time.Now()
@@ -421,8 +421,11 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			flagged = nil
 		}
 
+		// The last event's decision is made; a digest panic must not forward it.
+		flagged = nil
+
 		if dg != nil {
-			sendDigests(ctx, eDB, dg, exams, gradesMsg)
+			sendDigestsFn(ctx, eDB, dg, exams, gradesMsg)
 		}
 	})
 }
