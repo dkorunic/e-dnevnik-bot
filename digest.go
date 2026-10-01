@@ -71,35 +71,41 @@ type digestRun struct {
 	hour   int
 }
 
-// digestWeek returns the covered Monday and whether now is in the send window.
-// The window spans day@hour to Monday, so failed cycles can catch up.
-func digestWeek(now time.Time, day time.Weekday, hour int) (time.Time, bool) {
+// digestWeek returns the Monday of the week after the latest day@hour.
+// Anchoring on the past send point lets any later poll catch up.
+func digestWeek(now time.Time, day time.Weekday, hour int) time.Time {
 	y, m, d := now.Date()
+	loc := now.Location()
 
-	toMonday := (8 - int(now.Weekday())) % 7
+	since := (int(now.Weekday()) - int(day) + 7) % 7
+
+	// time.Date normalises days, so DST cannot shift midnight.
+	sendAt := time.Date(y, m, d-since, hour, 0, 0, 0, loc)
+	if sendAt.After(now) {
+		sendAt = sendAt.AddDate(0, 0, -7)
+	}
+
+	// A Monday send day covers the following week, not the one it opens.
+	toMonday := (8 - int(day)) % 7
 	if toMonday == 0 {
 		toMonday = 7
 	}
 
-	// time.Date normalises days, so DST cannot shift midnight.
-	monday := time.Date(y, m, d+toMonday, 0, 0, 0, 0, now.Location())
-
-	// A Monday send day covers the following week, not the one it opens.
-	back := (8 - int(day)) % 7
-	if back == 0 {
-		back = 7
-	}
-
-	sendAt := time.Date(monday.Year(), monday.Month(), monday.Day()-back, hour, 0, 0, 0, now.Location())
-
-	return monday, !now.Before(sendAt)
+	return time.Date(sendAt.Year(), sendAt.Month(), sendAt.Day()+toMonday, 0, 0, 0, 0, loc)
 }
 
-// buildDigest lists user's exams in the week from monday; false if none.
+// buildDigest lists user's exams from now's date to monday's Sunday; false if none.
 // Dates compare as strings: timestamps are midnight-UTC markers, like examEventOf.
-func buildDigest(user string, exams []msgtypes.Message, monday time.Time) (msgtypes.Message, bool) {
+func buildDigest(user string, exams []msgtypes.Message, monday, now time.Time) (msgtypes.Message, bool) {
 	sunday := monday.AddDate(0, 0, 6)
-	from, to := monday.Format(time.DateOnly), sunday.Format(time.DateOnly)
+
+	// A late digest omits days already past.
+	start := monday
+	if now.Format(time.DateOnly) > monday.Format(time.DateOnly) {
+		start = now
+	}
+
+	from, to := start.Format(time.DateOnly), sunday.Format(time.DateOnly)
 
 	type row struct{ date, subject, note string }
 
@@ -135,7 +141,7 @@ func buildDigest(user string, exams []msgtypes.Message, monday time.Time) (msgty
 	msg := msgtypes.Message{
 		Code:         msgtypes.ExamDigest,
 		Username:     user,
-		Subject:      monday.Format(digestDateFormat) + digestRangeSep + sunday.Format(digestDateFormat),
+		Subject:      start.Format(digestDateFormat) + digestRangeSep + sunday.Format(digestDateFormat),
 		Timestamp:    monday,
 		Descriptions: make([]string, 0, len(rows)),
 		Fields:       make([]string, 0, len(rows)),
@@ -189,10 +195,7 @@ func sendDigests(ctx context.Context, eDB *sqlitedb.Edb, dg *digestRun, exams ma
 		now = time.Now()
 	}
 
-	monday, due := digestWeek(now, dg.day, dg.hour)
-	if !due {
-		return
-	}
+	monday := digestWeek(now, dg.day, dg.hour)
 
 	for _, user := range dg.users {
 		if ctx.Err() != nil {
@@ -200,7 +203,8 @@ func sendDigests(ctx context.Context, eDB *sqlitedb.Edb, dg *digestRun, exams ma
 		}
 
 		if dg.failed.has(user) {
-			logger.Warn().Msgf("Weekly exam digest for %v postponed: scraping failed this cycle", user)
+			// Debug: the scrape failure itself is already logged, every cycle.
+			logger.Debug().Msgf("Weekly exam digest for %v postponed: scraping failed this cycle", user)
 
 			continue
 		}
@@ -217,7 +221,7 @@ func sendDigests(ctx context.Context, eDB *sqlitedb.Edb, dg *digestRun, exams ma
 			continue
 		}
 
-		msg, ok := buildDigest(user, exams[user], monday)
+		msg, ok := buildDigest(user, exams[user], monday, now)
 		if !ok {
 			logger.Info().Msgf("No exams for %v in the week of %v, skipping weekly digest", user, monday.Format(time.DateOnly))
 

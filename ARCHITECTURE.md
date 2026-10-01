@@ -176,10 +176,11 @@
           parse failure is fail-open (event passed through)
     else → send to gradesMsg (buffered chan)
   Unless [digest] enabled = false, every Exam is also collected per user, before dedup.
-  Once gradesScraped closes, if the weekly digest window is open
-  (digest.go: day@hour until the covered Monday), each user that scraped
-  cleanly and whose week is not yet claimed (KV row "digest-week\x00<user>")
-  gets one ExamDigest message on gradesMsg. An empty week is claimed but not sent.
+  Once gradesScraped closes, the covered week is the one after the latest
+  day@hour (digest.go:digestWeek). Each user that scraped cleanly and whose
+  week is not yet claimed (KV row "digest-week\x00<user>") gets one
+  ExamDigest on gradesMsg, listing exams from today or Monday, whichever is
+  later. An empty week is claimed but not sent.
     On ctx.Done: defer close(gradesMsg) unblocks the fan-out loop
         │
         ▼

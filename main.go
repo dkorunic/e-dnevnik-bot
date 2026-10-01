@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	_ "time/tzdata" // TZ must work in the tzdata-less Alpine image
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"

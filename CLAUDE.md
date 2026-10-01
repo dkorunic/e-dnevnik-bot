@@ -120,7 +120,9 @@ Course pages wrap tables in `div.tab-content` (observed: one, `.active`, with `d
 `msgDedup` collects every scraped `Exam` per user **before** the dedup check, and after the scrape channel closes `sendDigests` emits one `ExamDigest` per user. The digest skips both dedup and the first-run seed by design: it's a schedule, not an event. It is **on by default**: `Digest.Enabled` is a `*bool` so a missing key means on and only `enabled = false` turns it off. Runtime code reads the derived `Digest.Active`, never `Enabled`.
 
 - **At most once per week:** `claimDigestWeek` records the covered Monday under `digest-week\x00<user>` through `FetchAndStore`, *before* the blocking handoff. The handoff can't fail, but a claim written after it could, and then the digest would repeat every hourly cycle of the window.
-- **A failed scrape is not a quiet week:** `scrapers` records each user whose scrape returned an error in a per-cycle `userSet`. Those users are skipped *unclaimed* and retried on the next cycle while the window (`day@hour` → that Monday) is open. Don't drop that check: a portal outage would otherwise claim the week with no exams.
+- **A failed scrape is not a quiet week:** `scrapers` records each user whose scrape returned an error in a per-cycle `userSet`. Those users are skipped *unclaimed* and retried on the next cycle. Don't drop that check: a portal outage would otherwise claim the week with no exams.
+- **No send window:** `digestWeek` returns the week after the *latest past* `day@hour`, so any later poll catches up and a late digest lists from today. A window ending at Monday was tried and lost weeks whenever polls straddled it (`hour = 23` with ±10% jitter, or `-i` longer than the window).
+- **Local time is `TZ`:** `main.go` embeds `time/tzdata` because the Alpine image ships none, and Go would otherwise fall back to UTC without any error.
 - Calendar backends receive the digest through the fan-out but drop it: `examEventOf` and `QueueAccepts` both reject non-`Exam` codes.
 
 ### Bounded version check — `routines.go:versionCheck`

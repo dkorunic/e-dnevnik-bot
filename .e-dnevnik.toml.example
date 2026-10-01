@@ -97,3 +97,14 @@ chatids = [ "chat_id", "chat_id2" ]
 #phonenumber = "+385XXYYYYYYY"
 #userids = [ "+385XXYYYYYYY@s.whatsapp.net", "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" ]
 #groups = [ "group1", "group2" ]
+
+# Weekly exam digest block
+##################################################
+# One message per user listing next week's exams, sent to all chat messengers.
+# On by default, even without this block. Day is an English weekday name, hour
+# is 0-23 in the bot's local time zone (set TZ=Europe/Zagreb in Docker).
+#
+#[digest]
+#enabled = false
+#day = "sunday"
+#hour = 18

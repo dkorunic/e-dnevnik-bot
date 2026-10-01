@@ -266,10 +266,11 @@ hour = 18
 
 Once a week, each user gets one short message listing every exam in the coming week (Monday to Sunday), sent to all chat messengers (Telegram, Discord, Slack, mail, WhatsApp). Calendar backends ignore it, because they already hold each exam as its own entry.
 
-1. The digest is **on by default**, even with no `[digest]` section. To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is a local hour from 0 to 23 (default `18`).
-2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll fails to scrape a user, the next poll retries, until the week begins.
+1. The digest is **on by default**, even with no `[digest]` section. To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is an hour from 0 to 23 (default `18`) in the bot's local time zone. In Docker, that is UTC unless you set `TZ` (see below).
+2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll is missed or fails to scrape a user, a later poll still sends it. A late digest lists only exams from that day onward.
 3. Each user gets at most one digest per week. The bot stores the week it last handled in its database. A week with no exams sends nothing.
 4. Exams already announced individually are listed again. The digest is a summary, not a new-event alert.
+5. On first start, or after upgrading mid-week, the bot sends the current week's digest straight away, listing exams from that day onward.
 
 ## HOWTO
 
@@ -324,6 +325,7 @@ docker pull dkorunic/e-dnevnik-bot
 
 docker run --detach \
     --volume "$(pwd)/ednevnik:/ednevnik" \
+    --env TZ=Europe/Zagreb \
     --restart unless-stopped \
     dkorunic/e-dnevnik-bot \
     --daemon \
@@ -358,6 +360,9 @@ services:
       - "--daemon"
       - "--database=/ednevnik/.e-dnevnik.db"
       - "--conffile=/ednevnik/.e-dnevnik.toml"
+    # Local time zone for the weekly digest and log timestamps
+    environment:
+      - TZ=Europe/Zagreb
     # Volumes store your data between container upgrades
     volumes:
       - ./ednevnik:/ednevnik

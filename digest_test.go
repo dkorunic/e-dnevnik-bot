@@ -27,7 +27,7 @@ func zagreb(t *testing.T) *time.Location {
 	return loc
 }
 
-// TestDigestWeek pins the send window from day@hour until the covered Monday.
+// TestDigestWeek pins the covered week: the one after the latest day@hour.
 func TestDigestWeek(t *testing.T) {
 	t.Parallel()
 
@@ -40,32 +40,31 @@ func TestDigestWeek(t *testing.T) {
 		day        time.Weekday
 		hour       int
 		wantMonday string
-		wantDue    bool
 	}{
-		{"sunday before hour", at(2026, 10, 4, 17, 59), time.Sunday, 18, "2026-10-05", false},
-		{"sunday at hour", at(2026, 10, 4, 18, 0), time.Sunday, 18, "2026-10-05", true},
-		{"sunday late", at(2026, 10, 4, 23, 59), time.Sunday, 18, "2026-10-05", true},
-		{"monday rolls to next week", at(2026, 10, 5, 0, 5), time.Sunday, 18, "2026-10-12", false},
-		{"saturday not yet", at(2026, 10, 3, 20, 0), time.Sunday, 18, "2026-10-05", false},
-		{"friday config on friday", at(2026, 10, 2, 9, 0), time.Friday, 8, "2026-10-05", true},
-		{"friday config catches up saturday", at(2026, 10, 3, 1, 0), time.Friday, 8, "2026-10-05", true},
-		{"friday config on thursday", at(2026, 10, 1, 23, 0), time.Friday, 8, "2026-10-05", false},
-		{"monday config waits for hour", at(2026, 10, 5, 7, 0), time.Monday, 8, "2026-10-12", false},
-		{"monday config due after hour", at(2026, 10, 5, 8, 0), time.Monday, 8, "2026-10-12", true},
-		{"month and year boundary", at(2026, 12, 27, 18, 30), time.Sunday, 18, "2026-12-28", true},
-		{"DST ends overnight", at(2026, 10, 25, 18, 0), time.Sunday, 18, "2026-10-26", true},
-		{"midnight hour", at(2026, 10, 4, 0, 0), time.Sunday, 0, "2026-10-05", true},
+		{"sunday before hour", at(2026, 10, 4, 17, 59), time.Sunday, 18, "2026-09-28"},
+		{"sunday at hour", at(2026, 10, 4, 18, 0), time.Sunday, 18, "2026-10-05"},
+		{"sunday late", at(2026, 10, 4, 23, 59), time.Sunday, 18, "2026-10-05"},
+		{"late poll after midnight", at(2026, 10, 5, 0, 3), time.Sunday, 23, "2026-10-05"},
+		{"midweek catch-up", at(2026, 10, 7, 10, 0), time.Sunday, 18, "2026-10-05"},
+		{"saturday before send day", at(2026, 10, 3, 20, 0), time.Sunday, 18, "2026-09-28"},
+		{"friday config on friday", at(2026, 10, 2, 9, 0), time.Friday, 8, "2026-10-05"},
+		{"friday config on saturday", at(2026, 10, 3, 1, 0), time.Friday, 8, "2026-10-05"},
+		{"friday config on thursday", at(2026, 10, 1, 23, 0), time.Friday, 8, "2026-09-28"},
+		{"monday config before hour", at(2026, 10, 5, 7, 0), time.Monday, 8, "2026-10-05"},
+		{"monday config after hour", at(2026, 10, 5, 8, 0), time.Monday, 8, "2026-10-12"},
+		{"month and year boundary", at(2026, 12, 27, 18, 30), time.Sunday, 18, "2026-12-28"},
+		{"DST ends overnight", at(2026, 10, 25, 18, 0), time.Sunday, 18, "2026-10-26"},
+		{"midnight hour", at(2026, 10, 4, 0, 0), time.Sunday, 0, "2026-10-05"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			monday, due := digestWeek(tt.now, tt.day, tt.hour)
+			monday := digestWeek(tt.now, tt.day, tt.hour)
 
-			if got := monday.Format(time.DateOnly); got != tt.wantMonday || due != tt.wantDue {
-				t.Errorf("digestWeek(%v, %v, %d) = %v, %v; want %v, %v",
-					tt.now, tt.day, tt.hour, got, due, tt.wantMonday, tt.wantDue)
+			if got := monday.Format(time.DateOnly); got != tt.wantMonday {
+				t.Errorf("digestWeek(%v, %v, %d) = %v, want %v", tt.now, tt.day, tt.hour, got, tt.wantMonday)
 			}
 
 			if monday.Weekday() != time.Monday || monday.Hour() != 0 {
@@ -105,7 +104,7 @@ func TestBuildDigest(t *testing.T) {
 		examOn("u", "Matematika", "2026-10-05", "pisana provjera"),
 	}
 
-	got, ok := buildDigest("u", exams, monday)
+	got, ok := buildDigest("u", exams, monday, monday)
 	if !ok {
 		t.Fatal("buildDigest reported an empty week")
 	}
@@ -128,11 +127,11 @@ func TestBuildDigestEmptyWeek(t *testing.T) {
 
 	monday := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
 
-	if _, ok := buildDigest("u", []msgtypes.Message{examOn("u", "Kemija", "2026-10-04", "")}, monday); ok {
+	if _, ok := buildDigest("u", []msgtypes.Message{examOn("u", "Kemija", "2026-10-04", "")}, monday, monday); ok {
 		t.Error("buildDigest produced a message for a week with no exams")
 	}
 
-	if _, ok := buildDigest("u", nil, monday); ok {
+	if _, ok := buildDigest("u", nil, monday, monday); ok {
 		t.Error("buildDigest produced a message with no exams at all")
 	}
 }
@@ -145,7 +144,7 @@ func TestBuildDigestShortLegacyFields(t *testing.T) {
 	g := examOn("u", "Fizika", "2026-10-06", "")
 	g.Fields = nil
 
-	got, ok := buildDigest("u", []msgtypes.Message{g}, monday)
+	got, ok := buildDigest("u", []msgtypes.Message{g}, monday, monday)
 	if !ok || !slices.Equal(got.Fields, []string{"Fizika"}) {
 		t.Errorf("buildDigest = %+v, %v; want one Fizika row", got, ok)
 	}
@@ -213,7 +212,7 @@ func TestDigestSentOncePerWeek(t *testing.T) {
 	}
 }
 
-// TestDigestOutsideWindowSendsNothing: an early cycle must not claim the week.
+// TestDigestOutsideWindowSendsNothing: before day@hour, next week stays unclaimed.
 // Not parallel: mutates package-level flag pointers.
 func TestDigestOutsideWindowSendsNothing(t *testing.T) {
 	setRelevancePeriod(t, 0)
@@ -358,5 +357,38 @@ func TestDigestPanicDoesNotForwardSkippedEvent(t *testing.T) {
 
 	for m := range gradesMsg {
 		t.Errorf("forwarded %v/%v after a digest panic; a skipped duplicate must stay skipped", m.Username, m.Subject)
+	}
+}
+
+// TestBuildDigestLateListsFromToday: a late digest omits exams already past.
+func TestBuildDigestLateListsFromToday(t *testing.T) {
+	t.Parallel()
+
+	monday := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	wednesday := time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC)
+
+	exams := []msgtypes.Message{examOn("u", "Fizika", "2026-10-06", ""), examOn("u", "Kemija", "2026-10-07", ""), examOn("u", "Biologija", "2026-10-08", "")}
+
+	got, ok := buildDigest("u", exams, monday, wednesday)
+	if !ok || got.Subject != "7.10. – 11.10." || !slices.Equal(got.Fields, []string{"Kemija", "Biologija"}) {
+		t.Errorf("buildDigest late = %q %q, %v; want \"7.10. – 11.10.\" [Kemija Biologija]", got.Subject, got.Fields, ok)
+	}
+}
+
+// TestDigestLatePollCatchesUp: a poll past Monday midnight still sends the week.
+// Not parallel: mutates package-level flag pointers.
+func TestDigestLatePollCatchesUp(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	eDB := openExistingDB(t, filepath.Join(t.TempDir(), "digest-late.db"))
+	defer eDB.Close() //nolint:errcheck
+
+	monday := time.Date(2026, 10, 5, 0, 3, 0, 0, time.UTC)
+	dg := &digestRun{now: monday, users: []string{"u"}, day: time.Sunday, hour: 23}
+
+	got := runDigestCycle(t, eDB, dg, examOn("u", "Matematika", "2026-10-06", ""))
+	if len(got) != 1 || got[0].Subject != "5.10. – 11.10." {
+		t.Fatalf("late poll sent %+v, want this week's digest", got)
 	}
 }
