@@ -24,6 +24,7 @@ import (
 	"github.com/hako/durafmt"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -457,6 +458,7 @@ func whatsAppLogin(ctx context.Context) error {
 	store.DeviceProps.RequireFullSync = new(false)
 
 	store.DeviceProps.Os = new(WhatsAppOS)
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 
 	storeContainer, err := sqlstore.New(ctx, "sqlite",
 		fmt.Sprintf(WhatsAppDBConnstring, WhatsAppDBName), nil)

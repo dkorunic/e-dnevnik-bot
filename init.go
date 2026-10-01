@@ -21,6 +21,7 @@ import (
 	"github.com/mdp/qrterminal/v4"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -113,6 +114,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	store.DeviceProps.RequireFullSync = new(false)
 
 	store.DeviceProps.Os = new(messenger.WhatsAppOS)
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 
 	storeContainer, err := sqlstore.New(ctx, "sqlite",
 		fmt.Sprintf(messenger.WhatsAppDBConnstring, messenger.WhatsAppDBName), nil)
