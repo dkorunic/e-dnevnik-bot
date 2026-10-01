@@ -35,10 +35,15 @@ const (
 
 	// Bounds interactive pairing, so an absent user cannot hang the process.
 	whatsAppPairingTimeout = 10 * time.Minute
+
+	// Bounds the post-pairing sync, the only exit once stop signals are deferred.
+	// Contacts and history sync takes up to 15-20 minutes.
+	whatsAppSyncTimeout = 25 * time.Minute
 )
 
 var (
 	whatsAppPairingCli *whatsmeow.Client
+	whatsAppPaired     = make(chan struct{}, 1)
 	whatsAppSynced     = make(chan struct{}, 1)
 )
 
@@ -190,17 +195,30 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		whatsAppPairingCli.Disconnect()
 	}()
 
-	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep Android/iOS mobile app active and open")
+	logger.Info().Msg("Please wait until WhatsApp has fully synced and keep Android/iOS mobile app active and open. First sync can take up to 20 minutes.")
 
+	// Before pairing a stop signal aborts cleanly: nothing is linked yet.
 	select {
-	case <-whatsAppSynced:
+	case <-whatsAppPaired:
 	case <-ctx.Done():
-		logger.Warn().Msg("Context cancelled while waiting for WhatsApp sync")
+		// A signal racing PairSuccess must not win: the link already exists.
+		select {
+		case <-whatsAppPaired:
+		default:
+			logger.Warn().Msg("Context cancelled while waiting for WhatsApp pairing")
+
+			return
+		}
+	case <-time.After(whatsAppPairingTimeout):
+		logger.Warn().Msgf("Timed out after %v waiting for WhatsApp pairing; restart the bot and re-scan the QR code or re-enter the PIN",
+			durafmt.Parse(whatsAppPairingTimeout).String())
 
 		return
-	case <-time.After(whatsAppPairingTimeout):
-		logger.Warn().Msgf("Timed out after %v waiting for WhatsApp pairing/sync; restart the bot and re-scan the QR code or re-enter the PIN",
-			durafmt.Parse(whatsAppPairingTimeout).String())
+	}
+
+	if !awaitShielded(ctx, whatsAppSynced, time.After(whatsAppSyncTimeout)) {
+		logger.Warn().Msgf("Timed out after %v waiting for WhatsApp sync; contacts and history may be incomplete",
+			durafmt.Parse(whatsAppSyncTimeout).String())
 
 		return
 	}
@@ -208,10 +226,27 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 
 	// Grace period for the full sync.
-	select {
-	case <-time.After(initialWhatsAppDelay):
-	case <-ctx.Done():
-		logger.Warn().Msg("Context cancelled while waiting for WhatsApp post-sync delay")
+	awaitShielded(ctx, time.After(initialWhatsAppDelay), nil)
+}
+
+// awaitShielded waits for done, reporting false on deadline. A stop signal is
+// logged, not obeyed: cutting the sync short leaves contacts and history
+// incomplete. ctx stays cancelled, so main still exits once setup ends.
+func awaitShielded[T any](ctx context.Context, done <-chan T, deadline <-chan time.Time) bool {
+	stop := ctx.Done()
+
+	for {
+		select {
+		case <-done:
+			return true
+		case <-deadline:
+			return false
+		case <-stop:
+			logger.Warn().Msg("Stop signal received; deferring exit until WhatsApp sync completes")
+
+			// Nil blocks forever, so the warning prints once.
+			stop = nil
+		}
 	}
 }
 
@@ -224,7 +259,8 @@ func whatsappPairingEventHandler(rawEvt any) {
 		logger.Info().Msgf("WhatsApp offline sync preview: %v messages, %v receipts, %v notifications, %v app data changes",
 			evt.Messages, evt.Receipts, evt.Notifications, evt.AppDataChanges)
 	case *events.HistorySync:
-		logger.Info().Msg("WhatsApp history sync")
+		logger.Info().Msgf("WhatsApp history sync: type %v, chunk %v, progress %v%%",
+			evt.Data.GetSyncType(), evt.Data.GetChunkOrder(), evt.Data.GetProgress())
 	case *events.OfflineSyncCompleted:
 		logger.Info().Msg("WhatsApp offline sync completed")
 	case *events.AppStateSyncComplete:
@@ -258,6 +294,11 @@ func whatsappPairingEventHandler(rawEvt any) {
 		}
 
 		logger.Info().Msg("WhatsApp device successfully paired")
+
+		select {
+		case whatsAppPaired <- struct{}{}:
+		default:
+		}
 	case *events.LoggedOut:
 		messenger.RemoveWhatsAppSession()
 
