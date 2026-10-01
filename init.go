@@ -201,19 +201,18 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	select {
 	case <-whatsAppPaired:
 	case <-ctx.Done():
-		// A signal racing PairSuccess must not win: the link already exists.
-		select {
-		case <-whatsAppPaired:
-		default:
+		if !pairedMeanwhile() {
 			logger.Warn().Msg("Context cancelled while waiting for WhatsApp pairing")
 
 			return
 		}
 	case <-time.After(whatsAppPairingTimeout):
-		logger.Warn().Msgf("Timed out after %v waiting for WhatsApp pairing; restart the bot and re-scan the QR code or re-enter the PIN",
-			durafmt.Parse(whatsAppPairingTimeout).String())
+		if !pairedMeanwhile() {
+			logger.Warn().Msgf("Timed out after %v waiting for WhatsApp pairing; restart the bot and re-scan the QR code or re-enter the PIN",
+				durafmt.Parse(whatsAppPairingTimeout).String())
 
-		return
+			return
+		}
 	}
 
 	if !awaitShielded(ctx, whatsAppSynced, time.After(whatsAppSyncTimeout)) {
@@ -227,6 +226,17 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 
 	// Grace period for the full sync.
 	awaitShielded(ctx, time.After(initialWhatsAppDelay), nil)
+}
+
+// pairedMeanwhile catches a PairSuccess racing a stop signal or timeout, which
+// must not win: the link already exists and its sync has begun.
+func pairedMeanwhile() bool {
+	select {
+	case <-whatsAppPaired:
+		return true
+	default:
+		return false
+	}
 }
 
 // awaitShielded waits for done, reporting false on deadline. A stop signal is

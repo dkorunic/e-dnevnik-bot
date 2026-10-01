@@ -47,3 +47,16 @@ func TestAwaitShieldedDeadline(t *testing.T) {
 		t.Fatal("awaitShielded reported done on deadline")
 	}
 }
+
+// Not parallel: whatsAppPaired is package state.
+func TestPairedMeanwhile(t *testing.T) {
+	if pairedMeanwhile() {
+		t.Fatal("pairedMeanwhile reported a pairing that never happened")
+	}
+
+	whatsAppPaired <- struct{}{}
+
+	if !pairedMeanwhile() {
+		t.Fatal("pairedMeanwhile missed a pending PairSuccess")
+	}
+}
