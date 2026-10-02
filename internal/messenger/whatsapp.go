@@ -39,7 +39,7 @@ type ContextKey string
 
 const (
 	WhatsAppDBName                  = ".e-dnevnik.wa.sqlite"
-	WhatsAppDBConnstring            = "file:%v?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000"
+	WhatsAppDBConnstring            = "file:%v?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(10000)&_txlock=immediate"
 	WhatsAppDisplayName             = "Chrome (Linux)"
 	WhatsAppOS                      = "Linux"
 	WhatsAppAPILimit                = 10 // 10 req/min per user/IP
@@ -597,13 +597,19 @@ func RemoveWhatsAppSession() {
 }
 
 // removeWhatsAppSession is the testable core. An absent store counts as
-// success: repeated fatal events race each other through here.
+// success: repeated fatal events race each other through here. The WAL
+// sidecars go too, as SQLite would replay a stale -wal into a fresh store of
+// the same name; the store itself goes last so a failure leaves it visible.
 func removeWhatsAppSession(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+	var errs []error
+
+	for _, p := range []string{path + "-wal", path + "-shm", path} {
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // isWriteable reports whether path opens for writing.
