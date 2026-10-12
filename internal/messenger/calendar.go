@@ -40,6 +40,10 @@ const (
 	// CalendarPrimary is both the ID and the accepted alias of the primary
 	// calendar.
 	CalendarPrimary = "primary"
+
+	// CalendarReminderMinutes is counted back from the all-day event's
+	// midnight: 3 days before at 09:00, not at 00:00.
+	CalendarReminderMinutes = (3*24 - 9) * 60
 )
 
 var (
@@ -207,6 +211,14 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		},
 		End: &calendar.EventDateTime{
 			Date: ev.Date.AddDate(0, 0, 1).Format(time.DateOnly),
+		},
+		// UseDefault=false is the zero value, so it must be force-sent or the
+		// API rejects the overrides.
+		Reminders: &calendar.EventReminders{
+			Overrides: []*calendar.EventReminder{
+				{Method: "popup", Minutes: CalendarReminderMinutes},
+			},
+			ForceSendFields: []string{"UseDefault"},
 		},
 	}
 

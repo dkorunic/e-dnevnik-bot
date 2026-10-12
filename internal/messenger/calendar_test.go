@@ -5,6 +5,7 @@ package messenger
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,7 +22,9 @@ import (
 
 func TestProcessCalendar(t *testing.T) {
 	t.Parallel()
+	var body []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{}`))
 	}))
@@ -56,6 +59,11 @@ func TestProcessCalendar(t *testing.T) {
 	defer eDB.Close()
 
 	processCalendar(ctx, eDB, msg, rl, srv, "primary", 1)
+
+	want := `"reminders":{"overrides":[{"method":"popup","minutes":3780}],"useDefault":false}`
+	if !strings.Contains(string(body), want) {
+		t.Errorf("insert body %s lacks %s", body, want)
+	}
 }
 
 func TestGetCalendarID(t *testing.T) {

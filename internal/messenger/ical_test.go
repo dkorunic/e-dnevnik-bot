@@ -39,6 +39,11 @@ func TestBuildICalEventGolden(t *testing.T) {
 		"SUMMARY:pero.peric - Ispit iz: Matematika\r\n" +
 		`DESCRIPTION:Pisana provjera\, poglavlja 1\; 2 \\ 3` + "\r\n" +
 		"TRANSP:TRANSPARENT\r\n" +
+		"BEGIN:VALARM\r\n" +
+		"ACTION:DISPLAY\r\n" +
+		"DESCRIPTION:pero.peric - Ispit iz: Matematika\r\n" +
+		"TRIGGER:-PT3780M\r\n" +
+		"END:VALARM\r\n" +
 		"END:VEVENT\r\n" +
 		"END:VCALENDAR\r\n"
 
@@ -54,7 +59,7 @@ func TestBuildICalEventOmitsEmptyDescription(t *testing.T) {
 
 	ev := examEvent{Date: time.Date(2099, 9, 24, 0, 0, 0, 0, time.UTC), ID: "abc123", Summary: "s"}
 
-	if got := string(buildICalEvent(ev, icalStamp)); strings.Contains(got, "DESCRIPTION") {
+	if got := string(buildICalEvent(ev, icalStamp)); strings.Count(got, "DESCRIPTION:") != 1 { // the VALARM's own
 		t.Errorf("empty description was emitted:\n%q", got)
 	}
 }
@@ -161,12 +166,23 @@ func TestBuildICalEventRoundTrips(t *testing.T) {
 
 	data := capture.cal.Events[0].Data
 
+	// goics flattens VALARM into the event, so the alarm's DESCRIPTION turns
+	// the key into a list: the event's own comes first, then the alarm's.
+	if descs := capture.cal.Events[0].List["DESCRIPTION"]; len(descs) == 2 {
+		data["DESCRIPTION"] = descs[0]
+
+		if descs[1].Val != ev.Summary {
+			t.Errorf("VALARM DESCRIPTION = %q, want %q", descs[1].Val, ev.Summary)
+		}
+	}
+
 	checks := map[string]string{
 		"UID":         "abc123@e-dnevnik-bot",
 		"DTSTART":     "20990924",
 		"DTEND":       "20990925",
 		"SUMMARY":     ev.Summary,
 		"DESCRIPTION": note,
+		"TRIGGER":     "-PT3780M",
 	}
 	for key, want := range checks {
 		if data[key] == nil {

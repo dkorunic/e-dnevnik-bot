@@ -4,6 +4,7 @@
 package messenger
 
 import (
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -53,8 +54,18 @@ func buildICalEvent(ev examEvent, stamp time.Time) []byte {
 		lines = append(lines, "DESCRIPTION:"+icalTextEscaper.Replace(ev.Description))
 	}
 
-	// Don't mark the day busy.
-	lines = append(lines, "TRANSP:TRANSPARENT", "END:VEVENT", "END:VCALENDAR")
+	// Don't mark the day busy. The alarm shares Google's offset; a DISPLAY
+	// alarm requires its own DESCRIPTION (§3.6.6).
+	lines = append(lines,
+		"TRANSP:TRANSPARENT",
+		"BEGIN:VALARM",
+		"ACTION:DISPLAY",
+		"DESCRIPTION:"+icalTextEscaper.Replace(ev.Summary),
+		"TRIGGER:-PT"+strconv.Itoa(CalendarReminderMinutes)+"M",
+		"END:VALARM",
+		"END:VEVENT",
+		"END:VCALENDAR",
+	)
 
 	var b strings.Builder
 	for _, l := range lines {
