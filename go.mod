@@ -15,7 +15,7 @@ require (
 	github.com/enetx/http v1.0.29
 	github.com/enetx/surf v1.0.206
 	github.com/fxamacker/cbor/v2 v2.9.6
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-telegram/bot v1.27.0
 	github.com/google/go-github/v92 v92.0.0
 	github.com/google/renameio/v2 v2.0.2
@@ -31,10 +31,10 @@ require (
 	github.com/slack-go/slack v0.30.1
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20261007111105-c386243a72ba
+	go.mau.fi/whatsmeow v0.0.0-20261013142727-4cf8bc8e0aeb
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.37.0
-	google.golang.org/api v0.301.0
+	google.golang.org/api v0.303.0
 	modernc.org/sqlite v1.60.1
 )
 
@@ -59,7 +59,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
@@ -81,13 +81,13 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/exp v0.0.0-20261011100332-faecfb24eb49 // indirect
+	golang.org/x/exp v0.0.0-20261013213113-2ab7f3cbc5fb // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.78.0 // indirect
