@@ -71,13 +71,13 @@ func TestRecipientRunRequeueDecision(t *testing.T) {
 		},
 		{
 			name:        "one transient failure",
-			outcome:     func(r *recipientRun) { r.delivered("a"); r.failed() },
+			outcome:     func(r *recipientRun) { r.delivered("a"); r.failed(nil) },
 			wantQueued:  true,
 			wantSkipped: []string{"a"},
 		},
 		{
 			name:        "transient failure alongside a poisoned recipient",
-			outcome:     func(r *recipientRun) { r.delivered("a"); r.poison("b"); r.failed() },
+			outcome:     func(r *recipientRun) { r.delivered("a"); r.poison("b"); r.failed(nil) },
 			wantQueued:  true,
 			wantSkipped: []string{"a", "b"},
 		},
@@ -169,7 +169,7 @@ func TestRecipientRunMergesRatherThanReplacesSkipRecipients(t *testing.T) {
 
 	run := newRecipientRun(g)
 	run.delivered("second-round")
-	run.failed()
+	run.failed(nil)
 	run.finish(t.Context(), eDB, SlackQueueName, g)
 
 	got := queue.FetchFailedMsgs(t.Context(), eDB, SlackQueueName)
@@ -199,7 +199,7 @@ func TestRecipientRunDeduplicatesSkipRecipients(t *testing.T) {
 	run := newRecipientRun(g)
 	run.delivered("a", "c")
 	run.poison("b")
-	run.failed()
+	run.failed(nil)
 	run.finish(t.Context(), eDB, SlackQueueName, g)
 
 	got := queue.FetchFailedMsgs(t.Context(), eDB, SlackQueueName)
@@ -252,7 +252,7 @@ func TestRecipientRunFinishLeavesCallerMessageUntouched(t *testing.T) {
 
 	run := newRecipientRun(g)
 	run.delivered("delivered-here")
-	run.failed()
+	run.failed(nil)
 	run.finish(t.Context(), eDB, TelegramQueueName, g)
 
 	if want := []string{"original"}; !slices.Equal(g.SkipRecipients, want) {

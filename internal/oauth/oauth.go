@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -379,6 +380,19 @@ func IsInvalidGrant(err error) bool {
 	var re *oauth2.RetrieveError
 
 	return errors.As(err, &re) && re.ErrorCode == "invalid_grant"
+}
+
+// authRejectedCodes are the token endpoint's RFC 6749 errors that no retry can
+// cure: a revoked or expired grant, or an OAuth client deleted, disabled or
+// with a rotated secret.
+var authRejectedCodes = []string{"invalid_grant", "invalid_client", "unauthorized_client"}
+
+// IsAuthRejected reports a token-endpoint rejection only re-authentication or a
+// new client fixes: IsInvalidGrant, plus a deleted or reconfigured client.
+func IsAuthRejected(err error) bool {
+	var re *oauth2.RetrieveError
+
+	return errors.As(err, &re) && slices.Contains(authRejectedCodes, re.ErrorCode)
 }
 
 // saveToken atomically writes token as JSON at DefaultPerms.

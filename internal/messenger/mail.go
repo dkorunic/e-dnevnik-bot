@@ -194,8 +194,6 @@ func markMailPermanent(err error) error {
 // once per batch rather than per recipient: delivery shares one SMTP
 // connection.
 func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) bool {
-	cfgFailed := false
-
 	// Capped client-side: an MTA-rejected oversize would loop in the queue
 	// until MaxQueueAge.
 	htmlContent := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, MailMaxBodyChars)
@@ -226,9 +224,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 			logger.Error().Msgf("%v: invalid From address %q, queueing alert for %v/%v: %v",
 				ErrMailSendingMessages, from, g.Username, g.Subject, err)
 
-			run.failed()
-
-			cfgFailed = true
+			run.failed(markConfigErr(err))
 
 			break
 		}
@@ -279,15 +275,11 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		default:
 			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
-			run.failed()
-
-			cfgFailed = isConfigSendErr(err)
+			run.failed(err)
 		}
 	}
 
-	run.finish(ctx, eDB, MailQueueName, g)
-
-	return cfgFailed
+	return run.finish(ctx, eDB, MailQueueName, g)
 }
 
 // undeliveredRecipients returns the entries of rcpt not in delivered, in order.

@@ -236,7 +236,7 @@ func TestMarkPermanentWrapping(t *testing.T) {
 		{"telegram", bot.ErrorForbidden, markTelegramPermanent},
 		{"whatsapp", whatsmeow.ErrUnknownServer, markWhatsAppPermanent},
 		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}}, markDiscordPermanent},
-		{"slack", slack.StatusCodeError{Code: http.StatusForbidden}, markSlackPermanent},
+		{"slack", slack.StatusCodeError{Code: http.StatusNotFound}, markSlackPermanent},
 		{"calendar", &googleapi.Error{Code: http.StatusNotFound}, markCalendarPermanent},
 		{"caldav", &caldavStatusError{code: http.StatusBadRequest}, markCalDAVPermanent},
 	}
@@ -374,16 +374,18 @@ func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]error{
-		"telegram":       markTelegramPermanent(bot.ErrorUnauthorized),
-		"discord":        markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusUnauthorized}}),
-		"slack":          markSlackPermanent(slack.SlackErrorResponse{Err: "invalid_auth"}),
-		"slack scope":    markSlackPermanent(slack.SlackErrorResponse{Err: "missing_scope"}),
-		"telegram 404":   markTelegramPermanent(bot.ErrorNotFound),
-		"calendar 403":   markCalendarPermanent(&googleapi.Error{Code: http.StatusForbidden}),
-		"calendar grant": markCalendarPermanent(&url.Error{Op: "Post", URL: "https://oauth2.googleapis.com/token", Err: &oauth2.RetrieveError{ErrorCode: "invalid_grant"}}),
-		"whatsapp":       markWhatsAppPermanent(whatsmeow.ErrNotLoggedIn),
-		"calendar":       markCalendarPermanent(&googleapi.Error{Code: http.StatusUnauthorized}),
-		"caldav":         markCalDAVPermanent(&caldavStatusError{code: http.StatusUnauthorized}),
+		"telegram":        markTelegramPermanent(bot.ErrorUnauthorized),
+		"discord":         markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusUnauthorized}}),
+		"slack":           markSlackPermanent(slack.SlackErrorResponse{Err: "invalid_auth"}),
+		"slack scope":     markSlackPermanent(slack.SlackErrorResponse{Err: "missing_scope"}),
+		"telegram 404":    markTelegramPermanent(bot.ErrorNotFound),
+		"calendar 403":    markCalendarPermanent(&googleapi.Error{Code: http.StatusForbidden}),
+		"calendar grant":  markCalendarPermanent(&url.Error{Op: "Post", URL: "https://oauth2.googleapis.com/token", Err: &oauth2.RetrieveError{ErrorCode: "invalid_grant"}}),
+		"calendar client": markCalendarPermanent(&url.Error{Op: "Post", URL: "https://oauth2.googleapis.com/token", Err: &oauth2.RetrieveError{ErrorCode: "invalid_client"}}),
+		"slack http 401":  markSlackPermanent(slack.StatusCodeError{Code: http.StatusUnauthorized}),
+		"whatsapp":        markWhatsAppPermanent(whatsmeow.ErrNotLoggedIn),
+		"calendar":        markCalendarPermanent(&googleapi.Error{Code: http.StatusUnauthorized}),
+		"caldav":          markCalDAVPermanent(&caldavStatusError{code: http.StatusUnauthorized}),
 	}
 
 	for name, got := range cases {
@@ -410,10 +412,26 @@ func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
 			retry.IsRecoverable(unknown), isPermanentSendErr(unknown), isConfigSendErr(unknown))
 	}
 
-	// A rate-limit 403 from Google is temporary.
+	// A rate-limit 403 from Google clears within the retry delays: retried,
+	// and neither dropped nor stopping the cycle.
 	rate := markCalendarPermanent(&googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "userRateLimitExceeded"}}})
-	if !retry.IsRecoverable(rate) {
-		t.Error("calendar rate-limit 403 is not retried; the exam would be lost to a burst")
+	if !retry.IsRecoverable(rate) || isPermanentSendErr(rate) || isConfigSendErr(rate) {
+		t.Errorf("calendar rate-limit 403: recoverable=%v permanent=%v config=%v, want true/false/false",
+			retry.IsRecoverable(rate), isPermanentSendErr(rate), isConfigSendErr(rate))
+	}
+
+	// An exhausted daily quota: no retry this cycle, requeued, cycle not
+	// stopped — it is no credential problem.
+	quota := markCalendarPermanent(&googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "dailyLimitExceeded"}}})
+	if retry.IsRecoverable(quota) || isPermanentSendErr(quota) || isConfigSendErr(quota) {
+		t.Errorf("calendar quota 403: recoverable=%v permanent=%v config=%v, want false/false/false",
+			retry.IsRecoverable(quota), isPermanentSendErr(quota), isConfigSendErr(quota))
+	}
+
+	// restricted_action may bar the whole token, so it is of unknown reach:
+	// requeued for that channel, never dropped.
+	if restricted := markSlackPermanent(slack.SlackErrorResponse{Err: "restricted_action"}); isPermanentSendErr(restricted) {
+		t.Error("slack restricted_action is permanent; a workspace-wide restriction would drop every alert")
 	}
 
 	// A per-channel Slack error still condemns only that channel.

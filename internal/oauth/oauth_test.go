@@ -605,3 +605,20 @@ func TestServeCallbackLosesRaceToDeliveredCallback(t *testing.T) {
 		t.Errorf("callback = %+v, want the delivered auth code preserved", cb)
 	}
 }
+
+// TestIsAuthRejected: a deleted or reconfigured OAuth client is as account-wide
+// as a revoked grant, so all three RFC 6749 codes classify alike; a transient
+// server error does not.
+func TestIsAuthRejected(t *testing.T) {
+	t.Parallel()
+
+	for code, want := range map[string]bool{
+		"invalid_grant": true, "invalid_client": true, "unauthorized_client": true,
+		"temporarily_unavailable": false, "": false,
+	} {
+		err := fmt.Errorf("refresh: %w", &oauth2.RetrieveError{ErrorCode: code})
+		if got := IsAuthRejected(err); got != want {
+			t.Errorf("IsAuthRejected(%q) = %v, want %v", code, got, want)
+		}
+	}
+}

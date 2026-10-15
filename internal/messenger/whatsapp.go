@@ -243,8 +243,6 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 
 	run := newRecipientRun(g)
 
-	cfgFailed := false
-
 	for _, u := range userIDs {
 		if run.skipped(u) {
 			continue
@@ -291,12 +289,8 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 
 			logger.Error().Msgf("%v: %v", ErrWhatsAppSendingMessage, err)
 
-			run.failed()
-
 			// Bad for every recipient: stop, and let the cycle queue the rest.
-			if isConfigSendErr(err) {
-				cfgFailed = true
-
+			if run.failed(err) {
 				break
 			}
 
@@ -306,9 +300,7 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 		run.delivered(u)
 	}
 
-	run.finish(ctx, eDB, WhatsAppQueueName, g)
-
-	return cfgFailed
+	return run.finish(ctx, eDB, WhatsAppQueueName, g)
 }
 
 // awaitWhatsAppPairingDone blocks until interactive pairing releases

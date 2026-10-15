@@ -151,23 +151,36 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 	queueUndelivered(ctx, eDB, CalendarQueueName, ch)
 }
 
-// calendarRateReasons are the 403 reasons Google uses for rate and quota
-// limits: transient, unlike every other 403.
-var calendarRateReasons = []string{"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "dailyLimitExceeded"}
+// calendarRateReasons are the 403 reasons for per-minute rate limits: they
+// clear within the retry delays, so they are retried.
+var calendarRateReasons = []string{"rateLimitExceeded", "userRateLimitExceeded"}
+
+// calendarQuotaReasons are 403 reasons for an exhausted daily quota. Retrying
+// within the cycle only burns the budget, but it is no credential problem and
+// resets by itself, so the event is requeued without stopping the cycle.
+var calendarQuotaReasons = []string{"quotaExceeded", "dailyLimitExceeded"}
+
+// calendarHasReason reports whether gaErr carries one of reasons.
+func calendarHasReason(gaErr *googleapi.Error, reasons []string) bool {
+	return slices.ContainsFunc(gaErr.Errors, func(e googleapi.ErrorItem) bool {
+		return slices.Contains(reasons, e.Reason)
+	})
+}
 
 // markCalendarPermanent stops retry-go on a permanent 4xx. 5xx, transport
 // errors and rate-limit 403s stay transient. 409 never gets here: the insert
 // attempt reads it as success.
 //
-// Config errors, queued until re-authorised: a revoked or expired grant (the
-// oauth2 transport's invalid_grant, which never becomes a googleapi.Error),
-// a 401, and any other 403 — lost write access to the calendar is account-wide.
+// Config errors, queued until re-authorised: a revoked or expired grant or a
+// deleted OAuth client (oauth.IsAuthRejected; the transport's error never
+// becomes a googleapi.Error), a 401, and any 403 other than a rate or quota
+// limit — lost write access to the calendar is account-wide.
 func markCalendarPermanent(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	if re, ok := errors.AsType[*oauth2.RetrieveError](err); ok && re.ErrorCode == "invalid_grant" {
+	if oauth.IsAuthRejected(err) {
 		return markConfigErr(err)
 	}
 
@@ -175,10 +188,11 @@ func markCalendarPermanent(err error) error {
 		switch {
 		case gaErr.Code == http.StatusUnauthorized:
 			return markConfigErr(err)
-		case gaErr.Code == http.StatusForbidden && slices.ContainsFunc(gaErr.Errors, func(e googleapi.ErrorItem) bool {
-			return slices.Contains(calendarRateReasons, e.Reason)
-		}):
+		case gaErr.Code == http.StatusForbidden && calendarHasReason(gaErr, calendarRateReasons):
 			return err
+		case gaErr.Code == http.StatusForbidden && calendarHasReason(gaErr, calendarQuotaReasons):
+			// Neither marker: requeued, cycle not stopped.
+			return retry.Unrecoverable(err)
 		case gaErr.Code == http.StatusForbidden:
 			return markConfigErr(err)
 		}

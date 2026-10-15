@@ -224,6 +224,20 @@ func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEm
 	return fields
 }
 
+// isDiscordUnknownChannel reports Discord's answer for a DM channel that no
+// longer exists (404, JSON code 10003). Only that warrants re-resolving: any
+// other rejection — an oversize embed, a user who blocked the bot — would fail
+// the same on a fresh channel, at the cost of an eviction, a channel create
+// and a resend per recipient against Discord's rate limits.
+func isDiscordUnknownChannel(err error) bool {
+	rerr, ok := errors.AsType[*discordgo.RESTError](err)
+	if !ok || rerr.Response == nil || rerr.Response.StatusCode != http.StatusNotFound {
+		return false
+	}
+
+	return rerr.Message == nil || rerr.Message.Code == discordgo.ErrCodeUnknownChannel
+}
+
 // discordChannelFor returns u's DM channel, resolved lazily and cached across
 // recipients and cycles; cached reports whether it came from the cache.
 func discordChannelFor(ctx context.Context, u string) (string, bool, error) {
@@ -264,8 +278,6 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 	run := newRecipientRun(g)
 
-	cfgFailed := false
-
 	for _, u := range userIDs {
 		if run.skipped(u) {
 			continue
@@ -292,12 +304,8 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 			logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
 
-			run.failed()
-
 			// Bad for every recipient: stop, and let the cycle queue the rest.
-			if isConfigSendErr(classified) {
-				cfgFailed = true
-
+			if run.failed(classified) {
 				break
 			}
 
@@ -305,7 +313,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		}
 
 		err = sendDiscordEmbed(ctx, channelID, &msg, retries)
-		if err != nil && isPermanentSendErr(err) && cached {
+		if cached && isDiscordUnknownChannel(err) {
 			// A cached DM channel goes stale when the user closes the DM or it
 			// is deleted: evict, re-resolve and resend once before classifying.
 			// A failed re-resolve is classified on its own error, not the
@@ -337,12 +345,8 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 			logger.Error().Msgf("%v: %v", ErrDiscordSendingMessage, err)
 
-			run.failed()
-
 			// Bad for every recipient: stop, and let the cycle queue the rest.
-			if isConfigSendErr(err) {
-				cfgFailed = true
-
+			if run.failed(err) {
 				break
 			}
 
@@ -352,9 +356,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		run.delivered(u)
 	}
 
-	run.finish(ctx, eDB, DiscordQueueName, g)
-
-	return cfgFailed
+	return run.finish(ctx, eDB, DiscordQueueName, g)
 }
 
 // sendDiscordEmbed delivers msg under the per-recipient retry budget, marking

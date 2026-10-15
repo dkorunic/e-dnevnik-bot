@@ -281,6 +281,8 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: false,
 		},
 		{
+			// Retried (permanent=false); TestAuthFailuresStopRetryingButQueue
+			// pins that it is not a config error either.
 			name:      "calendar rate-limit 403 is transient",
 			mark:      markCalendarPermanent,
 			err:       &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "rateLimitExceeded"}}},
@@ -346,7 +348,7 @@ func TestMarkPermanentSurvivesWrapping(t *testing.T) {
 			err:  &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}},
 		},
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
-		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusForbidden}},
+		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
 		{name: "mail", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
 		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},
@@ -384,7 +386,7 @@ func TestPermanenceSurvivesRetryDo(t *testing.T) {
 			err:  &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}},
 		},
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
-		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusForbidden}},
+		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
 		{name: "mail", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
 		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},

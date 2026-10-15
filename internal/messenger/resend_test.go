@@ -224,7 +224,7 @@ func TestResendQueuedKeepsRequeuedFailureAsNewRow(t *testing.T) {
 	resendQueued(t.Context(), eDB, SlackQueueName, func(m msgtypes.Message) {
 		// Stand in for a messenger whose send failed transiently.
 		run := newRecipientRun(m)
-		run.failed()
+		run.failed(nil)
 		run.finish(t.Context(), eDB, SlackQueueName, m)
 	})
 

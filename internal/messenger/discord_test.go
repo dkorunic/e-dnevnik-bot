@@ -6,6 +6,7 @@ package messenger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -635,5 +636,35 @@ func TestProcessDiscordStaleChannelReresolveFailureRequeues(t *testing.T) {
 	queued := queue.FetchFailedMsgs(context.Background(), eDB, DiscordQueueName)
 	if len(queued) != 1 || slices.Contains(queued[0].Msg.SkipRecipients, "user1") {
 		t.Errorf("queued %+v, want the message requeued for user1 (not poison-dropped)", queued)
+	}
+}
+
+// TestIsDiscordUnknownChannel: only a vanished DM channel warrants evicting the
+// cache and re-resolving; an oversize embed or a blocked bot fails the same on
+// a fresh channel and would only burn rate budget per recipient.
+func TestIsDiscordUnknownChannel(t *testing.T) {
+	t.Parallel()
+
+	rest := func(status, code int) error {
+		return &discordgo.RESTError{
+			Response: &http.Response{StatusCode: status},
+			Message:  &discordgo.APIErrorMessage{Code: code},
+		}
+	}
+
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"unknown channel":    {rest(http.StatusNotFound, discordgo.ErrCodeUnknownChannel), true},
+		"404 without body":   {&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}}, true},
+		"other 404":          {rest(http.StatusNotFound, discordgo.ErrCodeUnknownUser), false},
+		"oversize embed 400": {rest(http.StatusBadRequest, 50035), false},
+		"blocked 403":        {rest(http.StatusForbidden, discordgo.ErrCodeCannotSendMessagesToThisUser), false},
+		"transport error":    {errors.New("connection reset"), false},
+	} {
+		if got := isDiscordUnknownChannel(tc.err); got != tc.want {
+			t.Errorf("%s: isDiscordUnknownChannel = %v, want %v", name, got, tc.want)
+		}
 	}
 }

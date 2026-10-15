@@ -334,6 +334,10 @@ type recipientRun struct {
 	// Cancelled before every recipient was attempted: requeue even though
 	// nothing failed.
 	interrupted bool
+
+	// A config error (see markConfigErr): bad for every recipient, so the
+	// recipient loop stops and finish reports it to cycleSender.
+	configFailed bool
 }
 
 // newRecipientRun seeds the skip set from recipients an earlier attempt
@@ -365,9 +369,17 @@ func (r *recipientRun) poison(ids ...string) {
 	r.poisoned = append(r.poisoned, ids...)
 }
 
-// failed records a transient failure, which requeues the message.
-func (r *recipientRun) failed() {
+// failed records a non-permanent failure, which requeues the message. It
+// reports whether err is a config error, in which case the caller must stop
+// its recipient loop: the rest would only repeat the rejected credential.
+func (r *recipientRun) failed(err error) bool {
 	r.anyFailed = true
+
+	if isConfigSendErr(err) {
+		r.configFailed = true
+	}
+
+	return r.configFailed
 }
 
 // interrupt records that recipients were left unattempted.
@@ -388,15 +400,17 @@ func (r *recipientRun) resolved() []string {
 // finish requeues g when anything is left to retry, merging resolved recipients
 // into SkipRecipients first. A run with neither a transient failure nor an
 // interruption is complete — an all-poisoned one included — and writes nothing.
-func (r *recipientRun) finish(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) {
+func (r *recipientRun) finish(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) bool {
 	if !r.anyFailed && !r.interrupted {
-		return
+		return r.configFailed
 	}
 
 	// Neither is attempted again; dedup bounds growth.
 	g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, r.resolved())
 
 	storeQueued(ctx, eDB, queueName, g)
+
+	return r.configFailed
 }
 
 // bodyRenderer is satisfied by format.HTMLMsg and format.MarkupMsg.

@@ -155,8 +155,6 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	run := newRecipientRun(g)
 
-	cfgFailed := false
-
 	for _, origID := range chatIDs {
 		if run.skipped(origID) {
 			continue
@@ -237,12 +235,8 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 			logger.Error().Msgf("%v: %v", ErrTelegramSendingMessage, err)
 
-			run.failed()
-
 			// Bad for every recipient: stop, and let the cycle queue the rest.
-			if isConfigSendErr(err) {
-				cfgFailed = true
-
+			if run.failed(err) {
 				break
 			}
 
@@ -252,9 +246,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		run.delivered(ids...)
 	}
 
-	run.finish(ctx, eDB, TelegramQueueName, g)
-
-	return cfgFailed
+	return run.finish(ctx, eDB, TelegramQueueName, g)
 }
 
 // sendTelegramMsg delivers msg under the per-recipient retry budget, marking
