@@ -158,9 +158,10 @@ func TestProcessMailInvalidFromIsMessageLevel(t *testing.T) {
 		t.Errorf("the report does not name the offending From address:\n%s", buf.String())
 	}
 
-	// Unsendable for every recipient, so requeueing would churn until MaxQueueAge.
-	if q := queue.FetchFailedMsgs(context.Background(), eDB, MailQueueName); len(q) != 0 {
-		t.Errorf("FetchFailedMsgs = %+v, want nothing queued", q)
+	// A config error: queued until the From line is fixed, not dropped —
+	// the alert is already dedup-flagged.
+	if q := queue.FetchFailedMsgs(context.Background(), eDB, MailQueueName); len(q) != 1 {
+		t.Errorf("FetchFailedMsgs = %+v, want the alert queued once", q)
 	}
 }
 

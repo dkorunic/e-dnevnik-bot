@@ -88,14 +88,20 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 
 	rl := ratelimit.New(SlackAPILimit, ratelimit.Per(SlackWindow))
 
+	var cs cycleSender
+
 	resendQueued(ctx, eDB, SlackQueueName, func(m msgtypes.Message) {
-		processSlack(ctx, eDB, m, cfg.ChatIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, SlackQueueName, m, func() bool {
+			return processSlack(ctx, eDB, m, cfg.ChatIDs, rl, cfg.Retries)
+		})
 	})
 
 	// Drain fully; processSlack durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processSlack(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, SlackQueueName, g, func() bool {
+			return processSlack(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		})
 		inflight = nil
 	}
 
@@ -106,15 +112,29 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 // server-side and worth retrying.
 var slackTransientErrors = []string{"internal_error", "fatal_error", "service_unavailable", "request_timeout", "ratelimited"}
 
-// slackAuthErrors mean the token is bad for every channel. Retrying this cycle
-// cannot help, but neither can dropping: the alerts are already dedup-flagged,
-// so they are queued until the token is fixed and the bot restarted.
-var slackAuthErrors = []string{"invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive"}
+// slackChannelErrors condemn one channel or one message and nothing else, so
+// that recipient is poison-dropped.
+var slackChannelErrors = []string{
+	"channel_not_found", "not_in_channel", "is_archived", "msg_too_long", "no_text",
+	"invalid_blocks", "restricted_action", "cannot_reply_to_message",
+}
 
-// markSlackPermanent stops retry-go on a permanent 4xx StatusCodeError or a
-// SlackErrorResponse (API-level "ok":false) such as channel_not_found. Network,
-// 5xx and slackTransientErrors stay transient; slackAuthErrors stop the retry
-// loop but are queued, not dropped.
+// slackAuthErrors are token-wide: every channel fails alike, so they are config
+// errors and stop the cycle (see cycleSender).
+var slackAuthErrors = []string{
+	"invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive",
+	"missing_scope", "not_allowed_token_type", "no_permission", "team_access_not_granted",
+}
+
+// markSlackPermanent classifies an error by how far it reaches:
+//   - transient (network, 5xx, slackTransientErrors): retried;
+//   - one channel (permanent 4xx StatusCodeError, slackChannelErrors):
+//     poison-dropped;
+//   - every channel (slackAuthErrors): a config error, queued, stops the cycle;
+//   - anything else: retrying is pointless, but its reach is unknown, so that
+//     recipient alone is requeued and the loop moves on. Treating an unknown
+//     per-channel code as token-wide would block every channel for 30 days;
+//     treating it as permanent would drop the alert.
 //
 // SlackErrorResponse is matched by value: SlackResponse.Err returns it that
 // way, so a pointer match never fires and every API error read as transient.
@@ -134,12 +154,14 @@ func markSlackPermanent(err error) error {
 		switch {
 		case slices.Contains(slackTransientErrors, ser.Err):
 			return err
-		case slices.Contains(slackAuthErrors, ser.Err):
-			// No permanentError inside: isPermanentSendErr stays false.
-			return retry.Unrecoverable(err)
-		default:
+		case slices.Contains(slackChannelErrors, ser.Err):
 			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
+		case slices.Contains(slackAuthErrors, ser.Err):
+			return markConfigErr(err)
+		default:
+			// Neither marker: run.failed requeues this recipient only.
+			return retry.Unrecoverable(err)
 		}
 	}
 
@@ -153,10 +175,12 @@ func slackMessageText(g msgtypes.Message) string {
 	return truncateRendered(format.MarkupMsg, g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, SlackMaxMessageChars)
 }
 
-func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
+func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) bool {
 	m := slackMessageText(g)
 
 	run := newRecipientRun(g)
+
+	cfgFailed := false
 
 	for _, u := range chatIDs {
 		if run.skipped(u) {
@@ -199,6 +223,13 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 
 			run.failed()
 
+			// Bad for every recipient: stop, and let the cycle queue the rest.
+			if isConfigSendErr(err) {
+				cfgFailed = true
+
+				break
+			}
+
 			continue
 		}
 
@@ -206,6 +237,8 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	}
 
 	run.finish(ctx, eDB, SlackQueueName, g)
+
+	return cfgFailed
 }
 
 // slackInit lazily builds the shared client, rebuilding on a token change.

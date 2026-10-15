@@ -8,6 +8,7 @@ import (
 	"embed"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -94,14 +95,20 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(CalendarAPILimit, ratelimit.Per(CalendarWindow))
 
+	var cs cycleSender
+
 	resendQueued(ctx, eDB, CalendarQueueName, func(m msgtypes.Message) {
-		processCalendar(ctx, eDB, m, rl, srv, calID, cfg.Retries)
+		cs.send(ctx, eDB, CalendarQueueName, m, func() bool {
+			return processCalendar(ctx, eDB, m, rl, srv, calID, cfg.Retries)
+		})
 	})
 
 	// Drain fully; processCalendar durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
+		cs.send(ctx, eDB, CalendarQueueName, g, func() bool {
+			return processCalendar(ctx, eDB, g, rl, srv, calID, cfg.Retries)
+		})
 		inflight = nil
 	}
 
@@ -144,15 +151,38 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 	queueUndelivered(ctx, eDB, CalendarQueueName, ch)
 }
 
-// markCalendarPermanent stops retry-go on a permanent 4xx. 5xx and transport
-// errors stay transient. 409 never gets here: the insert attempt reads it as
-// success.
+// calendarRateReasons are the 403 reasons Google uses for rate and quota
+// limits: transient, unlike every other 403.
+var calendarRateReasons = []string{"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "dailyLimitExceeded"}
+
+// markCalendarPermanent stops retry-go on a permanent 4xx. 5xx, transport
+// errors and rate-limit 403s stay transient. 409 never gets here: the insert
+// attempt reads it as success.
+//
+// Config errors, queued until re-authorised: a revoked or expired grant (the
+// oauth2 transport's invalid_grant, which never becomes a googleapi.Error),
+// a 401, and any other 403 — lost write access to the calendar is account-wide.
 func markCalendarPermanent(err error) error {
 	if err == nil {
 		return nil
 	}
 
+	if re, ok := errors.AsType[*oauth2.RetrieveError](err); ok && re.ErrorCode == "invalid_grant" {
+		return markConfigErr(err)
+	}
+
 	if gaErr, ok := errors.AsType[*googleapi.Error](err); ok {
+		switch {
+		case gaErr.Code == http.StatusUnauthorized:
+			return markConfigErr(err)
+		case gaErr.Code == http.StatusForbidden && slices.ContainsFunc(gaErr.Errors, func(e googleapi.ErrorItem) bool {
+			return slices.Contains(calendarRateReasons, e.Reason)
+		}):
+			return err
+		case gaErr.Code == http.StatusForbidden:
+			return markConfigErr(err)
+		}
+
 		if isPermanentHTTPStatus(gaErr.Code) {
 			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
@@ -167,12 +197,12 @@ func markCalendarPermanent(err error) error {
 // makes a retried insert dedupe server-side.
 func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, rl ratelimit.Limiter,
 	srv *calendar.Service, calID string, retries uint,
-) {
+) bool {
 	var err error
 
 	ev, ok := examEventOf("Google Calendar", g)
 	if !ok {
-		return
+		return false
 	}
 
 	// All-day event spanning a single date.
@@ -201,7 +231,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	if !takeCtx(ctx, rl) {
 		storeQueued(ctx, eDB, CalendarQueueName, g)
 
-		return
+		return false
 	}
 
 	err = retry.New(
@@ -231,15 +261,17 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			logger.Error().Msgf("Permanently dropping Google Calendar event for %v/%v (will not retry): %v",
 				g.Username, g.Subject, err)
 
-			return
+			return false
 		}
 
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
 		storeQueued(ctx, eDB, CalendarQueueName, g)
 
-		return
+		return isConfigSendErr(err)
 	}
+
+	return false
 }
 
 // InitCalendar builds an authenticated Calendar service, running interactive

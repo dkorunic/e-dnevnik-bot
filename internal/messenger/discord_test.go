@@ -595,3 +595,45 @@ func TestDiscordEmbedFieldCapCountsEmittedFields(t *testing.T) {
 			len(fields), DiscordMaxFields)
 	}
 }
+
+// TestProcessDiscordStaleChannelReresolveFailureRequeues: when the stale-channel
+// re-resolve itself fails transiently, the recipient must be requeued — not
+// poison-dropped on the stale send's permanent 404, which would lose the alert
+// although the user is still reachable.
+// NOTE: must not call t.Parallel() — discordCli and discordChannels are package-level globals.
+func TestProcessDiscordStaleChannelReresolveFailureRequeues(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "users/@me/channels") {
+			http.Error(w, `{"message":"upstream","code":0}`, http.StatusServiceUnavailable)
+
+			return
+		}
+
+		http.Error(w, `{"message":"Unknown Channel","code":10003}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	s, err := discordgo.New("Bot test-token")
+	if err != nil {
+		t.Fatalf("unable to create Discord session: %v", err)
+	}
+
+	s.Client = discordTestClient(srv.URL)
+	discordCli = s
+	discordChannels = map[string]string{"user1": "stale-chan"}
+
+	eDB, err := sqlitedb.New(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close()
+
+	g := msgtypes.Message{Username: "u", Subject: "s", Fields: []string{"A"}, Descriptions: []string{"D"}}
+
+	processDiscord(context.Background(), eDB, g, []string{"user1"}, ratelimit.New(1000), 1)
+
+	queued := queue.FetchFailedMsgs(context.Background(), eDB, DiscordQueueName)
+	if len(queued) != 1 || slices.Contains(queued[0].Msg.SkipRecipients, "user1") {
+		t.Errorf("queued %+v, want the message requeued for user1 (not poison-dropped)", queued)
+	}
+}

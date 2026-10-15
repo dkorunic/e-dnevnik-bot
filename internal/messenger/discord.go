@@ -99,14 +99,20 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	rl := ratelimit.New(DiscordAPILimit, ratelimit.Per(DiscordWindow))
 
+	var cs cycleSender
+
 	resendQueued(ctx, eDB, DiscordQueueName, func(m msgtypes.Message) {
-		processDiscord(ctx, eDB, m, cfg.UserIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, DiscordQueueName, m, func() bool {
+			return processDiscord(ctx, eDB, m, cfg.UserIDs, rl, cfg.Retries)
+		})
 	})
 
 	// Drain fully; processDiscord durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, DiscordQueueName, g, func() bool {
+			return processDiscord(ctx, eDB, g, cfg.UserIDs, rl, cfg.Retries)
+		})
 		inflight = nil
 	}
 
@@ -128,8 +134,7 @@ func markDiscordPermanent(err error) error {
 	var rerr *discordgo.RESTError
 	if errors.As(err, &rerr) && rerr.Response != nil {
 		if rerr.Response.StatusCode == http.StatusUnauthorized {
-			// No permanentError inside: isPermanentSendErr stays false.
-			return retry.Unrecoverable(err)
+			return markConfigErr(err)
 		}
 
 		if isPermanentHTTPStatus(rerr.Response.StatusCode) {
@@ -219,9 +224,35 @@ func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEm
 	return fields
 }
 
+// discordChannelFor returns u's DM channel, resolved lazily and cached across
+// recipients and cycles; cached reports whether it came from the cache.
+func discordChannelFor(ctx context.Context, u string) (string, bool, error) {
+	discordMu.Lock()
+	channelID, cached := discordChannels[u]
+	discordMu.Unlock()
+
+	if cached {
+		return channelID, true, nil
+	}
+
+	c, err := discordCli.UserChannelCreate(u,
+		discordgo.WithContext(ctx),
+		discordgo.WithRetryOnRatelimit(true),
+		discordgo.WithRestRetries(1))
+	if err != nil {
+		return "", false, err
+	}
+
+	discordMu.Lock()
+	discordChannels[u] = c.ID
+	discordMu.Unlock()
+
+	return c.ID, false, nil
+}
+
 // processDiscord sends g as a capped embed to each user ID over a lazily
 // resolved, cached DM channel, re-queueing on partial or total failure.
-func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) bool {
 	title := truncateWithEllipsis(format.PlainSubject(g.Username, g.Subject, g.Code), DiscordMaxTitleChars)
 
 	fields := discordEmbedFields(g, title)
@@ -232,6 +263,8 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 
 	run := newRecipientRun(g)
+
+	cfgFailed := false
 
 	for _, u := range userIDs {
 		if run.skipped(u) {
@@ -245,62 +278,50 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			break
 		}
 
-		// Resolved lazily, cached across recipients.
-		discordMu.Lock()
-		channelID, cached := discordChannels[u]
-		discordMu.Unlock()
+		channelID, cached, err := discordChannelFor(ctx, u)
+		if err != nil {
+			classified := markDiscordPermanent(err)
+			if isPermanentSendErr(classified) {
+				// Invalid or unknown user: drop, don't requeue.
+				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrDiscordCreatingChannel, u, err)
 
-		if !cached {
-			c, err := discordCli.UserChannelCreate(u,
-				discordgo.WithContext(ctx),
-				discordgo.WithRetryOnRatelimit(true),
-				discordgo.WithRestRetries(1))
-			if err != nil {
-				if isPermanentSendErr(markDiscordPermanent(err)) {
-					// Invalid or unknown user: drop, don't requeue.
-					logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrDiscordCreatingChannel, u, err)
-
-					run.poison(u)
-
-					continue
-				}
-
-				logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
-
-				run.failed()
+				run.poison(u)
 
 				continue
 			}
 
-			channelID = c.ID
-			discordMu.Lock()
-			discordChannels[u] = channelID
-			discordMu.Unlock()
+			logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, err)
+
+			run.failed()
+
+			// Bad for every recipient: stop, and let the cycle queue the rest.
+			if isConfigSendErr(classified) {
+				cfgFailed = true
+
+				break
+			}
+
+			continue
 		}
 
-		err := sendDiscordEmbed(ctx, channelID, &msg, retries)
+		err = sendDiscordEmbed(ctx, channelID, &msg, retries)
 		if err != nil && isPermanentSendErr(err) && cached {
 			// A cached DM channel goes stale when the user closes the DM or it
 			// is deleted: evict, re-resolve and resend once before classifying.
-			// A failed re-resolve keeps the original error; the cache is already
-			// evicted, so the next cycle starts clean.
+			// A failed re-resolve is classified on its own error, not the
+			// stale send's: a timeout must requeue, a 401 must stop the cycle.
 			discordMu.Lock()
 			delete(discordChannels, u)
 			discordMu.Unlock()
 
 			logger.Warn().Msgf("Discord: cached DM channel for %q rejected, re-resolving: %v", u, err)
 
-			if c, cerr := discordCli.UserChannelCreate(u,
-				discordgo.WithContext(ctx),
-				discordgo.WithRetryOnRatelimit(true),
-				discordgo.WithRestRetries(1)); cerr != nil {
+			if newID, _, cerr := discordChannelFor(ctx, u); cerr != nil {
 				logger.Error().Msgf("%v: %v", ErrDiscordCreatingChannel, cerr)
-			} else {
-				discordMu.Lock()
-				discordChannels[u] = c.ID
-				discordMu.Unlock()
 
-				err = sendDiscordEmbed(ctx, c.ID, &msg, retries)
+				err = markDiscordPermanent(cerr)
+			} else {
+				err = sendDiscordEmbed(ctx, newID, &msg, retries)
 			}
 		}
 
@@ -318,6 +339,13 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 			run.failed()
 
+			// Bad for every recipient: stop, and let the cycle queue the rest.
+			if isConfigSendErr(err) {
+				cfgFailed = true
+
+				break
+			}
+
 			continue
 		}
 
@@ -325,6 +353,8 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 	}
 
 	run.finish(ctx, eDB, DiscordQueueName, g)
+
+	return cfgFailed
 }
 
 // sendDiscordEmbed delivers msg under the per-recipient retry budget, marking

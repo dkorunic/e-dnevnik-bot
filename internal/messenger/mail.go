@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/textproto"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,14 +94,20 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
+	var cs cycleSender
+
 	resendQueued(ctx, eDB, MailQueueName, func(m msgtypes.Message) {
-		processMail(ctx, eDB, m, cfg.To, cfg.From, cfg.subjectFor(m.Code), rl, cfg.Retries)
+		cs.send(ctx, eDB, MailQueueName, m, func() bool {
+			return processMail(ctx, eDB, m, cfg.To, cfg.From, cfg.subjectFor(m.Code), rl, cfg.Retries)
+		})
 	})
 
 	// Drain fully; processMail durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.subjectFor(g.Code), rl, cfg.Retries)
+		cs.send(ctx, eDB, MailQueueName, g, func() bool {
+			return processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.subjectFor(g.Code), rl, cfg.Retries)
+		})
 		inflight = nil
 	}
 
@@ -144,7 +151,16 @@ func mailInit(server string, portInt int, username, password string) error {
 // mechanism too weak, 535 bad credentials). It fails the dial, before any
 // message is attempted, and applies to every recipient: a config error, queued
 // rather than dropped.
+//
+// go-mail's own login setup failures are config errors too, as no retry can
+// change them. With SMTPAuthPlain fixed (see mailInit) only two are reachable:
+// ErrPlainAuthNotSupported, and a server advertising no AUTH at all, which
+// go-mail reports as an unnamed fmt.Errorf — hence the text match.
 func isMailAuthErr(err error) bool {
+	if errors.Is(err, mail.ErrPlainAuthNotSupported) || strings.Contains(err.Error(), mailNoAuthText) {
+		return true
+	}
+
 	var tpErr *textproto.Error
 	if !errors.As(err, &tpErr) {
 		return false
@@ -152,6 +168,9 @@ func isMailAuthErr(err error) bool {
 
 	return tpErr.Code == 530 || tpErr.Code == 534 || tpErr.Code == 535
 }
+
+// mailNoAuthText is go-mail v0.8's error for a server without SMTP AUTH.
+const mailNoAuthText = "server does not support SMTP AUTH"
 
 // markMailPermanent stops retry-go on a non-temporary SMTP error — permanent
 // 5xx, auth failure, malformed header, broken TLS — as classified by
@@ -174,7 +193,9 @@ func markMailPermanent(err error) error {
 // recipient, re-queueing on partial or total failure. The rate limiter is taken
 // once per batch rather than per recipient: delivery shares one SMTP
 // connection.
-func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) {
+func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) bool {
+	cfgFailed := false
+
 	// Capped client-side: an MTA-rejected oversize would loop in the queue
 	// until MaxQueueAge.
 	htmlContent := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, MailMaxBodyChars)
@@ -200,12 +221,16 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 
 		if err := m.From(from); err != nil {
 			// Message-level, not the recipient's: blaming each address in turn
-			// reported one config line as a fleet of dead recipients. Nothing
-			// can be served and no retry helps, so stop rather than requeue.
-			logger.Error().Msgf("%v: invalid From address %q, dropping alert for %v/%v: %v",
+			// reported one config line as a fleet of dead recipients. A config
+			// error: queued until fixed, and the cycle stops sending.
+			logger.Error().Msgf("%v: invalid From address %q, queueing alert for %v/%v: %v",
 				ErrMailSendingMessages, from, g.Username, g.Subject, err)
 
-			return
+			run.failed()
+
+			cfgFailed = true
+
+			break
 		}
 
 		if err := m.To(u); err != nil {
@@ -255,10 +280,14 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
 			run.failed()
+
+			cfgFailed = isConfigSendErr(err)
 		}
 	}
 
 	run.finish(ctx, eDB, MailQueueName, g)
+
+	return cfgFailed
 }
 
 // undeliveredRecipients returns the entries of rcpt not in delivered, in order.
@@ -340,7 +369,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 				// markMailPermanent reads it as transient); it only needs to
 				// stop retrying credentials that cannot start working.
 				if isMailAuthErr(sendErr) {
-					return retry.Unrecoverable(sendErr)
+					return markConfigErr(sendErr)
 				}
 
 				return markMailPermanent(sendErr)

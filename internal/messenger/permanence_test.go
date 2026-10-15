@@ -158,10 +158,11 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: true,
 		},
 		{
-			name:      "telegram not found is permanent",
+			// A malformed token answers 404 for the whole request.
+			name:      "telegram not found is not permanent",
 			mark:      markTelegramPermanent,
 			err:       bot.ErrorNotFound,
-			permanent: true,
+			permanent: false,
 		},
 		{
 			name:      "telegram conflict is permanent",
@@ -232,18 +233,19 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: false,
 		},
 
-		// WhatsApp: each sentinel means the session or recipient is unusable.
+		// WhatsApp: a missing session is a config error (queued until
+		// re-pairing); the other sentinels condemn one recipient.
 		{
-			name:      "whatsapp nil client is permanent",
+			name:      "whatsapp nil client is not permanent",
 			mark:      markWhatsAppPermanent,
 			err:       whatsmeow.ErrClientIsNil,
-			permanent: true,
+			permanent: false,
 		},
 		{
-			name:      "whatsapp not logged in is permanent",
+			name:      "whatsapp not logged in is not permanent",
 			mark:      markWhatsAppPermanent,
 			err:       whatsmeow.ErrNotLoggedIn,
-			permanent: true,
+			permanent: false,
 		},
 		{
 			name:      "whatsapp broadcast list is permanent",
@@ -266,10 +268,23 @@ func TestMarkPermanentClassification(t *testing.T) {
 
 		// Calendar.
 		{
-			name:      "calendar 403 is permanent",
+			name:      "calendar 404 is permanent",
+			mark:      markCalendarPermanent,
+			err:       &googleapi.Error{Code: http.StatusNotFound},
+			permanent: true,
+		},
+		{
+			// Lost write access is account-wide: queued, not dropped.
+			name:      "calendar 403 is not permanent",
 			mark:      markCalendarPermanent,
 			err:       &googleapi.Error{Code: http.StatusForbidden},
-			permanent: true,
+			permanent: false,
+		},
+		{
+			name:      "calendar rate-limit 403 is transient",
+			mark:      markCalendarPermanent,
+			err:       &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "rateLimitExceeded"}}},
+			permanent: false,
 		},
 		{
 			name:      "calendar 429 is transient",
@@ -333,8 +348,8 @@ func TestMarkPermanentSurvivesWrapping(t *testing.T) {
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
 		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusForbidden}},
 		{name: "mail", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
-		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrNotLoggedIn},
-		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusForbidden}},
+		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
+		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},
 	}
 
 	for _, tt := range tests {
@@ -371,8 +386,8 @@ func TestPermanenceSurvivesRetryDo(t *testing.T) {
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
 		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusForbidden}},
 		{name: "mail", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
-		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrNotLoggedIn},
-		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusForbidden}},
+		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
+		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},
 	}
 
 	const attempts = 5

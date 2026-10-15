@@ -335,7 +335,7 @@ func checkUserConf(config *TomlConfig) {
 			logger.Fatal().Msgf("Configuration error: username not in proper User@domain format: %v", u.Username)
 		}
 
-		if !strings.HasSuffix(u.Username, "@skole.hr") {
+		if !strings.HasSuffix(strings.ToLower(u.Username), "@skole.hr") {
 			logger.Warn().Msgf("Configuration issue: username not ending with @skole.hr: %v", u.Username)
 		}
 

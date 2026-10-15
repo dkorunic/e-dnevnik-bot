@@ -188,14 +188,20 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	userIDs = whatsAppEffectiveUserIDs(ctx, cli, userIDs, groups)
 
+	var cs cycleSender
+
 	resendQueued(ctx, eDB, WhatsAppQueueName, func(m msgtypes.Message) {
-		processWhatsApp(ctx, cli, eDB, m, userIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, WhatsAppQueueName, m, func() bool {
+			return processWhatsApp(ctx, cli, eDB, m, userIDs, rl, cfg.Retries)
+		})
 	})
 
 	// Drain fully; processWhatsApp durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, WhatsAppQueueName, g, func() bool {
+			return processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
+		})
 		inflight = nil
 	}
 
@@ -211,9 +217,13 @@ func markWhatsAppPermanent(err error) error {
 		return nil
 	}
 
-	if errors.Is(err, whatsmeow.ErrClientIsNil) ||
-		errors.Is(err, whatsmeow.ErrNotLoggedIn) ||
-		errors.Is(err, whatsmeow.ErrRecipientADJID) ||
+	// No session: bad for every recipient until re-pairing, so a config
+	// error — queued, not dropped.
+	if errors.Is(err, whatsmeow.ErrClientIsNil) || errors.Is(err, whatsmeow.ErrNotLoggedIn) {
+		return markConfigErr(err)
+	}
+
+	if errors.Is(err, whatsmeow.ErrRecipientADJID) ||
 		errors.Is(err, whatsmeow.ErrBroadcastListUnsupported) ||
 		errors.Is(err, whatsmeow.ErrUnknownServer) {
 		// Inner sentinel survives retry.Do's marker stripping.
@@ -226,26 +236,21 @@ func markWhatsAppPermanent(err error) error {
 // processWhatsApp sends g as plain text to each recipient JID, re-queueing on
 // partial or total failure. Invalid JIDs are dropped without spending rate
 // budget.
-func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) {
+func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) bool {
 	// PlainMsg: Conversation rendering would interpret Markdown metacharacters.
 	mRaw := truncateWithEllipsis(format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), WhatsAppMaxMessageChars)
 	m := waE2E.Message{Conversation: &mRaw}
 
 	run := newRecipientRun(g)
 
+	cfgFailed := false
+
 	for _, u := range userIDs {
 		if run.skipped(u) {
 			continue
 		}
 
-		// Before Take(), so shutdown isn't held by a pending token.
-		if ctx.Err() != nil {
-			run.interrupt()
-
-			break
-		}
-
-		// Before Take(): an invalid JID must not spend rate budget.
+		// Before takeCtx: an invalid JID must not spend rate budget.
 		target, err := types.ParseJID(u)
 		if err != nil {
 			// Never becomes valid: log loudly and drop.
@@ -288,6 +293,13 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 
 			run.failed()
 
+			// Bad for every recipient: stop, and let the cycle queue the rest.
+			if isConfigSendErr(err) {
+				cfgFailed = true
+
+				break
+			}
+
 			continue
 		}
 
@@ -295,6 +307,8 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 	}
 
 	run.finish(ctx, eDB, WhatsAppQueueName, g)
+
+	return cfgFailed
 }
 
 // awaitWhatsAppPairingDone blocks until interactive pairing releases

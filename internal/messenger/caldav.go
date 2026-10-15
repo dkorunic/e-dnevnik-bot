@@ -106,14 +106,20 @@ func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, 
 
 	rl := ratelimit.New(CalDAVAPILimit, ratelimit.Per(CalDAVWindow))
 
+	var cs cycleSender
+
 	resendQueued(ctx, eDB, CalDAVQueueName, func(m msgtypes.Message) {
-		processCalDAV(ctx, eDB, m, rl, cfg)
+		cs.send(ctx, eDB, CalDAVQueueName, m, func() bool {
+			return processCalDAV(ctx, eDB, m, rl, cfg)
+		})
 	})
 
 	// Drain fully; processCalDAV durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processCalDAV(ctx, eDB, g, rl, cfg)
+		cs.send(ctx, eDB, CalDAVQueueName, g, func() bool {
+			return processCalDAV(ctx, eDB, g, rl, cfg)
+		})
 		inflight = nil
 	}
 
@@ -137,8 +143,7 @@ func markCalDAVPermanent(err error) error {
 
 	if se, ok := errors.AsType[*caldavStatusError](err); ok {
 		if isCalDAVConfigStatus(se.code) {
-			// No permanentError inside: isPermanentSendErr stays false.
-			return retry.Unrecoverable(err)
+			return markConfigErr(err)
 		}
 
 		isLocked := se.code == http.StatusLocked
@@ -163,16 +168,16 @@ func isCalDAVConfigStatus(code int) bool {
 // processCalDAV PUTs g as a create-only all-day event, re-queueing on a
 // transient failure. examEventOf decides what is sent; its ID names the
 // resource, so a repeat answers 412 instead of duplicating.
-func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, rl ratelimit.Limiter, cfg CalDAVConfig) {
+func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, rl ratelimit.Limiter, cfg CalDAVConfig) bool {
 	ev, ok := examEventOf("CalDAV", g)
 	if !ok {
-		return
+		return false
 	}
 
 	if ctx.Err() != nil {
 		storeQueued(ctx, eDB, CalDAVQueueName, g)
 
-		return
+		return false
 	}
 
 	target, err := url.JoinPath(cfg.URL, ev.ID+".ics")
@@ -181,7 +186,7 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 		logger.Error().Msgf("Permanently dropping CalDAV event for %v/%v: cannot build resource URL: %v",
 			g.Username, g.Subject, err)
 
-		return
+		return false
 	}
 
 	body := buildICalEvent(ev, time.Now())
@@ -190,7 +195,7 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 	if !takeCtx(ctx, rl) {
 		storeQueued(ctx, eDB, CalDAVQueueName, g)
 
-		return
+		return false
 	}
 
 	err = retry.New(
@@ -203,14 +208,14 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 		},
 	)
 	if err == nil {
-		return
+		return false
 	}
 
 	if isPermanentSendErr(err) {
 		logger.Error().Msgf("Permanently dropping CalDAV event for %v/%v (will not retry): %v",
 			g.Username, g.Subject, err)
 
-		return
+		return false
 	}
 
 	if se, ok := errors.AsType[*caldavStatusError](err); ok && isCalDAVConfigStatus(se.code) {
@@ -220,6 +225,8 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 	}
 
 	storeQueued(ctx, eDB, CalDAVQueueName, g)
+
+	return isConfigSendErr(err)
 }
 
 // putCalDAV sends one create-only PUT and classifies the answer for retry-go.

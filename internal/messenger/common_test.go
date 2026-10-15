@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"reflect"
 	"testing"
 	"time"
@@ -16,10 +17,14 @@ import (
 	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
+	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/go-telegram/bot"
 	"github.com/slack-go/slack"
+	mail "github.com/wneessen/go-mail"
 	"go.mau.fi/whatsmeow"
 	"go.uber.org/ratelimit"
+	"golang.org/x/oauth2"
 	"google.golang.org/api/googleapi"
 )
 
@@ -229,10 +234,10 @@ func TestMarkPermanentWrapping(t *testing.T) {
 		mark      func(error) error
 	}{
 		{"telegram", bot.ErrorForbidden, markTelegramPermanent},
-		{"whatsapp", whatsmeow.ErrNotLoggedIn, markWhatsAppPermanent},
+		{"whatsapp", whatsmeow.ErrUnknownServer, markWhatsAppPermanent},
 		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}}, markDiscordPermanent},
 		{"slack", slack.StatusCodeError{Code: http.StatusForbidden}, markSlackPermanent},
-		{"calendar", &googleapi.Error{Code: http.StatusForbidden}, markCalendarPermanent},
+		{"calendar", &googleapi.Error{Code: http.StatusNotFound}, markCalendarPermanent},
 		{"caldav", &caldavStatusError{code: http.StatusBadRequest}, markCalDAVPermanent},
 	}
 
@@ -369,9 +374,16 @@ func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]error{
-		"telegram": markTelegramPermanent(bot.ErrorUnauthorized),
-		"discord":  markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusUnauthorized}}),
-		"slack":    markSlackPermanent(slack.SlackErrorResponse{Err: "invalid_auth"}),
+		"telegram":       markTelegramPermanent(bot.ErrorUnauthorized),
+		"discord":        markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusUnauthorized}}),
+		"slack":          markSlackPermanent(slack.SlackErrorResponse{Err: "invalid_auth"}),
+		"slack scope":    markSlackPermanent(slack.SlackErrorResponse{Err: "missing_scope"}),
+		"telegram 404":   markTelegramPermanent(bot.ErrorNotFound),
+		"calendar 403":   markCalendarPermanent(&googleapi.Error{Code: http.StatusForbidden}),
+		"calendar grant": markCalendarPermanent(&url.Error{Op: "Post", URL: "https://oauth2.googleapis.com/token", Err: &oauth2.RetrieveError{ErrorCode: "invalid_grant"}}),
+		"whatsapp":       markWhatsAppPermanent(whatsmeow.ErrNotLoggedIn),
+		"calendar":       markCalendarPermanent(&googleapi.Error{Code: http.StatusUnauthorized}),
+		"caldav":         markCalDAVPermanent(&caldavStatusError{code: http.StatusUnauthorized}),
 	}
 
 	for name, got := range cases {
@@ -382,6 +394,31 @@ func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
 		if isPermanentSendErr(got) {
 			t.Errorf("%s: auth failure is permanent; the alert would be dropped instead of queued", name)
 		}
+
+		// After retry.Do too: cycleSender keys on this to stop the cycle.
+		if !isConfigSendErr(retry.New(retry.Attempts(3)).Do(func() error { return got })) {
+			t.Errorf("%s: not detectable as a config error after retry.Do", name)
+		}
+	}
+
+	// An unknown Slack code has unknown reach: retrying is pointless, but it
+	// requeues that recipient only — neither dropped nor stopping the cycle,
+	// or one odd channel would block every other for 30 days.
+	unknown := markSlackPermanent(slack.SlackErrorResponse{Err: "some_future_code"})
+	if retry.IsRecoverable(unknown) || isPermanentSendErr(unknown) || isConfigSendErr(unknown) {
+		t.Errorf("slack unknown code: recoverable=%v permanent=%v config=%v, want false/false/false",
+			retry.IsRecoverable(unknown), isPermanentSendErr(unknown), isConfigSendErr(unknown))
+	}
+
+	// A rate-limit 403 from Google is temporary.
+	rate := markCalendarPermanent(&googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "userRateLimitExceeded"}}})
+	if !retry.IsRecoverable(rate) {
+		t.Error("calendar rate-limit 403 is not retried; the exam would be lost to a burst")
+	}
+
+	// A per-channel Slack error still condemns only that channel.
+	if !isPermanentSendErr(markSlackPermanent(slack.SlackErrorResponse{Err: "channel_not_found"})) {
+		t.Error("slack channel_not_found is no longer permanent")
 	}
 
 	// Discord 403 is per user (DMs closed) and stays a poison-drop.
@@ -389,10 +426,78 @@ func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
 		t.Error("discord 403 is no longer permanent; a user with closed DMs would retry every cycle")
 	}
 
+	if !isMailAuthErr(fmt.Errorf("dial failed: %w", mail.ErrPlainAuthNotSupported)) {
+		t.Error("isMailAuthErr missed go-mail's PLAIN-not-supported error")
+	}
+
+	// go-mail reports a server without AUTH as an unnamed fmt.Errorf.
+	if !isMailAuthErr(fmt.Errorf("dial failed: %w", errors.New(mailNoAuthText))) {
+		t.Error("isMailAuthErr missed a server that advertises no SMTP AUTH")
+	}
+
 	for code, want := range map[int]bool{530: true, 534: true, 535: true, 550: false, 421: false} {
 		err := fmt.Errorf("dial failed: %w", &textproto.Error{Code: code, Msg: "x"})
 		if got := isMailAuthErr(err); got != want {
 			t.Errorf("isMailAuthErr(%d) = %v, want %v", code, got, want)
 		}
+	}
+}
+
+// TestCycleSenderQueuesAfterConfigError: after one message reports a rejected
+// credential, the rest of the cycle is queued unsent — repeating a bad SMTP
+// password per message is how an account gets locked out.
+func TestCycleSenderQueuesAfterConfigError(t *testing.T) {
+	t.Parallel()
+
+	eDB, err := sqlitedb.New(t.Context(), t.TempDir()+"/cycle.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	queueName := []byte("cycle-test-queue")
+
+	var (
+		cs    cycleSender
+		calls int
+	)
+
+	for _, subject := range []string{"first", "second", "third"} {
+		cs.send(t.Context(), eDB, queueName, msgtypes.Message{Subject: subject}, func() bool {
+			calls++
+
+			return true // every send reports a config error
+		})
+	}
+
+	if calls != 1 {
+		t.Errorf("process ran %d times, want 1 — later messages must not retry the rejected credential", calls)
+	}
+
+	if got := queue.FetchFailedMsgs(t.Context(), eDB, queueName); len(got) != 2 {
+		t.Errorf("queued %d messages, want the 2 that were never attempted", len(got))
+	}
+}
+
+// TestCycleSenderTrippedRespectsQueueAccepts: once tripped, a calendar queue
+// must not collect the grades and digests the fan-out also hands it — they
+// would only be discarded on resend, churning every cycle.
+func TestCycleSenderTrippedRespectsQueueAccepts(t *testing.T) {
+	t.Parallel()
+
+	eDB, err := sqlitedb.New(t.Context(), t.TempDir()+"/cycle-cal.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	cs := cycleSender{tripped: true}
+
+	cs.send(t.Context(), eDB, CalendarQueueName, msgtypes.Message{Code: msgtypes.Grade, Subject: "grade"}, func() bool { return false })
+	cs.send(t.Context(), eDB, CalendarQueueName, msgtypes.Message{Code: msgtypes.Exam, Subject: "exam"}, func() bool { return false })
+
+	got := queue.FetchFailedMsgs(t.Context(), eDB, CalendarQueueName)
+	if len(got) != 1 || got[0].Msg.Code != msgtypes.Exam {
+		t.Errorf("calendar queue holds %+v, want only the exam", got)
 	}
 }

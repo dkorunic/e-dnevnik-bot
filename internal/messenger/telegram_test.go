@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
@@ -346,5 +347,49 @@ func TestProcessTelegramPoisonKeyedOnConfiguredChatID(t *testing.T) {
 	if !slices.Contains(failed[0].Msg.SkipRecipients, configuredID) {
 		t.Errorf("SkipRecipients = %v, want the *configured* chat ID %q; recording the migrated ID instead means the skip never matches the recipient list on retry",
 			failed[0].Msg.SkipRecipients, configuredID)
+	}
+}
+
+// TestProcessTelegramStopsOnRevokedToken: a 401 is bad for every chat, so the
+// recipient loop must stop at the first one and requeue, rather than send the
+// same rejected token to each chat — and processTelegram must report it so the
+// cycle queues the remaining messages unsent.
+// NOTE: must not run in parallel — it writes package-level telegramCli.
+func TestProcessTelegramStopsOnRevokedToken(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"ok":false,"error_code":401,"description":"Unauthorized"}`)
+	}))
+	defer server.Close()
+
+	b, err := bot.New("test-token", bot.WithServerURL(server.URL), bot.WithSkipGetMe())
+	if err != nil {
+		t.Fatalf("Unable to create Telegram bot: %v", err)
+	}
+	telegramCli = b
+
+	eDB, err := sqlitedb.New(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	msg := msgtypes.Message{Username: "u", Subject: "s", Descriptions: []string{"d"}, Fields: []string{"f"}}
+
+	if !processTelegram(context.Background(), eDB, msg, []string{"111", "222", "333"}, ratelimit.New(1000), 3) {
+		t.Error("processTelegram did not report the config error; the cycle would keep sending with a revoked token")
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("server saw %d sends, want 1 — the loop must stop at the first rejected token", got)
+	}
+
+	queued := queue.FetchFailedMsgs(context.Background(), eDB, TelegramQueueName)
+	if len(queued) != 1 || len(queued[0].Msg.SkipRecipients) != 0 {
+		t.Errorf("queued %+v, want the message once with no recipient skipped", queued)
 	}
 }

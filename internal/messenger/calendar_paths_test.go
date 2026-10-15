@@ -187,13 +187,14 @@ func TestProcessCalendarConflictIsIdempotentSuccess(t *testing.T) {
 	}
 }
 
-// TestProcessCalendarPermanentErrorIsDropped: a 403/404 will fail identically
-// forever, so it is poison-dropped rather than requeued. Requeueing would retry
+// TestProcessCalendarPermanentErrorIsDropped: a 400/404 will fail identically
+// forever, so it is poison-dropped rather than requeued. (403 is lost write
+// access, account-wide: a config error, queued.) Requeueing would retry
 // it every cycle until MaxQueueAge, with a loud error each time.
 func TestProcessCalendarPermanentErrorIsDropped(t *testing.T) {
 	t.Parallel()
 
-	for _, status := range []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound} {
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound} {
 		eDB := calendarTestDB(t)
 		svc, _ := calendarStub(t, status, `{"error":{"code":`+strconv.Itoa(status)+`,"message":"nope"}}`)
 

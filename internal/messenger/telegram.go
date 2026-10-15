@@ -91,27 +91,33 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(TelegramAPILimit, ratelimit.Per(TelegramWindow))
 
+	var cs cycleSender
+
 	resendQueued(ctx, eDB, TelegramQueueName, func(m msgtypes.Message) {
-		processTelegram(ctx, eDB, m, cfg.ChatIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, TelegramQueueName, m, func() bool {
+			return processTelegram(ctx, eDB, m, cfg.ChatIDs, rl, cfg.Retries)
+		})
 	})
 
 	// Drain fully; processTelegram durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		cs.send(ctx, eDB, TelegramQueueName, g, func() bool {
+			return processTelegram(ctx, eDB, g, cfg.ChatIDs, rl, cfg.Retries)
+		})
 		inflight = nil
 	}
 
 	return nil
 }
 
-// markTelegramPermanent stops retry-go on Forbidden, BadRequest, NotFound,
-// Conflict and MigrateError — a migrated chat's old ID is dead.
+// markTelegramPermanent stops retry-go on Forbidden, BadRequest, Conflict and
+// MigrateError — a migrated chat's old ID is dead.
 // TooManyRequests and network errors stay transient.
 //
-// Unauthorized is a config error: the token is bad for every chat, so the
-// retry loop stops but the alert is queued, not dropped, until the token is
-// fixed and the bot restarted.
+// Unauthorized and NotFound are config errors: the token is bad for every
+// chat, so the retry loop stops but the alert is queued, not dropped, until the
+// token is fixed and the bot restarted.
 func markTelegramPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -123,16 +129,16 @@ func markTelegramPermanent(err error) error {
 		return err
 	}
 
-	if errors.Is(err, bot.ErrorUnauthorized) {
-		// No permanentError inside: isPermanentSendErr stays false.
-		return retry.Unrecoverable(err)
+	// 404 is the whole request, not a chat: Telegram answers it when the
+	// token in the URL path is malformed (a missing chat is a 400).
+	if errors.Is(err, bot.ErrorUnauthorized) || errors.Is(err, bot.ErrorNotFound) {
+		return markConfigErr(err)
 	}
 
 	var mig *bot.MigrateError
 	if errors.As(err, &mig) ||
 		errors.Is(err, bot.ErrorForbidden) ||
 		errors.Is(err, bot.ErrorBadRequest) ||
-		errors.Is(err, bot.ErrorNotFound) ||
 		errors.Is(err, bot.ErrorConflict) {
 		// Inner sentinel survives retry.Do's marker stripping.
 		return retry.Unrecoverable(permanentError{err})
@@ -143,11 +149,13 @@ func markTelegramPermanent(err error) error {
 
 // processTelegram sends g as HTML to each chat ID, re-queueing on partial or
 // total failure.
-func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) {
+func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, chatIDs []string, rl ratelimit.Limiter, retries uint) bool {
 	// Trim before formatting, so <b>/<pre> stay balanced.
 	m := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, TelegramMaxMessageChars)
 
 	run := newRecipientRun(g)
+
+	cfgFailed := false
 
 	for _, origID := range chatIDs {
 		if run.skipped(origID) {
@@ -231,6 +239,13 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 			run.failed()
 
+			// Bad for every recipient: stop, and let the cycle queue the rest.
+			if isConfigSendErr(err) {
+				cfgFailed = true
+
+				break
+			}
+
 			continue
 		}
 
@@ -238,6 +253,8 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	}
 
 	run.finish(ctx, eDB, TelegramQueueName, g)
+
+	return cfgFailed
 }
 
 // sendTelegramMsg delivers msg under the per-recipient retry budget, marking

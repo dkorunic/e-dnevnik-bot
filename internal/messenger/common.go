@@ -12,6 +12,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
@@ -45,6 +46,55 @@ type permanentError struct{ err error }
 
 func (e permanentError) Error() string { return e.err.Error() }
 func (e permanentError) Unwrap() error { return e.err }
+
+// configError marks a failure that applies to every recipient — a rejected
+// token, login or URL. Like permanentError it survives retry.Do's marker
+// stripping, but its message is queued, not dropped: the alerts are already
+// dedup-flagged, and fixing the config and restarting delivers them.
+type configError struct{ err error }
+
+func (e configError) Error() string { return e.err.Error() }
+func (e configError) Unwrap() error { return e.err }
+
+// markConfigErr stops retry-go on err and classifies it as a config error.
+func markConfigErr(err error) error {
+	return retry.Unrecoverable(configError{err})
+}
+
+// isConfigSendErr reports whether err was classified by markConfigErr, before
+// or after retry.Do.
+func isConfigSendErr(err error) bool {
+	_, ok := errors.AsType[configError](err)
+
+	return ok
+}
+
+// cycleSender stops a messenger from repeating a rejected credential for the
+// rest of a cycle. Once one message reports a config error, every later one is
+// queued unsent: retrying a bad SMTP password per message is how an account
+// gets locked out, and a revoked token only collects more rejections. Lives
+// for one entry-point call, so the next cycle tries the credentials afresh.
+type cycleSender struct{ tripped bool }
+
+// send runs process for g — which reports whether it hit a config error —
+// unless an earlier message already did, in which case g is queued as is.
+func (c *cycleSender) send(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message, process func() bool) {
+	if c.tripped {
+		// A calendar queue would only discard a non-exam on resend.
+		if QueueAccepts(queueName, g) {
+			storeQueued(ctx, eDB, queueName, g)
+		}
+
+		return
+	}
+
+	if process() {
+		c.tripped = true
+
+		logger.Warn().Msgf("Messenger %v: credentials or configuration rejected; queueing the rest of this cycle unsent",
+			string(queueName))
+	}
+}
 
 // isPermanentSendErr reports whether a markNamePermanent helper classified err
 // as permanent, before or after retry.Do. Such failures — blocked bot, deleted
