@@ -55,15 +55,15 @@ func resetWhatsAppGroupCache(t *testing.T) {
 	t.Helper()
 
 	whatsAppGroupsMu.Lock()
-	origResolved, origAt := whatsAppGroupsResolved, whatsAppGroupsResolvedAt
-	origIDs, origWarned := whatsAppResolvedUserIDs, whatsAppGroupsWarned
-	whatsAppGroupsResolved, whatsAppResolvedUserIDs, whatsAppGroupsWarned = false, nil, false
+	origResolved, origAt, origComplete := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppGroupsComplete
+	origIDs, origWarned, origPersisted := whatsAppResolvedUserIDs, whatsAppGroupsWarned, whatsAppGroupsPersisted
+	whatsAppGroupsResolved, whatsAppGroupsComplete, whatsAppResolvedUserIDs, whatsAppGroupsWarned = false, false, nil, ""
 	whatsAppGroupsMu.Unlock()
 
 	t.Cleanup(func() {
 		whatsAppGroupsMu.Lock()
-		whatsAppGroupsResolved, whatsAppGroupsResolvedAt = origResolved, origAt
-		whatsAppResolvedUserIDs, whatsAppGroupsWarned = origIDs, origWarned
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppGroupsComplete = origResolved, origAt, origComplete
+		whatsAppResolvedUserIDs, whatsAppGroupsWarned, whatsAppGroupsPersisted = origIDs, origWarned, origPersisted
 		whatsAppGroupsMu.Unlock()
 	})
 }

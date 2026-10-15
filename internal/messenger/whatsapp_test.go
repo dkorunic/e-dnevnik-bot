@@ -158,17 +158,17 @@ func TestIsWriteable(t *testing.T) {
 // trusted. Stale membership must not strand sends to dead groups.
 // NOTE: must not run in parallel — it writes the package-level group-cache globals.
 func TestWhatsAppGroupsResolutionTTL(t *testing.T) {
-	origResolved, origAt := whatsAppGroupsResolved, whatsAppGroupsResolvedAt
+	origResolved, origAt, origComplete := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppGroupsComplete
 
 	defer func() {
 		whatsAppGroupsMu.Lock()
-		whatsAppGroupsResolved, whatsAppGroupsResolvedAt = origResolved, origAt
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppGroupsComplete = origResolved, origAt, origComplete
 		whatsAppGroupsMu.Unlock()
 	}()
 
 	set := func(resolved bool, at time.Time) {
 		whatsAppGroupsMu.Lock()
-		whatsAppGroupsResolved, whatsAppGroupsResolvedAt = resolved, at
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppGroupsComplete = resolved, at, true
 		whatsAppGroupsMu.Unlock()
 	}
 
@@ -185,6 +185,17 @@ func TestWhatsAppGroupsResolutionTTL(t *testing.T) {
 	set(true, time.Now().Add(-2*whatsAppGroupsCacheTTL))
 	if !whatsAppGroupsNeedsResolution() {
 		t.Error("TTL-expired cache should need resolution")
+	}
+
+	// A partial match keeps resolving every cycle, so a group joined later is
+	// picked up within the hour rather than after the TTL.
+	set(true, time.Now())
+	whatsAppGroupsMu.Lock()
+	whatsAppGroupsComplete = false
+	whatsAppGroupsMu.Unlock()
+
+	if !whatsAppGroupsNeedsResolution() {
+		t.Error("a fresh but incomplete resolution should need resolution")
 	}
 }
 

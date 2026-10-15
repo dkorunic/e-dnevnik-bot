@@ -22,7 +22,7 @@ func TestAwaitShieldedIgnoresCancel(t *testing.T) {
 	done := make(chan struct{})
 	res := make(chan bool, 1)
 
-	go func() { res <- awaitShielded(ctx, done, nil) }()
+	go func() { res <- awaitShielded(ctx, "test", done, nil) }()
 
 	select {
 	case <-res:
@@ -46,7 +46,7 @@ func TestAwaitShieldedDeadline(t *testing.T) {
 	deadline := make(chan time.Time, 1)
 	deadline <- time.Now()
 
-	if awaitShielded(ctx, make(chan struct{}), deadline) {
+	if awaitShielded(ctx, "test", make(chan struct{}), deadline) {
 		t.Fatal("awaitShielded reported done on deadline")
 	}
 }
@@ -79,7 +79,7 @@ func TestAwaitShieldedSecondSignalAborts(t *testing.T) {
 
 	res := make(chan bool, 1)
 
-	go func() { res <- awaitShielded(ctx, make(chan struct{}), nil) }()
+	go func() { res <- awaitShielded(ctx, "test", make(chan struct{}), nil) }()
 
 	// Subscribed only after the first signal (the cancel) was seen.
 	c := <-subscribed

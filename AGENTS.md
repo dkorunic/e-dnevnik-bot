@@ -15,7 +15,7 @@ Load-bearing context lives in **[CLAUDE.md](CLAUDE.md)** (invariants, constraint
 ```bash
 task update        # go get -u + go mod tidy
 task update-tools  # install gci, gofumpt, betteralign
-task fmt           # go mod tidy → gci → gofumpt → betteralign -apply
+task fmt           # go mod tidy → gci → gofumpt → go fix → betteralign -apply
 task modernize     # gopls/modernize fixes across the tree
 task build         # fmt → static PGO build with ldflags
 task build-debug   # fmt → race build (CGO on). Use for races only.
@@ -24,7 +24,7 @@ task lint-nil       # fmt → nilaway. Separate pass, NOT part of `task lint`.
 task test           # go test ./...
 ```
 
-Pre-commit: `task fmt` must pass. All three formatters (gci, gofumpt, betteralign) must be installed.
+Pre-commit: `task fmt` must pass. The three external formatters (gci, gofumpt, betteralign) must be installed; `go fix` ships with Go and may rewrite code you did not edit.
 
 Single test: `go test -run TestName ./path/to/package/`
 
@@ -44,11 +44,12 @@ Single test: `go test -run TestName ./path/to/package/`
 | `-c <file>` / `-m <file>` | CPU / heap pprof profiles |
 | `-i <duration>` | Poll interval (minimum 1h) |
 | `--readinglist` | Process reading list events |
+| `--exams` / `--nationalexams` / `--digest` | Default true; `=false` suppresses those alerts (suppressed events are still dedup-flagged) |
 | `-r <uint>` | Retry attempts on error (default: 3) |
 
 ## Load-bearing invariants
 
-- **Shutdown-tolerant queue writes** (`messenger/common.go`): use `queueStoreCtx`, not raw `ctx`
+- **Shutdown-tolerant queue writes** (`queue/queue.go:StoreFailedMsgs`): the store detaches a cancelled ctx itself; messengers call it via `storeQueued` with the raw `ctx`. Do not move the detach back to call sites
 - **Two-level WaitGroup** (`routines.go:msgSend`): close every messenger channel *then* `wgInner.Wait()` — reversed order deadlocks. Fan-out is hand-rolled non-blocking (`dispatch()`: `select`/`default` → `storeOverflow` spill-to-queue), not `teivah/broadcast`
 - **Messenger panic guard** (`messenger/*.go`): entry points are `(err error)` with `defer recoverMessenger(..., inflight)`; set `inflight = &g` before processing a live msg, nil after / on the resend path, so a panic requeues it. Never hold a mutex across panic-able code under the guard (leaked lock hangs next cycle — see `ensureCalendarInit`)
 - **Poison-drop permanent errors** (`messenger/*.go`): `markNamePermanent` wraps `retry.Unrecoverable(permanentError{err})` — the inner sentinel survives `retry.Do` stripping so `isPermanentSendErr` detects it post-loop; permanent per-recipient failures are logged + skipped, not requeued

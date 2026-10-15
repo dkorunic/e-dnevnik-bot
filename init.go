@@ -227,7 +227,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		}
 	}
 
-	if !awaitShielded(ctx, whatsAppSynced, time.After(whatsAppSyncTimeout)) {
+	if !awaitShielded(ctx, "WhatsApp sync", whatsAppSynced, time.After(whatsAppSyncTimeout)) {
 		logger.Warn().Msgf("Stopped waiting for WhatsApp sync (limit %v); contacts and history may be incomplete",
 			durafmt.Parse(whatsAppSyncTimeout).String())
 
@@ -237,7 +237,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	logger.Info().Msg("Waiting for 2 more minutes for WhatsApp mobile app to acknowledge completed transfer")
 
 	// Grace period for the full sync.
-	awaitShielded(ctx, time.After(initialWhatsAppDelay), nil)
+	awaitShielded(ctx, "the WhatsApp transfer acknowledgement", time.After(initialWhatsAppDelay), nil)
 }
 
 // pairedMeanwhile catches a PairSuccess racing a stop signal or timeout, which
@@ -256,7 +256,7 @@ func pairedMeanwhile() bool {
 // history incomplete. A second one is obeyed, reporting false, so an operator
 // is never left with only SIGKILL. ctx stays cancelled, so main still exits
 // once setup ends.
-func awaitShielded[T any](ctx context.Context, done <-chan T, deadline <-chan time.Time) bool {
+func awaitShielded[T any](ctx context.Context, what string, done <-chan T, deadline <-chan time.Time) bool {
 	stop := ctx.Done()
 
 	// Nil until the first signal: subscribing earlier would count that same
@@ -276,14 +276,14 @@ func awaitShielded[T any](ctx context.Context, done <-chan T, deadline <-chan ti
 		case <-deadline:
 			return false
 		case <-stop:
-			logger.Warn().Msg("Stop signal received; deferring exit until WhatsApp sync completes (signal again to abort)")
+			logger.Warn().Msgf("Stop signal received; deferring exit until %v completes (signal again to abort)", what)
 
 			// Nil blocks forever, so the warning prints once.
 			stop = nil
 			again = make(chan os.Signal, 1)
 			notifyStop(again)
 		case <-again:
-			logger.Warn().Msg("Second stop signal received; abandoning the WhatsApp sync wait")
+			logger.Warn().Msgf("Second stop signal received; abandoning the wait for %v", what)
 
 			return false
 		}

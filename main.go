@@ -424,10 +424,16 @@ func startSystemdWatchdog(ctx context.Context) {
 
 // emulationDB returns where emulation keeps its throwaway database, and how to
 // remove it. A seam, so tests can inspect what the messengers queued.
+//
+// Next to the real database first: /tmp may be read-only or absent in a
+// container. os.TempDir is the fallback for a database directory that does not
+// exist yet, as in a pre-flight -t before the volume is mounted.
 var emulationDB = func() (string, func(), error) {
-	dir, err := os.MkdirTemp("", "e-dnevnik-emulation-")
+	dir, err := os.MkdirTemp(filepath.Dir(*dbFile), ".e-dnevnik-emulation-")
 	if err != nil {
-		return "", nil, err
+		if dir, err = os.MkdirTemp("", "e-dnevnik-emulation-"); err != nil {
+			return "", nil, err
+		}
 	}
 
 	return filepath.Join(dir, "emulation.db"), func() { _ = os.RemoveAll(dir) }, nil

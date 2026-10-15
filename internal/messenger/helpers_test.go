@@ -350,15 +350,16 @@ func TestWhatsAppEffectiveUserIDsServesFreshCache(t *testing.T) {
 	cached := []string{"111@s.whatsapp.net", "9990001@g.us"}
 
 	whatsAppGroupsMu.Lock()
-	origResolved, origAt, origIDs := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs
+	origResolved, origAt, origIDs, origComplete := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs, whatsAppGroupsComplete
 	whatsAppGroupsResolved = true
+	whatsAppGroupsComplete = true
 	whatsAppGroupsResolvedAt = time.Now()
 	whatsAppResolvedUserIDs = cached
 	whatsAppGroupsMu.Unlock()
 
 	t.Cleanup(func() {
 		whatsAppGroupsMu.Lock()
-		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs = origResolved, origAt, origIDs
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs, whatsAppGroupsComplete = origResolved, origAt, origIDs, origComplete
 		whatsAppGroupsMu.Unlock()
 	})
 
@@ -493,25 +494,99 @@ type fakeGroupLister []*types.GroupInfo
 
 func (f fakeGroupLister) GetJoinedGroups(context.Context) ([]*types.GroupInfo, error) { return f, nil }
 
-// TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch: a lookup that succeeds but
-// matches nothing (an empty list right after a reconnect) must not drop the
-// last good resolution, or this cycle's alerts silently skip every group.
-// Not parallel: writes the package-level group-resolution cache.
-func TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch(t *testing.T) {
-	cached := []string{"111@s.whatsapp.net", "9990001@g.us"}
+// setGroupCache seeds the package-level group-resolution cache for one test
+// and restores it afterwards. Callers must not run in parallel.
+func setGroupCache(t *testing.T, ids []string, at time.Time) {
+	t.Helper()
 
 	whatsAppGroupsMu.Lock()
-	origResolved, origAt, origIDs, origWarned := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs, whatsAppGroupsWarned
-	whatsAppGroupsResolved = true
-	whatsAppGroupsResolvedAt = time.Now().Add(-2 * whatsAppGroupsCacheTTL) // stale: forces a lookup
-	whatsAppResolvedUserIDs = cached
+	origResolved, origAt, origIDs := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs
+	origComplete, origWarned, origPersisted := whatsAppGroupsComplete, whatsAppGroupsWarned, whatsAppGroupsPersisted
+	whatsAppGroupsResolved, whatsAppGroupsComplete = ids != nil, ids != nil
+	whatsAppGroupsWarned, whatsAppGroupsPersisted = "", nil
+	whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs = at, ids
 	whatsAppGroupsMu.Unlock()
 
 	t.Cleanup(func() {
 		whatsAppGroupsMu.Lock()
-		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs, whatsAppGroupsWarned = origResolved, origAt, origIDs, origWarned
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs = origResolved, origAt, origIDs
+		whatsAppGroupsComplete, whatsAppGroupsWarned, whatsAppGroupsPersisted = origComplete, origWarned, origPersisted
 		whatsAppGroupsMu.Unlock()
 	})
+}
+
+// TestWhatsAppGroupsLatchWarning: a repeat is suppressed, but a different
+// condition warns again — a partial match latching must not silence the later
+// loss of every group, nor a different name going missing.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppGroupsLatchWarning(t *testing.T) {
+	setGroupCache(t, nil, time.Time{})
+
+	whatsAppGroupsMu.Lock()
+	defer whatsAppGroupsMu.Unlock()
+
+	steps := []struct {
+		kind  string
+		names []string
+		want  bool
+	}{
+		{"partial", []string{"B"}, true},
+		{"partial", []string{"B"}, false},  // same condition next tick
+		{"none", []string{"A", "B"}, true}, // every group gone
+		{"none", []string{"A", "B"}, false},
+		{"partial", []string{"A"}, true}, // a different name missing
+	}
+
+	for i, s := range steps {
+		if got := whatsAppGroupsLatchWarning(s.kind, s.names); got != s.want {
+			t.Errorf("step %d (%v %v): warn = %v, want %v", i, s.kind, s.names, got, s.want)
+		}
+	}
+}
+
+// TestWhatsAppEffectiveUserIDsPersistsOncePerName: a partial match re-resolves
+// every cycle, and re-running the config rewrite each time would re-read the
+// file hourly, or re-warn about a read-only one.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppEffectiveUserIDsPersistsOncePerName(t *testing.T) {
+	setGroupCache(t, nil, time.Time{})
+
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not block writes")
+	}
+
+	// Read-only: a rewrite attempt would warn, so a second attempt is the bug.
+	confFile := filepath.Join(t.TempDir(), ".e-dnevnik.toml")
+	if err := os.WriteFile(confFile, []byte("[whatsapp]\ngroups = [\"Razred 5.a\", \"Razred 5.b\"]\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.WithValue(t.Context(), ConfFileKey, confFile)
+
+	jid, _ := types.ParseJID("9990001@g.us")
+	lister := fakeGroupLister{{JID: jid, Name: "Razred 5.a"}}
+	groups := []string{"Razred 5.a", "Razred 5.b"}
+
+	whatsAppEffectiveUserIDs(ctx, lister, nil, groups)
+	whatsAppEffectiveUserIDs(ctx, lister, nil, groups)
+
+	whatsAppGroupsMu.Lock()
+	defer whatsAppGroupsMu.Unlock()
+
+	if want := []string{"Razred 5.a"}; !reflect.DeepEqual(whatsAppGroupsPersisted, want) {
+		t.Errorf("persisted names = %v, want %v once — a second pass must not repeat the rewrite", whatsAppGroupsPersisted, want)
+	}
+}
+
+// TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch: a lookup that succeeds but
+// matches nothing (an empty list right after a reconnect) must not drop a
+// recent resolution, or this cycle's alerts silently skip every group.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch(t *testing.T) {
+	cached := []string{"111@s.whatsapp.net", "9990001@g.us"}
+
+	// Past the TTL (forces a lookup) but within the stale limit.
+	setGroupCache(t, cached, time.Now().Add(-whatsAppGroupsCacheTTL-time.Hour))
 
 	got := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, []string{"111@s.whatsapp.net"}, []string{"Razred 5.a"})
 	if !reflect.DeepEqual(got, cached) {
@@ -520,5 +595,40 @@ func TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch(t *testing.T) {
 
 	if !whatsAppGroupsNeedsResolution() {
 		t.Error("a zero-match lookup refreshed the cache timestamp; the next cycle must retry")
+	}
+}
+
+// TestWhatsAppEffectiveUserIDsDropsStaleCacheOnZeroMatch: past the stale limit
+// the bot has most likely left the groups; serving the cache on would fail
+// every send to them on every cycle.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppEffectiveUserIDsDropsStaleCacheOnZeroMatch(t *testing.T) {
+	static := []string{"111@s.whatsapp.net"}
+
+	setGroupCache(t, []string{"111@s.whatsapp.net", "9990001@g.us"}, time.Now().Add(-whatsAppGroupsStaleLimit-time.Hour))
+
+	got := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, static, []string{"Razred 5.a"})
+	if !reflect.DeepEqual(got, static) {
+		t.Errorf("whatsAppEffectiveUserIDs() = %v, want only the static IDs %v", got, static)
+	}
+}
+
+// TestWhatsAppEffectiveUserIDsPartialMatchRetries: a partial match delivers to
+// the matched group now and keeps resolving, so the other name is picked up as
+// soon as the bot joins it.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppEffectiveUserIDsPartialMatchRetries(t *testing.T) {
+	setGroupCache(t, nil, time.Time{})
+
+	jid, _ := types.ParseJID("9990001@g.us")
+	lister := fakeGroupLister{{JID: jid, Name: "Razred 5.a"}}
+
+	got := whatsAppEffectiveUserIDs(t.Context(), lister, nil, []string{"Razred 5.a", "Razred 5.b"})
+	if want := []string{"9990001@g.us"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("whatsAppEffectiveUserIDs() = %v, want %v", got, want)
+	}
+
+	if !whatsAppGroupsNeedsResolution() {
+		t.Error("a partial match was cached for the full TTL; the unmatched group would wait a day")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -55,6 +56,11 @@ const (
 	// lost membership from stranding sends on a dead group, which would churn
 	// the queue until MaxQueueAge.
 	whatsAppGroupsCacheTTL = 24 * time.Hour
+
+	// How long a resolution outlives lookups that match nothing. Long enough
+	// to ride out an empty list after a reconnect, short enough that a group
+	// the bot has left stops receiving sends.
+	whatsAppGroupsStaleLimit = 2 * whatsAppGroupsCacheTTL
 )
 
 // SendPresenceBounded updates presence best-effort under its own timeout, so a
@@ -88,11 +94,13 @@ var (
 	whatsAppCliMu            sync.Mutex // guards whatsAppCli and whatsAppStore initialisation
 	whatsAppStore            *sqlstore.Container
 	WhatsAppVersion          = version.ReadVersion("go.mau.fi/whatsmeow")
-	whatsAppGroupsMu         sync.Mutex // protects whatsAppGroupsResolved*, whatsAppResolvedUserIDs and whatsAppGroupsWarned
+	whatsAppGroupsMu         sync.Mutex // protects every whatsAppGroups* below and whatsAppResolvedUserIDs
 	whatsAppGroupsResolved   bool       // true once groups have been successfully resolved
+	whatsAppGroupsComplete   bool       // the cached resolution matched every configured name
 	whatsAppGroupsResolvedAt time.Time  // when the cached resolution was made; re-resolve after whatsAppGroupsCacheTTL
 	whatsAppResolvedUserIDs  []string   // resolved JIDs cached across poll cycles
-	whatsAppGroupsWarned     bool       // "no group matched" warning latch; re-armed on each successful resolution
+	whatsAppGroupsWarned     string     // key of the last unmatched-names warning; "" once every name matches
+	whatsAppGroupsPersisted  []string   // matched names already handed to the config rewrite this process
 
 	// WhatsAppPairingMu hands the sqlstore from startup pairing to the runtime
 	// client. Pairing holds it through Disconnect/Close so whatsAppInit
@@ -335,7 +343,9 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) ([]string, [
 
 // whatsAppEffectiveUserIDs merges resolved group JIDs into the static user IDs.
 // The TTL, rather than a process-lifetime cache, is what lets a lost membership
-// stop consuming sends. Cache state is guarded by whatsAppGroupsMu.
+// stop consuming sends: a zero-match lookup keeps the last good resolution only
+// until whatsAppGroupsStaleLimit after it was made. Cache state is guarded by
+// whatsAppGroupsMu.
 func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, userIDs, groups []string) []string {
 	if len(groups) == 0 {
 		return userIDs
@@ -355,7 +365,9 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 	switch {
 	case err != nil:
 		// An untouched timestamp is what makes the next cycle retry; serve
-		// the last good cache meanwhile.
+		// the last good cache meanwhile. No stale limit here, unlike a zero
+		// match: a failed lookup says nothing about membership, and dropping
+		// the groups would send to none of them and queue nothing.
 		whatsAppGroupsMu.Lock()
 		if whatsAppGroupsResolved {
 			userIDs = whatsAppResolvedUserIDs
@@ -364,40 +376,91 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 	case len(matched) > 0:
 		userIDs = resolved
 
+		// Incomplete keeps resolution running every cycle, so a group joined
+		// later is picked up within the hour rather than after the TTL.
+		unmatched := slices.DeleteFunc(slices.Clone(groups), func(n string) bool { return slices.Contains(matched, n) })
+
 		whatsAppGroupsMu.Lock()
 		whatsAppGroupsResolved = true
+		whatsAppGroupsComplete = len(unmatched) == 0
 		whatsAppGroupsResolvedAt = time.Now()
 		whatsAppResolvedUserIDs = userIDs
-		whatsAppGroupsWarned = false // re-arm the no-match warning
+
+		warn := len(unmatched) > 0 && whatsAppGroupsLatchWarning("partial", unmatched)
+		if len(unmatched) == 0 {
+			whatsAppGroupsWarned = "" // a full match re-arms every warning
+		}
+
+		// Once per name: a partial match re-resolves every cycle, and each
+		// pass would otherwise re-read the config, or re-warn about a
+		// read-only one, every hour.
+		persist := slices.ContainsFunc(matched, func(n string) bool { return !slices.Contains(whatsAppGroupsPersisted, n) })
+		if persist {
+			whatsAppGroupsPersisted = append(whatsAppGroupsPersisted, matched...)
+		}
 		whatsAppGroupsMu.Unlock()
 
+		if warn {
+			logger.Warn().Msgf("WhatsApp groups not found: %v; delivering to the other configured groups. Verify the bot is a member and the names match exactly",
+				unmatched)
+		}
+
 		// Persisted so future runs skip resolution of the matched names.
-		if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
+		if confFile, ok := ctx.Value(ConfFileKey).(string); persist && ok {
 			whatsAppPersistResolvedGroups(confFile, resolved[userIDSize:], matched)
 		}
 	default:
 		// Nothing matched. A list that comes back empty right after a
-		// reconnect looks the same as a typo, so a previous resolution is
+		// reconnect looks the same as a typo, so a recent resolution is
 		// kept, like a lookup error: dropping it would send this cycle's
 		// alerts to no group and queue nothing. The untouched timestamp
-		// retries next cycle.
+		// retries next cycle. Past the stale limit the bot has most likely
+		// left the groups, and sending on would only fail every cycle.
 		whatsAppGroupsMu.Lock()
-		if whatsAppGroupsResolved {
+
+		dropped := false
+
+		if whatsAppGroupsResolved && time.Since(whatsAppGroupsResolvedAt) < whatsAppGroupsStaleLimit {
 			userIDs = whatsAppResolvedUserIDs
+		} else {
+			dropped = whatsAppGroupsResolved
+			whatsAppGroupsResolved = false
+			whatsAppResolvedUserIDs = nil
 		}
 
-		// Latched: a typo warns once, not every tick.
-		warn := !whatsAppGroupsWarned
-		whatsAppGroupsWarned = true
+		warn := whatsAppGroupsLatchWarning("none", groups)
 		whatsAppGroupsMu.Unlock()
 
 		if warn {
 			logger.Warn().Msgf("No WhatsApp groups matched the configured names %v; verify the bot is a member and the names match exactly",
 				groups)
 		}
+
+		// Not latched: it happens once per cached resolution, and it is the
+		// moment group delivery stops.
+		if dropped {
+			logger.Warn().Msgf("WhatsApp groups %v have not matched for over %v; no longer sending to them",
+				groups, whatsAppGroupsStaleLimit)
+		}
 	}
 
 	return userIDs
+}
+
+// whatsAppGroupsLatchWarning reports whether a warning about names, of the
+// given kind, is new: a repeat of the last one is suppressed, so a typo warns
+// once rather than every tick, while a different condition (a partial match
+// turning into no match, or another name going missing) warns again. Callers
+// hold whatsAppGroupsMu.
+func whatsAppGroupsLatchWarning(kind string, names []string) bool {
+	key := kind + "\x00" + strings.Join(names, "\x00")
+	if key == whatsAppGroupsWarned {
+		return false
+	}
+
+	whatsAppGroupsWarned = key
+
+	return true
 }
 
 // whatsAppGroupsNeedsResolution reports whether the cache is absent or stale.
@@ -405,7 +468,7 @@ func whatsAppGroupsNeedsResolution() bool {
 	whatsAppGroupsMu.Lock()
 	defer whatsAppGroupsMu.Unlock()
 
-	return !whatsAppGroupsResolved || time.Since(whatsAppGroupsResolvedAt) > whatsAppGroupsCacheTTL
+	return !whatsAppGroupsResolved || !whatsAppGroupsComplete || time.Since(whatsAppGroupsResolvedAt) > whatsAppGroupsCacheTTL
 }
 
 // whatsAppProcessGroups appends matching joined-group JIDs to userIDs and
