@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
 // copyTestConfig copies the checked-in fixture to a temp file so LoadConfig's
@@ -364,5 +366,26 @@ func TestCheckCalDAVConfAcceptsLoopbackHTTP(t *testing.T) {
 		if !cfg.CalDAVEnabled {
 			t.Errorf("%q did not enable CalDAV", rawURL)
 		}
+	}
+}
+
+func TestCheckMailConfSubjects(t *testing.T) {
+	t.Parallel()
+
+	cfg := TomlConfig{Mail: Mail{
+		Server:   "smtp.example.com",
+		From:     "a@example.com",
+		To:       []string{"b@example.com"},
+		Subjects: map[string]string{"Exam": "ispit", "examdigest": "tjedni pregled"},
+	}}
+
+	checkMailConf(&cfg)
+
+	if got := cfg.Mail.SubjectByCode[msgtypes.Exam]; got != "ispit" {
+		t.Errorf("SubjectByCode[Exam] = %q, want %q", got, "ispit")
+	}
+
+	if got := cfg.Mail.SubjectByCode[msgtypes.ExamDigest]; got != "tjedni pregled" {
+		t.Errorf("SubjectByCode[ExamDigest] = %q, want %q", got, "tjedni pregled")
 	}
 }

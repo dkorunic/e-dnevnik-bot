@@ -187,6 +187,68 @@ func TestProcessTelegramMigrateRemapsAndPersists(t *testing.T) {
 	}
 }
 
+// TestProcessTelegramMigrateSkipsBothIDs: a message delivered to a migrated
+// chat but requeued for another recipient must remember the new ID too. After
+// a restart the config lists only the new ID, and the old one alone in
+// SkipRecipients would send the alert to the supergroup a second time.
+// NOTE: must not run in parallel — it writes package-level telegramCli and
+// telegramMigratedIDs.
+func TestProcessTelegramMigrateSkipsBothIDs(t *testing.T) {
+	const (
+		oldChatID  = "12345"
+		newChatID  = "-1001234567890"
+		failChatID = "777"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.FormValue("chat_id") {
+		case oldChatID:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: group chat was upgraded to a supergroup chat","parameters":{"migrate_to_chat_id":-1001234567890}}`)
+		case failChatID:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"ok":false,"error_code":500,"description":"Internal Server Error"}`)
+		default:
+			_, _ = io.WriteString(w, `{"ok":true,"result":{}}`)
+		}
+	}))
+	defer server.Close()
+
+	b, err := bot.New("test-token", bot.WithServerURL(server.URL), bot.WithSkipGetMe())
+	if err != nil {
+		t.Fatalf("Unable to create Telegram bot: %v", err)
+	}
+	telegramCli = b
+
+	defer func() {
+		telegramMigratedIDsMu.Lock()
+		telegramMigratedIDs = map[string]string{}
+		telegramMigratedIDsMu.Unlock()
+	}()
+
+	eDB, err := sqlitedb.New(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	msg := msgtypes.Message{Username: "testuser", Subject: "Test Subject", Descriptions: []string{"d"}, Fields: []string{"f"}}
+
+	processTelegram(context.Background(), eDB, msg, []string{oldChatID, failChatID}, ratelimit.New(1000), 1)
+
+	queued := queue.FetchFailedMsgs(context.Background(), eDB, TelegramQueueName)
+	if len(queued) != 1 {
+		t.Fatalf("queued %d messages, want 1 (the transient failure)", len(queued))
+	}
+
+	skip := queued[0].Msg.SkipRecipients
+	if !slices.Contains(skip, oldChatID) || !slices.Contains(skip, newChatID) {
+		t.Errorf("SkipRecipients = %v, want both %q and %q", skip, oldChatID, newChatID)
+	}
+}
+
 // TestTelegramInit must not run in parallel — telegramInit() writes the package-level telegramCli global.
 func TestTelegramInit(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

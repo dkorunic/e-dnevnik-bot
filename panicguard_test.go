@@ -206,6 +206,40 @@ func TestMsgSendPanicSpillsToQueue(t *testing.T) {
 	}
 }
 
+// TestMsgSendPanicSpillsInflightMessage: the message being dispatched when the
+// fan-out panicked is as flagged as the backlog, so it must reach the queue of
+// every messenger it had not yet been handed to — here the only one.
+// Not parallel: swaps the package-level dispatch seam and exit latch.
+func TestMsgSendPanicSpillsInflightMessage(t *testing.T) {
+	resetExitLatch(t)
+	setRetries(t, 1)
+
+	eDB := guardTestDB(t)
+
+	swapDispatch(t, func(_ context.Context, _ *sqlitedb.Edb, _ messengerSink, _ msgtypes.Message) {
+		panic("fan-out exploded")
+	})
+
+	gradesMsg := make(chan msgtypes.Message, 1)
+	gradesMsg <- guardTestMsg("only")
+	close(gradesMsg)
+
+	var wgMsg sync.WaitGroup
+
+	cfg := config.TomlConfig{
+		SlackEnabled: true,
+		Slack:        config.Slack{Token: "xoxb-test", ChatIDs: []string{"C12345678"}},
+	}
+
+	msgSend(t.Context(), eDB, &wgMsg, gradesMsg, cfg)
+	wgMsg.Wait()
+
+	got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.SlackQueueName)
+	if len(got) != 1 || got[0].Msg.Subject != "only" {
+		t.Fatalf("Slack queue holds %+v, want the in-flight message", got)
+	}
+}
+
 // TestMsgDedupPanicDoesNotKillTheProcess: the dedup stage gets the same
 // containment as the fan-out, and must still close gradesMsg so the fan-out
 // downstream of it unblocks.
@@ -399,10 +433,10 @@ func TestMsgDedupPanicInWindowForwardsFlaggedEvent(t *testing.T) {
 	}
 
 	// Faults inside the flag-to-forward window.
-	origReadingList := readingList
-	readingList = nil
+	origRelevance := relevancePeriod
+	relevancePeriod = nil
 
-	t.Cleanup(func() { readingList = origReadingList })
+	t.Cleanup(func() { relevancePeriod = origRelevance })
 
 	gradesScraped := make(chan msgtypes.Message, 4)
 	gradesScraped <- guardTestMsg("flagged-then-interrupted")

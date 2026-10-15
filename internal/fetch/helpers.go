@@ -304,7 +304,12 @@ func (c *Client) getCourse(dest string) ([]byte, error) {
 
 // getCalendar fetches all events from exams calendar in ICS format.
 func (c *Client) getCalendar() (Events, error) {
+	// A download leaves the browser on the page it started from, so the next
+	// navigation's Referer must not become the .ics URL.
+	prev := c.lastURL
 	body, err := c.getGeneric(CalendarURL)
+	c.lastURL = prev
+
 	if err != nil {
 		return Events{}, err
 	}

@@ -65,9 +65,9 @@ func rowKey(queueKey []byte) []byte {
 	return key
 }
 
-// detachedCtx mirrors messenger.queueStoreCtx: a live ctx passes through so
-// shutdown keeps propagating, a cancelled one is replaced by a detached context
-// bounded by storeTimeout, so the write runs without stalling shutdown.
+// detachedCtx passes a live ctx through so shutdown keeps propagating, and
+// replaces a cancelled one with a detached context bounded by storeTimeout, so
+// the write runs without stalling shutdown.
 func detachedCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx.Err() == nil {
 		return ctx, func() {}
@@ -78,7 +78,15 @@ func detachedCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 
 // StoreFailedMsgs appends g as its own row, so cost is independent of depth.
 // QueuedAt is stamped on first failure, anchoring MaxQueueAge.
+//
+// The write survives a cancelled ctx (see detachedCtx): every caller is
+// persisting a message dedup has already flagged, typically on the way out
+// after SIGTERM, and dropping it there loses the alert for good. Detaching here
+// rather than at each call site means no send path can forget to.
 func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
+	ctx, cancel := detachedCtx(ctx)
+	defer cancel()
+
 	// Preserved, so MaxQueueAge counts from the first failure.
 	if g.QueuedAt.IsZero() {
 		g.QueuedAt = time.Now()

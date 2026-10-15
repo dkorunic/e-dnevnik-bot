@@ -144,7 +144,7 @@ func TestCalendarDeferredQueuesOnlyExams(t *testing.T) {
 }
 
 // TestCalendarDeferredQueuesUnderCancelledCtx: the shutdown-tolerant queue
-// write (queueStoreCtx) must still land when the parent ctx is already
+// write (queue.StoreFailedMsgs) must still land when the parent ctx is already
 // cancelled — the exact situation on SIGTERM mid-drain.
 func TestCalendarDeferredQueuesUnderCancelledCtx(t *testing.T) {
 	t.Parallel()

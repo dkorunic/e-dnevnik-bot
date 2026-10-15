@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
@@ -45,6 +48,15 @@ var (
 	whatsAppPairingCli *whatsmeow.Client
 	whatsAppPaired     = make(chan struct{}, 1)
 	whatsAppSynced     = make(chan struct{}, 1)
+
+	// App-state collections finished (or failed) since pairing; whatsAppSynced
+	// fires once every one in appstate.AllPatchNames is here.
+	whatsAppPatchesMu   sync.Mutex
+	whatsAppPatchesDone = make(map[appstate.WAPatchName]struct{}, len(appstate.AllPatchNames))
+
+	// notifyStop is a test seam: it subscribes c to the stop signals that
+	// abandon a shielded wait.
+	notifyStop = func(c chan<- os.Signal) { signal.Notify(c, os.Interrupt, syscall.SIGTERM) }
 )
 
 // Trims the ldflags-injected build vars.
@@ -216,7 +228,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	}
 
 	if !awaitShielded(ctx, whatsAppSynced, time.After(whatsAppSyncTimeout)) {
-		logger.Warn().Msgf("Timed out after %v waiting for WhatsApp sync; contacts and history may be incomplete",
+		logger.Warn().Msgf("Stopped waiting for WhatsApp sync (limit %v); contacts and history may be incomplete",
 			durafmt.Parse(whatsAppSyncTimeout).String())
 
 		return
@@ -239,11 +251,23 @@ func pairedMeanwhile() bool {
 	}
 }
 
-// awaitShielded waits for done, reporting false on deadline. A stop signal is
-// logged, not obeyed: cutting the sync short leaves contacts and history
-// incomplete. ctx stays cancelled, so main still exits once setup ends.
+// awaitShielded waits for done, reporting false on deadline. The first stop
+// signal is logged, not obeyed: cutting the sync short leaves contacts and
+// history incomplete. A second one is obeyed, reporting false, so an operator
+// is never left with only SIGKILL. ctx stays cancelled, so main still exits
+// once setup ends.
 func awaitShielded[T any](ctx context.Context, done <-chan T, deadline <-chan time.Time) bool {
 	stop := ctx.Done()
+
+	// Nil until the first signal: subscribing earlier would count that same
+	// signal again as the second.
+	var again chan os.Signal
+
+	defer func() {
+		if again != nil {
+			signal.Stop(again)
+		}
+	}()
 
 	for {
 		select {
@@ -252,11 +276,43 @@ func awaitShielded[T any](ctx context.Context, done <-chan T, deadline <-chan ti
 		case <-deadline:
 			return false
 		case <-stop:
-			logger.Warn().Msg("Stop signal received; deferring exit until WhatsApp sync completes")
+			logger.Warn().Msg("Stop signal received; deferring exit until WhatsApp sync completes (signal again to abort)")
 
 			// Nil blocks forever, so the warning prints once.
 			stop = nil
+			again = make(chan os.Signal, 1)
+			notifyStop(again)
+		case <-again:
+			logger.Warn().Msg("Second stop signal received; abandoning the WhatsApp sync wait")
+
+			return false
 		}
+	}
+}
+
+// markWhatsAppPatchDone records name as finished and reports whether every
+// known app-state collection now is. Contacts arrive in critical_unblock_low,
+// usually after critical_block, so the first completion is not the full sync.
+func markWhatsAppPatchDone(name appstate.WAPatchName) bool {
+	whatsAppPatchesMu.Lock()
+	defer whatsAppPatchesMu.Unlock()
+
+	whatsAppPatchesDone[name] = struct{}{}
+
+	for _, n := range appstate.AllPatchNames {
+		if _, ok := whatsAppPatchesDone[n]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// signalWhatsAppSynced wakes the sync wait without blocking the event handler.
+func signalWhatsAppSynced() {
+	select {
+	case whatsAppSynced <- struct{}{}:
+	default:
 	}
 }
 
@@ -279,11 +335,18 @@ func whatsappPairingEventHandler(rawEvt any) {
 			messenger.SendPresenceBounded(whatsAppPairingCli, types.PresenceUnavailable)
 		}
 
-		logger.Info().Msg("WhatsApp app state sync completed")
+		logger.Info().Msgf("WhatsApp app state sync completed: %v", evt.Name)
 
-		select {
-		case whatsAppSynced <- struct{}{}:
-		default:
+		if markWhatsAppPatchDone(evt.Name) {
+			signalWhatsAppSynced()
+		}
+	case *events.AppStateSyncError:
+		// Counted as finished: a failed collection never completes, and waiting
+		// on it would only run into the timeout.
+		logger.Warn().Msgf("WhatsApp app state sync failed: %v: %v", evt.Name, evt.Error)
+
+		if markWhatsAppPatchDone(evt.Name) {
+			signalWhatsAppSynced()
 		}
 	case *events.Connected, *events.PushNameSetting:
 		if len(whatsAppPairingCli.Store.PushName) > 0 {

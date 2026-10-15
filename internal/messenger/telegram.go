@@ -198,8 +198,17 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 				telegramPersistChatID(ctx, origID, newID)
 
 				msg.ChatID = int64(mig.MigrateToChatID)
+				u = newID
 				err = sendTelegramMsg(ctx, &msg, retries)
 			}
+		}
+
+		// Both IDs once remapped: after a restart the persisted config lists
+		// only the new one, and a requeued message that remembered only the
+		// old ID would reach the supergroup twice.
+		ids := []string{origID}
+		if u != origID {
+			ids = append(ids, u)
 		}
 
 		if err != nil {
@@ -207,7 +216,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 				// Blocked bot or deleted chat: drop, don't requeue.
 				logger.Error().Msgf("%v: permanently dropping recipient %q: %v", ErrTelegramSendingMessage, u, err)
 
-				run.poison(origID)
+				run.poison(ids...)
 
 				continue
 			}
@@ -219,7 +228,7 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			continue
 		}
 
-		run.delivered(origID)
+		run.delivered(ids...)
 	}
 
 	run.finish(ctx, eDB, TelegramQueueName, g)
@@ -250,44 +259,23 @@ func telegramPersistChatID(ctx context.Context, oldID, newID string) {
 		return
 	}
 
-	configRewriteMu.Lock()
-	defer configRewriteMu.Unlock()
+	who := fmt.Sprintf("Telegram chat ID remap %v -> %v", oldID, newID)
 
-	if !isWriteable(confFile) {
-		logger.Warn().Msgf("Telegram: cannot persist chat ID remap %v -> %v: %q is not writable", oldID, newID, confFile)
+	written := rewriteConfig(confFile, who, func(cfg *config.TomlConfig) bool {
+		found := false
 
-		return
-	}
-
-	// Non-validating: LoadConfig's fail-fast validators would os.Exit this
-	// goroutine on a broken mid-run edit.
-	cfg, err := config.LoadConfigRaw(confFile)
-	if err != nil {
-		logger.Error().Msgf("Telegram: unable to load configuration for chat ID remap: %v", err)
-
-		return
-	}
-
-	found := false
-
-	for i, id := range cfg.Telegram.ChatIDs {
-		if id == oldID {
-			cfg.Telegram.ChatIDs[i] = newID
-			found = true
+		for i, id := range cfg.Telegram.ChatIDs {
+			if id == oldID {
+				cfg.Telegram.ChatIDs[i] = newID
+				found = true
+			}
 		}
+
+		return found
+	})
+	if written {
+		logger.Info().Msgf("Telegram: persisted chat ID remap %v -> %v to %q", oldID, newID, confFile)
 	}
-
-	if !found {
-		return
-	}
-
-	if err := config.SaveConfig(confFile, cfg); err != nil {
-		logger.Error().Msgf("Telegram: unable to save chat ID remap to configuration: %v", err)
-
-		return
-	}
-
-	logger.Info().Msgf("Telegram: persisted chat ID remap %v -> %v to %q", oldID, newID, confFile)
 }
 
 // telegramInit lazily builds the shared client, rebuilding on a token change

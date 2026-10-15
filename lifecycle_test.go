@@ -21,6 +21,22 @@ import (
 
 // setDBFile points the package-level database flag at a fresh temp path.
 // Callers must not run in parallel — the pointer is process-global.
+// setEmulationDB points emulation at a kept database in t.TempDir, so a test
+// can inspect what the messengers queued.
+// Not parallel: swaps the package-level emulationDB seam.
+func setEmulationDB(t *testing.T, name string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), name)
+
+	orig := emulationDB
+	emulationDB = func() (string, func(), error) { return path, func() {}, nil }
+
+	t.Cleanup(func() { emulationDB = orig })
+
+	return path
+}
+
 func setDBFile(t *testing.T, name string) string {
 	t.Helper()
 
@@ -169,7 +185,7 @@ func TestTestSingleRunDeliversSyntheticMessage(t *testing.T) {
 	resetExitLatch(t)
 	setRetries(t, 1)
 
-	path := setDBFile(t, "emulation.db")
+	path := setEmulationDB(t, "emulation.db")
 
 	// Slack with no token drains its channel into its queue and returns, which
 	// makes the synthetic message observable without touching the network.
@@ -204,7 +220,7 @@ func TestTestSingleRunBypassesDedup(t *testing.T) {
 	resetExitLatch(t)
 	setRetries(t, 1)
 
-	path := setDBFile(t, "emulation-twice.db")
+	path := setEmulationDB(t, "emulation-twice.db")
 
 	const runs = 2
 
@@ -224,6 +240,26 @@ func TestTestSingleRunBypassesDedup(t *testing.T) {
 	if got := queue.FetchFailedMsgs(t.Context(), eDB, messenger.SlackQueueName); len(got) != runs {
 		t.Errorf("messenger saw %d messages over %d emulation runs, want %d — emulation must not be filtered by the dedup store, or it stops verifying credentials after the first use",
 			len(got), runs, runs)
+	}
+}
+
+// TestTestSingleRunLeavesRealDatabaseAlone: a test send that fails is queued,
+// and queued in the real database the next normal run would deliver the fake
+// grade to every recipient. Emulation must not touch that database at all.
+// Not parallel: mutates package-level flag pointers.
+func TestTestSingleRunLeavesRealDatabaseAlone(t *testing.T) {
+	resetExitLatch(t)
+	setRetries(t, 1)
+
+	path := setDBFile(t, "real.db")
+
+	// Slack with no token queues the synthetic message: the failure case.
+	runWithinTimeout(t, 60*time.Second, "testSingleRun", func() {
+		testSingleRun(t.Context(), config.TomlConfig{SlackEnabled: true})
+	})
+
+	if matches, _ := filepath.Glob(path + "*"); len(matches) != 0 {
+		t.Errorf("emulation created %v next to the real database; a queued test message there reaches real recipients next run", matches)
 	}
 }
 

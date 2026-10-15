@@ -313,17 +313,24 @@ func whatsAppInit(ctx context.Context) error {
 }
 
 // filterGroupsByName returns the JIDs of joined groups named in groups, which
-// config loading has sorted so the lookup can binary-search.
-func filterGroupsByName(groups []string, joined []*types.GroupInfo) []string {
+// config loading has sorted so the lookup can binary-search, and the distinct
+// configured names that matched.
+func filterGroupsByName(groups []string, joined []*types.GroupInfo) ([]string, []string) {
 	jids := make([]string, 0, len(groups))
+
+	var names []string
 
 	for _, x := range joined {
 		if _, found := slices.BinarySearch(groups, x.Name); found {
 			jids = append(jids, x.JID.String())
+
+			if !slices.Contains(names, x.Name) {
+				names = append(names, x.Name)
+			}
 		}
 	}
 
-	return jids
+	return jids, names
 }
 
 // whatsAppEffectiveUserIDs merges resolved group JIDs into the static user IDs.
@@ -343,7 +350,7 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 
 	userIDSize := len(userIDs)
 
-	resolved, err := whatsAppProcessGroups(ctx, cli, userIDs, groups)
+	resolved, matched, err := whatsAppProcessGroups(ctx, cli, userIDs, groups)
 
 	switch {
 	case err != nil:
@@ -354,7 +361,7 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 			userIDs = whatsAppResolvedUserIDs
 		}
 		whatsAppGroupsMu.Unlock()
-	case len(resolved) > userIDSize:
+	case len(matched) > 0:
 		userIDs = resolved
 
 		whatsAppGroupsMu.Lock()
@@ -364,16 +371,20 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		whatsAppGroupsWarned = false // re-arm the no-match warning
 		whatsAppGroupsMu.Unlock()
 
-		// Persisted so future runs skip resolution.
+		// Persisted so future runs skip resolution of the matched names.
 		if confFile, ok := ctx.Value(ConfFileKey).(string); ok {
-			whatsAppPersistResolvedGroups(confFile, userIDs)
+			whatsAppPersistResolvedGroups(confFile, resolved[userIDSize:], matched)
 		}
 	default:
-		// Removed from the groups, or a typo: drop the stale cache so dead
-		// groups stop receiving sends.
+		// Nothing matched. A list that comes back empty right after a
+		// reconnect looks the same as a typo, so a previous resolution is
+		// kept, like a lookup error: dropping it would send this cycle's
+		// alerts to no group and queue nothing. The untouched timestamp
+		// retries next cycle.
 		whatsAppGroupsMu.Lock()
-		whatsAppGroupsResolved = false
-		whatsAppResolvedUserIDs = nil
+		if whatsAppGroupsResolved {
+			userIDs = whatsAppResolvedUserIDs
+		}
 
 		// Latched: a typo warns once, not every tick.
 		warn := !whatsAppGroupsWarned
@@ -397,57 +408,69 @@ func whatsAppGroupsNeedsResolution() bool {
 	return !whatsAppGroupsResolved || time.Since(whatsAppGroupsResolvedAt) > whatsAppGroupsCacheTTL
 }
 
-// whatsAppProcessGroups appends matching joined-group JIDs to userIDs. A lookup
-// error leaves userIDs untouched and is returned, so the caller can fall back to
-// the cached resolution.
-func whatsAppProcessGroups(ctx context.Context, cli whatsAppGroupLister, userIDs, groups []string) ([]string, error) {
-	if len(groups) > 0 {
-		g, err := cli.GetJoinedGroups(ctx)
-		if err != nil {
-			logger.Error().Msgf("%v %v", ErrWhatsAppUnableGroups, err)
+// whatsAppProcessGroups appends matching joined-group JIDs to userIDs and
+// reports which configured names matched. A lookup error leaves userIDs
+// untouched and is returned, so the caller can fall back to the cached
+// resolution.
+func whatsAppProcessGroups(ctx context.Context, cli whatsAppGroupLister, userIDs, groups []string) ([]string, []string, error) {
+	if len(groups) == 0 {
+		return userIDs, nil, nil
+	}
 
-			return userIDs, err
-		}
+	g, err := cli.GetJoinedGroups(ctx)
+	if err != nil {
+		logger.Error().Msgf("%v %v", ErrWhatsAppUnableGroups, err)
 
-		for _, jid := range filterGroupsByName(groups, g) {
+		return userIDs, nil, err
+	}
+
+	jids, names := filterGroupsByName(groups, g)
+
+	// Clipped: appending must not write into the caller's backing array.
+	userIDs = slices.Clip(userIDs)
+
+	for _, jid := range jids {
+		// Surfaced so an operator can pin it manually.
+		logger.Debug().Msgf("Found WhatsApp group and mapped to ID %v", jid)
+
+		// Already pinned in userids as well: one send, not two.
+		if !slices.Contains(userIDs, jid) {
 			userIDs = append(userIDs, jid)
-
-			// Surfaced so an operator can pin it manually.
-			logger.Debug().Msgf("Found WhatsApp group and mapped to ID %v", jid)
 		}
 	}
 
-	return userIDs, nil
+	return userIDs, names, nil
 }
 
 // whatsAppPersistResolvedGroups rewrites group names as JIDs so future runs skip
 // resolution. Best effort — a failure only costs another resolution.
-func whatsAppPersistResolvedGroups(confFile string, userIDs []string) {
-	configRewriteMu.Lock()
-	defer configRewriteMu.Unlock()
+func whatsAppPersistResolvedGroups(confFile string, jids, names []string) {
+	written := rewriteConfig(confFile, "WhatsApp group resolution", func(cfg *config.TomlConfig) bool {
+		// Merged into the file as it is now, not the startup snapshot, so
+		// edits made since startup survive. Only matched names leave groups:
+		// an unmatched one (not joined yet, mid-rename) must stay to be
+		// resolved later, not vanish from the config.
+		changed := false
 
-	if !isWriteable(confFile) {
-		logger.Info().Msg("Detected WhatsApp group with a name but rewriting configuration is impossible due to lack of permissions")
+		for _, jid := range jids {
+			if !slices.Contains(cfg.WhatsApp.UserIDs, jid) {
+				cfg.WhatsApp.UserIDs = append(cfg.WhatsApp.UserIDs, jid)
+				changed = true
+			}
+		}
 
-		return
-	}
+		kept := slices.DeleteFunc(slices.Clone(cfg.WhatsApp.Groups), func(n string) bool { return slices.Contains(names, n) })
+		if len(kept) != len(cfg.WhatsApp.Groups) {
+			cfg.WhatsApp.Groups = kept
+			changed = true
+		}
 
-	logger.Info().Msg("Detected WhatsApp group with a name instead of userID, rewriting configuration")
-
-	// Non-validating: LoadConfig's fail-fast validators would os.Exit this
-	// goroutine on a broken mid-run edit.
-	cfg, err := config.LoadConfigRaw(confFile)
-	if err != nil {
-		logger.Error().Msgf("Error loading configuration: %v", err)
-
-		return
-	}
-
-	cfg.WhatsApp.UserIDs = userIDs
-	cfg.WhatsApp.Groups = []string{}
-
-	if err = config.SaveConfig(confFile, cfg); err != nil {
-		logger.Error().Msgf("Error saving configuration: %v", err)
+		// The 24h re-resolution lands here again; an already-persisted
+		// result must not rewrite the file each time.
+		return changed
+	})
+	if written {
+		logger.Info().Msgf("WhatsApp: moved resolved groups %v into userids in %q", names, confFile)
 	}
 }
 

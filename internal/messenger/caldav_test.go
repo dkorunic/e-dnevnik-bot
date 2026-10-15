@@ -174,7 +174,8 @@ func TestProcessCalDAVCollectionWithoutTrailingSlash(t *testing.T) {
 }
 
 // TestProcessCalDAVStatusHandling: success and 412 finish; permanent 4xx are
-// poison-dropped after exactly one attempt; transient statuses retry and then
+// poison-dropped after exactly one attempt; config errors (401/403/404) stop
+// after one attempt but are queued; transient statuses retry and then
 // requeue, because the exam is already dedup-flagged and would otherwise be lost.
 func TestProcessCalDAVStatusHandling(t *testing.T) {
 	t.Parallel()
@@ -190,9 +191,11 @@ func TestProcessCalDAVStatusHandling(t *testing.T) {
 		{name: "204 no content", status: http.StatusNoContent, retries: 3, wantPuts: 1},
 		{name: "412 already stored is success", status: http.StatusPreconditionFailed, retries: 3, wantPuts: 1},
 		{name: "400 dropped", status: http.StatusBadRequest, retries: 3, wantPuts: 1},
-		{name: "401 dropped", status: http.StatusUnauthorized, retries: 3, wantPuts: 1},
-		{name: "403 dropped", status: http.StatusForbidden, retries: 3, wantPuts: 1},
-		{name: "404 dropped", status: http.StatusNotFound, retries: 3, wantPuts: 1},
+		// A config error: one attempt (retrying cannot fix it), then queued so a
+		// fixed config still delivers the already-flagged exam.
+		{name: "401 bad credentials queued", status: http.StatusUnauthorized, retries: 3, wantPuts: 1, wantQueued: true},
+		{name: "403 forbidden queued", status: http.StatusForbidden, retries: 3, wantPuts: 1, wantQueued: true},
+		{name: "404 wrong collection queued", status: http.StatusNotFound, retries: 3, wantPuts: 1, wantQueued: true},
 		{name: "405 not a collection, dropped", status: http.StatusMethodNotAllowed, retries: 3, wantPuts: 1},
 		{name: "415 dropped", status: http.StatusUnsupportedMediaType, retries: 3, wantPuts: 1},
 		{name: "408 retried then queued", status: http.StatusRequestTimeout, retries: 2, wantPuts: 2, wantQueued: true},
@@ -292,7 +295,8 @@ func TestPutCalDAVRedactsRedirectLocationUserinfo(t *testing.T) {
 
 // TestProcessCalDAVDoesNotFollowRedirects: net/http replays a redirected PUT as
 // a bodiless GET, whose 200 would read as a stored exam. The client must stop
-// at the 3xx and treat it as a configuration error.
+// at the 3xx and treat it as a configuration error: queued, not dropped, so a
+// corrected URL still delivers the already-flagged exam.
 func TestProcessCalDAVDoesNotFollowRedirects(t *testing.T) {
 	t.Parallel()
 
@@ -309,8 +313,8 @@ func TestProcessCalDAVDoesNotFollowRedirects(t *testing.T) {
 			t.Errorf("status %d: server saw %+v, want exactly one PUT and no followed redirect", status, reqs)
 		}
 
-		if got := queue.FetchFailedMsgs(t.Context(), eDB, CalDAVQueueName); len(got) != 0 {
-			t.Errorf("status %d queued %+v; a redirect is a config error, not transient", status, got)
+		if got := queue.FetchFailedMsgs(t.Context(), eDB, CalDAVQueueName); len(got) != 1 {
+			t.Errorf("status %d queued %d rows, want 1; a redirect is a config error, and dropping loses the exam", status, len(got))
 		}
 	}
 }

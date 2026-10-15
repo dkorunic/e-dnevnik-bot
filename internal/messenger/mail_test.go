@@ -163,3 +163,27 @@ func TestProcessMailInvalidFromIsMessageLevel(t *testing.T) {
 		t.Errorf("FetchFailedMsgs = %+v, want nothing queued", q)
 	}
 }
+
+func TestMailSubjectFor(t *testing.T) {
+	t.Parallel()
+
+	cfg := MailConfig{Subject: "default", Subjects: map[msgtypes.EventCode]string{msgtypes.Exam: "ispit"}}
+
+	if got := cfg.subjectFor(msgtypes.Exam); got != "ispit" {
+		t.Errorf("subjectFor(Exam) = %q, want %q", got, "ispit")
+	}
+
+	if got := cfg.subjectFor(msgtypes.Grade); got != "default" {
+		t.Errorf("subjectFor(Grade) = %q, want fallback %q", got, "default")
+	}
+
+	// An empty override is unset, not a request for the built-in default.
+	cfg.Subjects[msgtypes.Reading] = ""
+	if got := cfg.subjectFor(msgtypes.Reading); got != "default" {
+		t.Errorf("subjectFor(Reading) with empty override = %q, want %q", got, "default")
+	}
+
+	if got := (MailConfig{}).subjectFor(msgtypes.Grade); got != MailSubject {
+		t.Errorf("subjectFor with nothing configured = %q, want %q", got, MailSubject)
+	}
+}

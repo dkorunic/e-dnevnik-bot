@@ -126,11 +126,19 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			wgInner.Wait()
 		}()
 
+		// The message being dispatched and the index of the sink it was
+		// headed for; sinks before it already hold it (cf. recoverDedup's
+		// flagged).
+		var (
+			inflight *msgtypes.Message
+			reached  int
+		)
+
 		// LIFO: runs before the close/wait defer, so the drain finishes while
 		// this stage still owns gradesMsg.
 		defer func() {
 			if r := recover(); r != nil {
-				recoverFanOut(ctx, eDB, sinks, gradesMsg, r)
+				recoverFanOut(ctx, eDB, sinks, gradesMsg, inflight, reached, r)
 			}
 		}()
 
@@ -179,6 +187,7 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 					Password: cfg.Mail.Password,
 					From:     cfg.Mail.From,
 					Subject:  cfg.Mail.Subject,
+					Subjects: cfg.Mail.SubjectByCode,
 					To:       cfg.Mail.To,
 					Retries:  *retries,
 				}); err != nil {
@@ -234,9 +243,14 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 
 		// Ends when gradesMsg closes.
 		for g := range gradesMsg {
-			for _, s := range sinks {
+			inflight = &g
+
+			for i, s := range sinks {
+				reached = i
 				dispatchFn(ctx, eDB, s, g)
 			}
+
+			inflight = nil
 		}
 	})
 }
@@ -248,11 +262,23 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 // that stops reading wedges it and runPollCycle never returns — a silent hang
 // in place of a visible crash. Drained messages are already dedup-flagged and
 // will never be re-scraped, so they go to the queues.
-func recoverFanOut(ctx context.Context, eDB *sqlitedb.Edb, sinks []messengerSink, gradesMsg <-chan msgtypes.Message, r any) {
+//
+// inflight is equally flagged, and sinks[:reached] already have it. The sink
+// that panicked is included in the spill: dispatch only panics while spilling,
+// so it may hold the message already, and a duplicate beats a loss.
+func recoverFanOut(ctx context.Context, eDB *sqlitedb.Edb, sinks []messengerSink, gradesMsg <-chan msgtypes.Message,
+	inflight *msgtypes.Message, reached int, r any,
+) {
 	logger.Error().Msgf("%v, spilling undelivered messages to the queues: %v", ErrFanOutPanic, r)
 	exitWithError.Store(true)
 
 	spilled := 0
+
+	if inflight != nil {
+		spillAll(ctx, eDB, sinks[reached:], *inflight)
+
+		spilled++
+	}
 
 	for g := range gradesMsg {
 		spillAll(ctx, eDB, sinks, g)
@@ -313,17 +339,11 @@ func spill(ctx context.Context, eDB *sqlitedb.Edb, s messengerSink, g msgtypes.M
 	storeOverflow(ctx, eDB, s.queue, g)
 }
 
-// overflowStoreTimeout bounds the detached spill-to-queue write.
-const overflowStoreTimeout = 5 * time.Second
-
 // storeOverflow spills g to a messenger's queue when its channel is full,
 // detached from ctx so a spill during shutdown still lands. A store failure
 // only logs — the event is already dedup-flagged, so there is no fallback.
 func storeOverflow(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) {
-	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), overflowStoreTimeout)
-	defer cancel()
-
-	if err := queue.StoreFailedMsgs(sctx, eDB, queueName, g); err != nil {
+	if err := queue.StoreFailedMsgs(ctx, eDB, queueName, g); err != nil {
 		logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
 	}
 }
@@ -402,10 +422,10 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				continue
 			}
 
-			// Seeded above but only forwarded when --readinglist is set. Flagging
+			// Seeded above but only forwarded when its flag allows. Flagging
 			// regardless (not skipping before CheckAndFlagTTL) prevents a flood
 			// when the flag is first enabled.
-			if !*readingList && g.Code == msgtypes.Reading {
+			if suppressedCode(g.Code) {
 				continue
 			}
 
@@ -428,6 +448,21 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			sendDigestsFn(ctx, eDB, dg, exams, gradesMsg)
 		}
 	})
+}
+
+// suppressedCode reports whether the CLI flags turn off alerts for code.
+func suppressedCode(code msgtypes.EventCode) bool {
+	switch code {
+	case msgtypes.Reading:
+		return !*readingList
+	case msgtypes.Exam:
+		return !*examAlerts
+	case msgtypes.NationalExam:
+		return !*nationalExamAlerts
+	case msgtypes.Grade, msgtypes.FinalGrade, msgtypes.ExamDigest:
+	}
+
+	return false
 }
 
 // recoverDedup costs the cycle instead of the process. The asymmetry between

@@ -3,7 +3,11 @@
 
 package config
 
-import "time"
+import (
+	"time"
+
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+)
 
 // User is one AAI/SSO credential pair.
 type User struct {
@@ -31,13 +35,17 @@ type Slack struct {
 
 // Mail messenger configuration.
 type Mail struct {
-	Server   string   `toml:"server,omitempty"`
-	Port     string   `toml:"port,omitempty"`
-	Username string   `toml:"username,omitempty"`
-	Password string   `toml:"password,omitempty"`
-	From     string   `toml:"from,omitempty"`
-	Subject  string   `toml:"subject,omitempty"`
-	To       []string `toml:"to,omitempty"`
+	// Per-event-code subject overrides, keyed by msgtypes.EventCodeNames.
+	Subjects map[string]string `toml:"subjects,omitempty"`
+	// Derived by checkMailConf.
+	SubjectByCode map[msgtypes.EventCode]string `toml:"-"`
+	Server        string                        `toml:"server,omitempty"`
+	Port          string                        `toml:"port,omitempty"`
+	Username      string                        `toml:"username,omitempty"`
+	Password      string                        `toml:"password,omitempty"`
+	From          string                        `toml:"from,omitempty"`
+	Subject       string                        `toml:"subject,omitempty"`
+	To            []string                      `toml:"to,omitempty"`
 }
 
 // Calendar holds the Google Calendar configuration.

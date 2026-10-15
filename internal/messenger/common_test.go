@@ -4,12 +4,10 @@
 package messenger
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
@@ -19,58 +17,6 @@ import (
 	"go.mau.fi/whatsmeow"
 	"google.golang.org/api/googleapi"
 )
-
-// TestQueueStoreCtxLiveCtx checks that queueStoreCtx passes a still-live
-// context through unchanged so cancellation continues to propagate.
-func TestQueueStoreCtxLiveCtx(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sctx, scancel := queueStoreCtx(ctx)
-	defer scancel()
-
-	if sctx.Err() != nil {
-		t.Fatalf("expected live ctx, got error: %v", sctx.Err())
-	}
-
-	cancel()
-
-	// Parent cancel must propagate through the live path.
-	if sctx.Err() == nil {
-		t.Error("cancelling parent did not propagate to returned ctx")
-	}
-}
-
-// TestQueueStoreCtxCancelledParent verifies the load-bearing invariant:
-// when the parent ctx is already cancelled, queueStoreCtx returns a
-// detached short-lived ctx so the post-send queue write still completes.
-// A regression that returned the cancelled ctx unchanged would silently
-// drop messages on shutdown.
-func TestQueueStoreCtxCancelledParent(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled
-
-	sctx, scancel := queueStoreCtx(ctx)
-	defer scancel()
-
-	if sctx.Err() != nil {
-		t.Fatalf("expected detached live ctx, got Err = %v", sctx.Err())
-	}
-
-	deadline, ok := sctx.Deadline()
-	if !ok {
-		t.Fatal("expected deadline on detached ctx, got none")
-	}
-
-	remaining := time.Until(deadline)
-	if remaining <= 0 || remaining > storeTimeout {
-		t.Errorf("deadline = %v from now, want (0, %v]", remaining, storeTimeout)
-	}
-}
 
 func TestMergeSkipRecipients(t *testing.T) {
 	t.Parallel()
@@ -282,7 +228,7 @@ func TestMarkPermanentWrapping(t *testing.T) {
 		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}}, markDiscordPermanent},
 		{"slack", slack.StatusCodeError{Code: http.StatusForbidden}, markSlackPermanent},
 		{"calendar", &googleapi.Error{Code: http.StatusForbidden}, markCalendarPermanent},
-		{"caldav", &caldavStatusError{code: http.StatusForbidden}, markCalDAVPermanent},
+		{"caldav", &caldavStatusError{code: http.StatusBadRequest}, markCalDAVPermanent},
 	}
 
 	for _, tc := range cases {
@@ -300,16 +246,19 @@ func TestMarkPermanentWrapping(t *testing.T) {
 	}
 }
 
-// TestMarkCalDAVPermanentClasses: a redirect means the configured URL is wrong
-// and will never succeed; 408, 423, 429 and 5xx may.
+// TestMarkCalDAVPermanentClasses: other 4xx will never succeed; 408, 423, 429
+// and 5xx may. Redirects and 401/403/404 are config errors: not permanent
+// (queued), yet they must still stop retry-go.
 func TestMarkCalDAVPermanentClasses(t *testing.T) {
 	t.Parallel()
 
 	for code, wantPermanent := range map[int]bool{
-		http.StatusFound:               true,
-		http.StatusPermanentRedirect:   true,
+		http.StatusFound:               false,
+		http.StatusPermanentRedirect:   false,
 		http.StatusPreconditionFailed:  true,
-		http.StatusNotFound:            true,
+		http.StatusUnauthorized:        false,
+		http.StatusForbidden:           false,
+		http.StatusNotFound:            false,
 		http.StatusRequestTimeout:      false,
 		http.StatusTooManyRequests:     false,
 		http.StatusLocked:              false,
@@ -319,6 +268,12 @@ func TestMarkCalDAVPermanentClasses(t *testing.T) {
 		got := isPermanentSendErr(markCalDAVPermanent(&caldavStatusError{code: code}))
 		if got != wantPermanent {
 			t.Errorf("status %d permanent = %v, want %v", code, got, wantPermanent)
+		}
+	}
+
+	for _, code := range []int{http.StatusFound, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
+		if retry.IsRecoverable(markCalDAVPermanent(&caldavStatusError{code: code})) {
+			t.Errorf("status %d is recoverable; retrying cannot fix a config error", code)
 		}
 	}
 }

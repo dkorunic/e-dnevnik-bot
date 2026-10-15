@@ -571,6 +571,26 @@ func TestDoClassActionAcceptsValidID(t *testing.T) {
 	}
 }
 
+// TestGetCalendarKeepsReferer: the .ics fetch is a download, which in Chrome
+// leaves the document URL alone; the next navigation's Referer must still be
+// the page before it.
+func TestGetCalendarKeepsReferer(t *testing.T) {
+	t.Parallel()
+
+	c := newStubClient(t.Context(), roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return stringResponse(req, http.StatusOK, "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"), nil
+	}))
+	c.lastURL = ClassURL
+
+	if _, err := c.getCalendar(); err != nil {
+		t.Fatalf("getCalendar() = %v, want nil", err)
+	}
+
+	if c.lastURL != ClassURL {
+		t.Errorf("lastURL = %q after the .ics download, want %q", c.lastURL, ClassURL)
+	}
+}
+
 // TestGetCalendarDecodesICS covers the ICS decode path end to end, including the
 // portal's own VEVENT shape.
 func TestGetCalendarDecodesICS(t *testing.T) {

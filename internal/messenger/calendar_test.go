@@ -100,6 +100,12 @@ func TestGetCalendarID(t *testing.T) {
 		t.Errorf("getCalendarID() = %s, want primary for the literal alias", calID)
 	}
 
+	// Surrounding spaces must not turn the alias into a failed name lookup.
+	calID = getCalendarID(ctx, srv, " Primary ")
+	if calID != "primary" {
+		t.Errorf("getCalendarID() = %s, want primary for a padded alias", calID)
+	}
+
 	// Name matching is case-insensitive and space-tolerant.
 	calID = getCalendarID(ctx, srv, "  test calendar ")
 	if calID != "test-id" {

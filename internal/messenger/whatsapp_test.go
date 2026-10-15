@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -105,7 +106,11 @@ func TestFilterGroupsByNameMatchesConfiguredGroups(t *testing.T) {
 		{JID: jid3, Name: "Gamma"},
 	}
 
-	got := filterGroupsByName(wantGroups, joined)
+	got, names := filterGroupsByName(wantGroups, joined)
+	if !reflect.DeepEqual(names, []string{"Alpha", "Gamma"}) {
+		t.Errorf("matched names = %v, want [Alpha Gamma]", names)
+	}
+
 	if len(got) != 2 {
 		t.Fatalf("expected 2 JIDs, got %d: %v", len(got), got)
 	}

@@ -18,7 +18,6 @@ import (
 	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
-	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"go.uber.org/ratelimit"
 )
@@ -121,25 +120,44 @@ func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, 
 	return nil
 }
 
-// markCalDAVPermanent stops retry-go on an answer that cannot change: a
-// redirect (the configured URL is wrong) or a 4xx. 423 Locked stays transient
-// alongside 408, 429 and 5xx — another client's lock is released, and dropping
-// would lose the exam. 412 never gets here: putCalDAV reads it as success.
+// markCalDAVPermanent stops retry-go on an answer that cannot change: a 4xx.
+// 423 Locked stays transient alongside 408, 429 and 5xx — another client's lock
+// is released, and dropping would lose the exam. 412 never gets here: putCalDAV
+// reads it as success.
+//
+// A redirect, 401, 403 and 404 stop the retry loop but are queued, not
+// dropped: CalDAV has no init step, so this PUT is the first credential and URL
+// check, and a rotated app password or mistyped collection would otherwise
+// discard every already dedup-flagged exam until the config is fixed. Google
+// Calendar queues in the same situation because its init fails first.
 func markCalDAVPermanent(err error) error {
 	if err == nil {
 		return nil
 	}
 
 	if se, ok := errors.AsType[*caldavStatusError](err); ok {
-		isRedirect := se.code >= 300 && se.code < 400
+		if isCalDAVConfigStatus(se.code) {
+			// No permanentError inside: isPermanentSendErr stays false.
+			return retry.Unrecoverable(err)
+		}
+
 		isLocked := se.code == http.StatusLocked
-		if isRedirect || (isPermanentHTTPStatus(se.code) && !isLocked) {
+		if isPermanentHTTPStatus(se.code) && !isLocked {
 			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
 		}
 	}
 
 	return err
+}
+
+// isCalDAVConfigStatus reports an answer that means the [caldav] credentials or
+// URL are wrong, which a config fix and restart will cure. A redirect names the
+// URL to configure instead; it is never followed (see caldavClient).
+func isCalDAVConfigStatus(code int) bool {
+	isRedirect := code >= 300 && code < 400
+
+	return isRedirect || code == http.StatusUnauthorized || code == http.StatusForbidden || code == http.StatusNotFound
 }
 
 // processCalDAV PUTs g as a create-only all-day event, re-queueing on a
@@ -152,7 +170,7 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 	}
 
 	if ctx.Err() != nil {
-		storeCalDAV(ctx, eDB, g)
+		storeQueued(ctx, eDB, CalDAVQueueName, g)
 
 		return
 	}
@@ -190,9 +208,13 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 		return
 	}
 
-	logger.Error().Msgf("Unable to store CalDAV event: %v", err)
+	if se, ok := errors.AsType[*caldavStatusError](err); ok && isCalDAVConfigStatus(se.code) {
+		logger.Error().Msgf("Unable to store CalDAV event, check the [caldav] url, username and password (queued for retry): %v", err)
+	} else {
+		logger.Error().Msgf("Unable to store CalDAV event: %v", err)
+	}
 
-	storeCalDAV(ctx, eDB, g)
+	storeQueued(ctx, eDB, CalDAVQueueName, g)
 }
 
 // putCalDAV sends one create-only PUT and classifies the answer for retry-go.
@@ -243,14 +265,4 @@ func putCalDAV(ctx context.Context, cfg CalDAVConfig, target string, body []byte
 	}
 
 	return markCalDAVPermanent(se)
-}
-
-// storeCalDAV queues g for the next cycle; the write must survive ctx cancel.
-func storeCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message) {
-	sctx, scancel := queueStoreCtx(ctx)
-	defer scancel()
-
-	if err := queue.StoreFailedMsgs(sctx, eDB, CalDAVQueueName, g); err != nil {
-		logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-	}
 }

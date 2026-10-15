@@ -50,7 +50,7 @@ tasks:
       - go install github.com/dkorunic/betteralign/cmd/betteralign@latest
 
   fmt:
-    desc: Tidy modules and run gci, gofumpt and betteralign formatters
+    desc: Tidy modules and run gci, gofumpt, go fix and betteralign
     cmds:
       - go mod tidy
       - gci write .

@@ -91,6 +91,9 @@ FLAGS
   -l, --colorlogs              enable colorized console logs
       --version                display program version
       --readinglist            send reading list alerts
+      --exams BOOL             send exam alerts (default: true)
+      --nationalexams BOOL     send national exam alerts (default: true)
+      --digest BOOL            send weekly exam digest (also needs [digest] enabled) (default: true)
   -j, --jitter BOOL            enable slight (up to 10%) jitter for tick intervals (default: true)
   -f, --conffile STRING        configuration file (in TOML) (default: .e-dnevnik.toml)
   -b, --database STRING        alert database file (default: .e-dnevnik.db)
@@ -98,7 +101,7 @@ FLAGS
   -c, --cpuprofile STRING      CPU profile output file
   -m, --memprofile STRING      memory profile output file
   -i, --interval DURATION      interval between polls when in daemon mode (default: 1h0m0s)
-  -p, --relevance DURATION     maximum relevance period for grade and exam events (0 = unlimited) (default: 0s)
+  -p, --relevance DURATION     maximum relevance period for grade and exam events (0 = unlimited) (default: 720h0m0s)
   -r, --retries UINT           number of retry attempts on error (default: 3)
 ```
 
@@ -111,14 +114,16 @@ Other flags:
 - `-f`: path to the configuration file containing usernames, passwords, and messaging service settings (in [TOML](https://github.com/toml-lang/toml) format),
 - `-i`: interval between polls in daemon/service mode (minimum 1h, default 1h),
 - `-r`: number of retry attempts on scraping or delivery failures (default: 3),
-- `-t`: sends a test message to all configured messaging services; calendar backends (Google Calendar, CalDAV) only ever receive exam events, so they are not exercised by `-t`,
+- `-t`: sends a test message to all configured messaging services, using a throwaway database so a failed test send is never queued for delivery on a later run; calendar backends (Google Calendar, CalDAV) only ever receive exam events, so they are not exercised by `-t`,
 - `-v`: enables verbose/debug logging for detailed insight into bot operation; disabled by default,
 - `-l`: enables colorized console logging with JSON output disabled,
 - `-g`: path to the Google Calendar API token file for reading and storing the OAuth2 token,
-- `-p`: maximum relevance period for grade and exam events; events older than this period are silently skipped (0 = unlimited),
+- `-p`: maximum relevance period for grade and exam events (default `720h`, about 30 days; `0` = unlimited). An event dated further back is recorded as seen and never alerted, so a grade a teacher enters backdated by more than this period produces no alert,
 - `--version`: displays the program version,
 - `-j`: enables a ±10% random jitter on the poll interval,
-- `--readinglist`: enables processing and alerting on reading list events.
+- `--readinglist`: enables processing and alerting on reading list events,
+- `--exams=false`, `--nationalexams=false`: turn off exam and national exam alerts on every messenger, calendars included. Suppressed events are still recorded as seen, so turning a flag back on does not replay them. Exams still appear in the weekly digest,
+- `--digest=false`: turns off the weekly exam digest, same as `enabled = false` in `[digest]`.
 
 ### Configuration
 
@@ -192,6 +197,12 @@ password = "legacy_app_password"
 from = "user.name@gmail.com"
 subject = "Nova ocjena iz e-Dnevnika"
 to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
+
+# Optional per-event subjects; missing keys fall back to `subject`.
+# Keys: grade, exam, reading, finalgrade, nationalexam, examdigest.
+[mail.subjects]
+exam = "Novi ispit u e-Dnevniku"
+examdigest = "Tjedni pregled ispita"
 ```
 
 > **Upgrading: `from` is now required.** It used to be optional, but an empty
@@ -218,8 +229,8 @@ groups = [ "group1", "group2" ]
 Steps required:
 
 1. Open the WhatsApp mobile application (iOS, Android, etc.).
-2. A phone number is required for automatic pairing via PIN. If no phone number is configured, pairing falls back to a QR code, which requires an interactive run on a desktop. During the initial sync, keep your Android/iOS WhatsApp application open and active until it finishes, which can take 15-20 minutes. Once the device is paired, Ctrl+C and SIGTERM are deferred until the sync finishes (at most about 27 minutes), so interrupting cannot leave contacts and history half-synced.
-3. Entries in `userids` are either a personal JID (in the form `+385XXYYYYYYY@s.whatsapp.net`, for direct messages) or a group chat JID (in the form `XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net`). If you do not know a group's JID, you can specify groups by name in the `groups` field; the bot will resolve each name to its JID at startup. If the configuration file is writable by the bot, the resolved JIDs will be migrated from `groups` into `userids` automatically, so subsequent runs skip the name-resolution step. Using `userids` directly is preferred for performance reasons.
+2. A phone number is required for automatic pairing via PIN. If no phone number is configured, pairing falls back to a QR code, which requires an interactive run on a desktop. During the initial sync, keep your Android/iOS WhatsApp application open and active until it finishes, which can take 15-20 minutes. Once the device is paired, the first Ctrl+C or SIGTERM is deferred until the sync finishes (at most about 27 minutes), so a stray interrupt cannot leave contacts and history half-synced. A second one stops waiting and exits; the sync may then be incomplete.
+3. Entries in `userids` are either a personal JID (in the form `+385XXYYYYYYY@s.whatsapp.net`, for direct messages) or a group chat JID (in the form `XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net`). If you do not know a group's JID, you can specify groups by name in the `groups` field; the bot will resolve each name to its JID at startup. If the configuration file is writable by the bot, each resolved JID is added to `userids` and its name removed from `groups`, so subsequent runs skip the name-resolution step. A name that matched no joined group stays in `groups` and is retried on the next run. Using `userids` directly is preferred for performance reasons.
 4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, keep the whole working directory on a persistent volume (as in the examples below) so that the pairing survives container restarts. Do not bind-mount the database file alone: SQLite keeps `-wal` and `-shm` files next to each database, and losing them on an unclean stop discards recent session writes.
 
 #### Google Calendar configuration
@@ -249,9 +260,9 @@ An alternative to Google Calendar that needs no Google account and no interactiv
 1. `url` is the full URL of the calendar *collection*, not the server root. Nextcloud shows it under the calendar's "Copy private link" menu; Radicale uses `http://127.0.0.1:5232/<user>/<calendar>/`; Fastmail lists it under Settings → Calendars → Calendar sharing / CalDAV.
 2. Use an app-specific password where the provider supports one (Nextcloud, Fastmail, iCloud).
 3. The URL must use `https`. Plain `http` is accepted only for `localhost`, `127.0.0.0/8` or `::1`, so a Radicale on the same machine works without TLS.
-4. Redirects are not followed. If the server redirects, the log names the target — put that URL in the config.
+4. Redirects are not followed. If the server redirects, the log names the target — put that URL in the config. The exam is queued meanwhile, like a `401`/`403`/`404` (see below).
 5. Only exam events are added, as all-day entries. Google Calendar and CalDAV can be enabled together.
-6. Credentials and the URL are only exercised when the first exam arrives — `-t` emulation sends a grade, which calendar backends ignore, so it does not test CalDAV. A `401`/`403`/`404` on that first exam is treated as permanent, and that exam is dropped rather than retried. Verify the URL and app password with a CalDAV client beforehand (e.g. by subscribing to the same URL) rather than finding out on the first real exam.
+6. Credentials and the URL are only exercised when the first exam arrives — `-t` emulation sends a grade, which calendar backends ignore, so it does not test CalDAV. A `401`/`403`/`404` is treated as a configuration error: the exam is queued, not dropped, and delivered once the URL or app password is fixed and the bot restarted (within the queue's maximum age). Verify the URL and app password with a CalDAV client beforehand (e.g. by subscribing to the same URL) rather than finding out on the first real exam.
 7. Plain `http` is loopback-only (see point 3): a Docker-network hostname such as `http://radicale:5232/` is rejected even though it never leaves your infrastructure. Use `https`, or run the bot on the same host network as the CalDAV server so it can reach it via `localhost`.
 8. iCloud does not show collection URLs in its web UI; discovering the correct one requires a CalDAV client — the bot does no discovery of its own.
 
@@ -266,7 +277,7 @@ hour = 18
 
 Once a week, each user gets one short message listing every exam in the coming week (Monday to Sunday), sent to all chat messengers (Telegram, Discord, Slack, mail, WhatsApp). Calendar backends ignore it, because they already hold each exam as its own entry.
 
-1. The digest is **on by default**, even with no `[digest]` section. To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is an hour from 0 to 23 (default `18`) in the bot's local time zone. In Docker, that is UTC unless you set `TZ` (see below).
+1. The digest is **on by default**, even with no `[digest]` section, as long as at least one chat messenger is enabled (with only calendars it is switched off, since they would discard it). To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is an hour from 0 to 23 (default `18`) in the bot's local time zone. In Docker, that is UTC unless you set `TZ` (see below).
 2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll is missed or fails to scrape a user, a later poll still sends it. A late digest lists only exams from that day onward.
 3. Each user gets at most one digest per week. The bot stores the week it last handled in its database. A week with no exams sends nothing.
 4. Exams already announced individually are listed again. The digest is a summary, not a new-event alert.

@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"slices"
@@ -170,6 +171,13 @@ func main() {
 	cfg, err := config.LoadConfig(*confFile)
 	if err != nil {
 		logger.Fatal().Msgf("Error loading configuration: %v", err)
+	}
+
+	// Folded in here so Digest.Active stays the single runtime switch.
+	if cfg.Digest.Active && !*digestAlerts {
+		logger.Info().Msg("Weekly exam digest disabled by --digest=false")
+
+		cfg.Digest.Active = false
 	}
 
 	// For the messengers that rewrite the file in place.
@@ -414,10 +422,26 @@ func startSystemdWatchdog(ctx context.Context) {
 	}
 }
 
+// emulationDB returns where emulation keeps its throwaway database, and how to
+// remove it. A seam, so tests can inspect what the messengers queued.
+var emulationDB = func() (string, func(), error) {
+	dir, err := os.MkdirTemp("", "e-dnevnik-emulation-")
+	if err != nil {
+		return "", nil, err
+	}
+
+	return filepath.Join(dir, "emulation.db"), func() { _ = os.RemoveAll(dir) }, nil
+}
+
 // testSingleRun pushes one synthetic message through the send pipeline, so
 // credentials and formatting can be checked without scraping. The signal ctx
 // stays live, so SIGTERM drains through the messengers' queue persistence
 // rather than killing the process mid-send.
+//
+// That persistence is why the database is a throwaway one: a failed or
+// interrupted test send is queued, and in the real database the next normal
+// run would deliver the fake grade to every recipient. It also keeps -t from
+// flushing the real queue as a side effect.
 func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	logger.Info().Msg("Emulation/testing mode enabled, will try to send a test message")
 
@@ -438,9 +462,19 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 
 	var wgMsg sync.WaitGroup
 
-	eDB, err := openDB(ctx, *dbFile)
+	path, cleanup, err := emulationDB()
 	if err != nil {
-		logger.Error().Msgf("Unable to open application database: %v", err)
+		logger.Error().Msgf("Unable to create emulation database: %v", err)
+		exitWithError.Store(true)
+
+		return
+	}
+
+	defer cleanup()
+
+	eDB, err := openDB(ctx, path)
+	if err != nil {
+		logger.Error().Msgf("Unable to open emulation database: %v", err)
 		exitWithError.Store(true)
 
 		return

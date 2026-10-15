@@ -19,6 +19,16 @@ const (
 	ExamDigest // weekly summary of next week's exams; bypasses dedup
 )
 
+// EventCodeNames maps the config-facing name of each EventCode to its value.
+var EventCodeNames = map[string]EventCode{
+	"grade":        Grade,
+	"exam":         Exam,
+	"reading":      Reading,
+	"finalgrade":   FinalGrade,
+	"nationalexam": NationalExam,
+	"examdigest":   ExamDigest,
+}
+
 // Message is the pipeline's canonical event.
 type Message struct {
 	Timestamp      time.Time // event timestamp

@@ -27,6 +27,7 @@ const (
 
 var (
 	debug, debugEvents, daemon, help, emulation, colorLogs, version, jitter, readingList *bool
+	examAlerts, nationalExamAlerts, digestAlerts                                         *bool
 	confFile, dbFile, cpuProfile, memProfile, calTokFile                                 *string
 	tickInterval, relevancePeriod                                                        *time.Duration
 	retries                                                                              *uint
@@ -44,6 +45,9 @@ func parseFlags() {
 	colorLogs = fs.Bool('l', "colorlogs", "enable colorized console logs")
 	version = fs.BoolLong("version", "display program version")
 	readingList = fs.BoolLong("readinglist", "send reading list alerts")
+	examAlerts = fs.BoolLongDefault("exams", true, "send exam alerts")
+	nationalExamAlerts = fs.BoolLongDefault("nationalexams", true, "send national exam alerts")
+	digestAlerts = fs.BoolLongDefault("digest", true, "send weekly exam digest (also needs [digest] enabled)")
 	jitter = fs.BoolDefault('j', "jitter", true, "enable slight (up to 10%) jitter for tick intervals")
 
 	confFile = fs.String('f', "conffile", DefaultConfFile, "configuration file (in TOML)")

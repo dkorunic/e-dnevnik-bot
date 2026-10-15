@@ -4,6 +4,7 @@
 package messenger
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"go.mau.fi/whatsmeow/types"
 )
 
 // TestUndeliveredRecipients covers the set-difference used to retry only the
@@ -384,7 +386,7 @@ groups = ["Razred 5.a"]
 
 	resolved := []string{"111@s.whatsapp.net", "9990001@g.us"}
 
-	whatsAppPersistResolvedGroups(confFile, resolved)
+	whatsAppPersistResolvedGroups(confFile, []string{"9990001@g.us"}, []string{"Razred 5.a"})
 
 	cfg, err := config.LoadConfigRaw(confFile)
 	if err != nil {
@@ -418,7 +420,7 @@ func TestWhatsAppPersistResolvedGroupsUnwritableConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	whatsAppPersistResolvedGroups(confFile, []string{"9990001@g.us"})
+	whatsAppPersistResolvedGroups(confFile, []string{"9990001@g.us"}, []string{"Razred 5.a"})
 
 	data, err := os.ReadFile(confFile)
 	if err != nil {
@@ -434,5 +436,89 @@ func TestWhatsAppPersistResolvedGroupsUnwritableConfig(t *testing.T) {
 // mid-run must be logged and skipped, not panic the send path.
 // Not parallel: takes the package-level configRewriteMu.
 func TestWhatsAppPersistResolvedGroupsMissingConfig(t *testing.T) {
-	whatsAppPersistResolvedGroups(filepath.Join(t.TempDir(), "gone.toml"), []string{"9990001@g.us"})
+	whatsAppPersistResolvedGroups(filepath.Join(t.TempDir(), "gone.toml"), []string{"9990001@g.us"}, []string{"Razred 5.a"})
+}
+
+// TestWhatsAppPersistResolvedGroupsPartial: only matched names may leave
+// groups. An unmatched one (not joined yet, mid-rename) used to be wiped with
+// the rest and never resolved again. The merge also reads userids from the
+// file, so an entry added since startup survives.
+// Not parallel: takes the package-level configRewriteMu.
+func TestWhatsAppPersistResolvedGroupsPartial(t *testing.T) {
+	confFile := filepath.Join(t.TempDir(), ".e-dnevnik.toml")
+	if err := os.WriteFile(confFile, []byte(`
+[whatsapp]
+userids = ["111@s.whatsapp.net", "222@s.whatsapp.net"]
+groups = ["Razred 5.a", "Razred 5.b"]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	whatsAppPersistResolvedGroups(confFile, []string{"9990001@g.us"}, []string{"Razred 5.a"})
+
+	cfg, err := config.LoadConfigRaw(confFile)
+	if err != nil {
+		t.Fatalf("LoadConfigRaw() after rewrite failed: %v", err)
+	}
+
+	if want := []string{"111@s.whatsapp.net", "222@s.whatsapp.net", "9990001@g.us"}; !reflect.DeepEqual(cfg.WhatsApp.UserIDs, want) {
+		t.Errorf("persisted UserIDs = %v, want %v", cfg.WhatsApp.UserIDs, want)
+	}
+
+	if want := []string{"Razred 5.b"}; !reflect.DeepEqual(cfg.WhatsApp.Groups, want) {
+		t.Errorf("persisted Groups = %v, want %v — the unmatched group must stay", cfg.WhatsApp.Groups, want)
+	}
+
+	// Already persisted: a repeat (the 24h re-resolution) must not rewrite.
+	before, err := os.Stat(confFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	whatsAppPersistResolvedGroups(confFile, []string{"9990001@g.us"}, []string{"Razred 5.a"})
+
+	after, err := os.Stat(confFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Error("an already-persisted resolution rewrote the configuration")
+	}
+}
+
+// fakeGroupLister returns a fixed joined-group list.
+type fakeGroupLister []*types.GroupInfo
+
+func (f fakeGroupLister) GetJoinedGroups(context.Context) ([]*types.GroupInfo, error) { return f, nil }
+
+// TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch: a lookup that succeeds but
+// matches nothing (an empty list right after a reconnect) must not drop the
+// last good resolution, or this cycle's alerts silently skip every group.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch(t *testing.T) {
+	cached := []string{"111@s.whatsapp.net", "9990001@g.us"}
+
+	whatsAppGroupsMu.Lock()
+	origResolved, origAt, origIDs, origWarned := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs, whatsAppGroupsWarned
+	whatsAppGroupsResolved = true
+	whatsAppGroupsResolvedAt = time.Now().Add(-2 * whatsAppGroupsCacheTTL) // stale: forces a lookup
+	whatsAppResolvedUserIDs = cached
+	whatsAppGroupsMu.Unlock()
+
+	t.Cleanup(func() {
+		whatsAppGroupsMu.Lock()
+		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs, whatsAppGroupsWarned = origResolved, origAt, origIDs, origWarned
+		whatsAppGroupsMu.Unlock()
+	})
+
+	got := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, []string{"111@s.whatsapp.net"}, []string{"Razred 5.a"})
+	if !reflect.DeepEqual(got, cached) {
+		t.Errorf("whatsAppEffectiveUserIDs() = %v, want the cached resolution %v", got, cached)
+	}
+
+	if !whatsAppGroupsNeedsResolution() {
+		t.Error("a zero-match lookup refreshed the cache timestamp; the next cycle must retry")
+	}
 }

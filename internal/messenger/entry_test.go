@@ -137,8 +137,8 @@ func TestMessengerMisconfigurationQueuesInsteadOfDropping(t *testing.T) {
 
 // TestMessengerMisconfigurationDuringShutdownStillQueues combines the two
 // failure modes that overlap in production: a misconfigured messenger and an
-// already-cancelled context. queueUndelivered uses queueStoreCtx
-// (context.WithoutCancel), so the write must still land — otherwise a SIGTERM
+// already-cancelled context. queue.StoreFailedMsgs detaches a cancelled
+// ctx, so the write must still land — otherwise a SIGTERM
 // arriving in the same cycle as a config error loses every in-flight alert.
 //
 // Not parallel: the entry points touch package-level client globals.

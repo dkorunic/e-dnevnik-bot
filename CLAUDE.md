@@ -52,7 +52,7 @@ task build-debug    # fmt → race build (CGO on). Slower. Use for races only.
 task test           # go test ./...
 task lint           # fmt → golangci-lint (5m timeout)
 task lint-nil       # fmt → nilaway. Separate pass, NOT part of `task lint`.
-task fmt            # go mod tidy + gci + gofumpt + betteralign -apply
+task fmt            # go mod tidy + gci + gofumpt + go fix + betteralign -apply
 task modernize      # apply gopls/modernize fixes across the tree
 task update         # go get -u + go mod tidy
 task update-tools   # install gci, gofumpt, betteralign (required for `task fmt`)
@@ -69,11 +69,12 @@ The main binary accepts `-t`/`--test` for an **emulation mode** that pushes a sy
 
 ## Mandatory before every commit
 
-`task fmt` must pass. It runs three tools, **all of which must be installed** (`task update-tools`):
+`task fmt` must pass. After `go mod tidy` it runs four rewriting steps; the three external tools **must be installed** (`task update-tools`):
 
 1. `gci` — import ordering
 2. `gofumpt` — stricter gofmt
-3. `betteralign` — struct field alignment
+3. `go fix ./...` — toolchain modernisation rewrites (ships with Go, nothing to install). Expect it to touch code you did not edit after a Go upgrade.
+4. `betteralign` — struct field alignment
 
 `betteralign -apply` rewrites struct field order to minimise padding. It will reorder fields in types you touch — this is expected, do not revert it.
 
@@ -83,11 +84,11 @@ The main binary accepts `-t`/`--test` for an **emulation mode** that pushes a sy
 
 These behaviours are not enforced by the type system or tests. Breaking them manifests as data loss, duplicate alerts, or shutdown hangs that only appear in production.
 
-### Shutdown-tolerant queue writes — `internal/messenger/common.go`
+### Shutdown-tolerant queue writes — `internal/queue/queue.go:StoreFailedMsgs`
 
-Every messenger that stores un-delivered messages to the retry queue uses `queueStoreCtx(ctx)` — built on `context.WithoutCancel` + `storeTimeout = 5s`. The purpose: when the main context is already cancelled (SIGTERM arrived mid-send), the final sqlite write to the failed-message queue **must still complete**, otherwise the message is lost forever.
+`StoreFailedMsgs` swaps a cancelled context for a detached one (`detachedCtx`: `context.WithoutCancel` + `storeTimeout = 5s`). The purpose: when the main context is already cancelled (SIGTERM arrived mid-send), the final sqlite write to the failed-message queue **must still complete**, otherwise the message is lost forever.
 
-When adding a new messenger or touching send paths, the post-send `StoreFailedMsgs` call must use `queueStoreCtx`, not the raw `ctx`.
+It lives inside the store, not at the call sites, so no send path can forget it. Do not move it back out, and do not add a raw variant: every queue write persists a message dedup has already flagged. Messengers call it through `storeQueued` (`internal/messenger/common.go`), which also logs the failure.
 
 ### Two-level WaitGroup in `msgSend` — `routines.go`
 
@@ -123,7 +124,7 @@ Course pages wrap tables in `div.tab-content` (observed: one, `.active`, with `d
 - **A failed scrape is not a quiet week:** `scrapers` records each user whose scrape returned an error in a per-cycle `userSet`. Those users are skipped *unclaimed* and retried on the next cycle. Don't drop that check: a portal outage would otherwise claim the week with no exams.
 - **No send window:** `digestWeek` returns the week after the *latest past* `day@hour`, so any later poll catches up and a late digest lists from today. A window ending at Monday was tried and lost weeks whenever polls straddled it (`hour = 23` with ±10% jitter, or `-i` longer than the window).
 - **Local time is `TZ`:** `main.go` embeds `time/tzdata` because the Alpine image ships none, and Go would otherwise fall back to UTC without any error.
-- Calendar backends receive the digest through the fan-out but drop it: `examEventOf` and `QueueAccepts` both reject non-`Exam` codes.
+- Calendar backends receive the digest through the fan-out but drop it: `examEventOf` and `QueueAccepts` both reject non-`Exam` codes. For the same reason `checkDigestConf` leaves `Digest.Active` false when no chat messenger is enabled, so it must run after the messenger checks in `LoadConfig`.
 
 ### Bounded version check — `routines.go:versionCheck`
 
@@ -182,7 +183,7 @@ Every messenger follows an identical lifecycle and set of rules. When adding a n
 2. **Panic guard — `recoverMessenger`**: install `defer func() { if r := recover(); r != nil { err = recoverMessenger(ctx, eDB, NameQueueName, ch, r, inflight) } }()` at the top. An unrecovered send-path panic would crash the whole process (taking every other messenger down); the guard instead requeues the **in-flight** message, drains the rest of `ch` to the queue, and returns `ErrMessengerPanic`. Track `inflight *msgtypes.Message`: set `inflight = &g` immediately before processing a live message off `ch`, `inflight = nil` after — and leave it nil on the queued-resend path (that row is still in the DB; re-storing it would duplicate). **Never hold a mutex across panic-able code under this guard** — the recover does not unlock it, and a leaked lock hangs the next cycle at `Lock` (see `ensureCalendarInit`, which `defer`s its unlock for exactly this reason).
 3. **Permanent vs transient errors + poison-drop**: each messenger has a `markNamePermanent(err) error`. Permanent errors (invalid token, 4xx that will never succeed) are wrapped `retry.Unrecoverable(permanentError{err})` — the outer marker short-circuits `retry-go`, and the inner `permanentError` sentinel **survives `retry.Do`'s marker stripping** (retry-go v5 strips the outer `Unrecoverable` on return) so `isPermanentSendErr` can still detect permanence *after* the retry loop. Transient errors (timeout, 429) are returned unwrapped so retry fires. A permanent per-recipient failure is **poison-dropped**: logged loudly, added to `poisonedIDs`, and **not** requeued (it would otherwise retry every cycle until `MaxQueueAge`); only transient failures set `anyFailed` and requeue.
 4. **Partial delivery — `SkipRecipients`**: successful *and* poisoned recipient IDs are merged into `g.SkipRecipients` before requeuing (via `mergeSkipRecipients`, deduplicated so it doesn't grow unboundedly). On retry, iterate over recipients and skip those already in the set.
-5. **Queue writes must use `queueStoreCtx`** (see Shutdown-tolerant queue writes above) — never the raw `ctx`.
+5. **Queue writes go through `storeQueued`** (or `queueUndelivered` for a whole channel). Both are shutdown-tolerant already (see above); pass the raw `ctx`.
 
 ### Outbound formatting contract — `internal/format`, `internal/messenger`
 
@@ -209,7 +210,7 @@ Two rules that were each established by sending a real message and reading it ba
 
 TOML (`.e-dnevnik.toml`). Multiple `[[user]]` blocks supported. Each messenger section is independently optional — absence disables that messenger. Validation is fail-fast in `internal/config/validators.go`. `LoadConfig` tightens the file to 0600 on every load (best-effort, warn-only on failure); `SaveConfig` writes 0600 atomically.
 
-**Credentials are read once, at startup.** `cfg` is loaded in `main` and passed *by value* into every poll cycle, and nothing re-reads the file — `LoadConfigRaw` exists only for the two rewrite paths (`telegramPersistChatID`, `whatsAppPersistResolvedGroups`). Rotating a token therefore requires a restart, and that is documented behaviour, not an oversight. The messengers' lazy clients are keyed on their credentials anyway (`credGuard`, `internal/messenger/creds.go`), so a rebuild happens if the inputs ever do start varying: `if cli == nil` alone would keep serving a client built from a superseded secret. Live rotation would additionally need a validating non-fatal loader (`LoadConfig` calls `logger.Fatal`, which must never run mid-cycle), would have to take `configRewriteMu` to avoid racing those rewrite paths, and could not cover WhatsApp or Calendar at all — their credentials live in `.e-dnevnik.wa.sqlite` and `calendar_token.json`, behind interactive pairing and OAuth.
+**Credentials are read once, at startup.** `cfg` is loaded in `main` and passed *by value* into every poll cycle, and nothing re-reads the file — `LoadConfigRaw` exists only for the two rewrite paths (`telegramPersistChatID`, `whatsAppPersistResolvedGroups`), which both go through `rewriteConfig` (`internal/messenger/common.go`). Rotating a token therefore requires a restart, and that is documented behaviour, not an oversight. The messengers' lazy clients are keyed on their credentials anyway (`credGuard`, `internal/messenger/creds.go`), so a rebuild happens if the inputs ever do start varying: `if cli == nil` alone would keep serving a client built from a superseded secret. Live rotation would additionally need a validating non-fatal loader (`LoadConfig` calls `logger.Fatal`, which must never run mid-cycle), would have to take `configRewriteMu` to avoid racing those rewrite paths, and could not cover WhatsApp or Calendar at all — their credentials live in `.e-dnevnik.wa.sqlite` and `calendar_token.json`, behind interactive pairing and OAuth.
 
 ## Flag variables
 

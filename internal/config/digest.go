@@ -24,8 +24,6 @@ func checkDigestConf(config *TomlConfig) {
 		return
 	}
 
-	config.Digest.Active = true
-
 	config.Digest.Weekday = DefaultDigestDay
 
 	if day := strings.TrimSpace(config.Digest.Day); day != "" {
@@ -47,8 +45,26 @@ func checkDigestConf(config *TomlConfig) {
 		config.Digest.SendHour = *config.Digest.Hour
 	}
 
+	// After validation, so a bad day or hour still fails fast. Both calendars
+	// discard the digest; with no chat messenger it would be built, claimed
+	// and logged as sent every week while reaching nobody.
+	if !hasChatMessenger(config) {
+		logger.Info().Msg("Configuration: weekly exam digest disabled, no chat messenger (Telegram, Discord, Slack, mail, WhatsApp) is enabled")
+
+		return
+	}
+
+	config.Digest.Active = true
+
 	logger.Info().Msgf("Configuration: weekly exam digest enabled, sent %v from %02d:00",
 		config.Digest.Weekday, config.Digest.SendHour)
+}
+
+// hasChatMessenger reports a messenger that can deliver the digest, which both
+// calendar backends drop. Needs the messenger checks to have run first.
+func hasChatMessenger(config *TomlConfig) bool {
+	return config.TelegramEnabled || config.DiscordEnabled || config.SlackEnabled ||
+		config.MailEnabled || config.WhatsAppEnabled
 }
 
 // parseWeekday matches an English weekday name case-insensitively.

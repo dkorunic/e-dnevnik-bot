@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 	"unicode/utf8"
 
+	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/format"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
@@ -69,18 +69,49 @@ func QueueAccepts(queueName []byte, g msgtypes.Message) bool {
 	return true
 }
 
-// storeTimeout bounds queue writes detached after the caller's ctx is cancelled.
-const storeTimeout = 5 * time.Second
+// storeQueued queues g for the next cycle. The write survives ctx cancel (see
+// queue.StoreFailedMsgs); a failure is only logged — with one durable store
+// there is no fallback.
+func storeQueued(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) {
+	if err := queue.StoreFailedMsgs(ctx, eDB, queueName, g); err != nil {
+		logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+	}
+}
 
-// queueStoreCtx yields a context for the post-send queue write: the live one,
-// or a short-lived detached one if it is already cancelled, so a shutdown
-// mid-send still persists the message. The cancel must always be invoked.
-func queueStoreCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx.Err() == nil {
-		return ctx, func() {}
+// rewriteConfig applies mutate to confFile as it is on disk now and saves the
+// result when mutate reports a change. Serialised by configRewriteMu, so two
+// rewrites in one cycle cannot lose each other's changes. Best effort: who
+// labels the log line, and the return reports whether the file was written.
+func rewriteConfig(confFile, who string, mutate func(*config.TomlConfig) bool) bool {
+	configRewriteMu.Lock()
+	defer configRewriteMu.Unlock()
+
+	if !isWriteable(confFile) {
+		logger.Warn().Msgf("%v: cannot update configuration, %q is not writable", who, confFile)
+
+		return false
 	}
 
-	return context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
+	// Non-validating: LoadConfig's fail-fast validators would os.Exit this
+	// goroutine on a broken mid-run edit.
+	cfg, err := config.LoadConfigRaw(confFile)
+	if err != nil {
+		logger.Error().Msgf("%v: unable to load configuration: %v", who, err)
+
+		return false
+	}
+
+	if !mutate(&cfg) {
+		return false
+	}
+
+	if err := config.SaveConfig(confFile, cfg); err != nil {
+		logger.Error().Msgf("%v: unable to save configuration: %v", who, err)
+
+		return false
+	}
+
+	return true
 }
 
 // queueUndelivered drains ch to the queue so already-flagged events survive to
@@ -98,13 +129,7 @@ func queueUndelivered(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, 
 			continue
 		}
 
-		// Must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err := queue.StoreFailedMsgs(sctx, eDB, queueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
+		storeQueued(ctx, eDB, queueName, g)
 
 		queued++
 	}
@@ -133,12 +158,7 @@ func recoverMessenger(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, 
 
 	// Off the channel but not yet in the queue: orphaned by the panic.
 	if inflight != nil && QueueAccepts(queueName, *inflight) {
-		sctx, scancel := queueStoreCtx(ctx)
-		if err := queue.StoreFailedMsgs(sctx, eDB, queueName, *inflight); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
+		storeQueued(ctx, eDB, queueName, *inflight)
 	}
 
 	queueUndelivered(ctx, eDB, queueName, ch)
@@ -299,13 +319,7 @@ func (r *recipientRun) finish(ctx context.Context, eDB *sqlitedb.Edb, queueName 
 	// Neither is attempted again; dedup bounds growth.
 	g.SkipRecipients = mergeSkipRecipients(g.SkipRecipients, r.resolved())
 
-	// Must survive ctx cancel.
-	sctx, scancel := queueStoreCtx(ctx)
-	defer scancel()
-
-	if err := queue.StoreFailedMsgs(sctx, eDB, queueName, g); err != nil {
-		logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-	}
+	storeQueued(ctx, eDB, queueName, g)
 }
 
 // bodyRenderer is satisfied by format.HTMLMsg and format.MarkupMsg.

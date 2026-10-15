@@ -27,6 +27,11 @@ func TestMain(m *testing.M) {
 	rl := false
 	readingList = &rl
 
+	on := true
+	examAlerts = &on
+	nationalExamAlerts = &on
+	digestAlerts = &on
+
 	rp := time.Duration(0)
 	relevancePeriod = &rp
 

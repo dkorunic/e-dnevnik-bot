@@ -30,7 +30,7 @@ func TestCheckDigestConf(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := TomlConfig{Digest: tt.in}
+			cfg := TomlConfig{Digest: tt.in, TelegramEnabled: true}
 			checkDigestConf(&cfg)
 
 			if !cfg.Digest.Active {
@@ -57,6 +57,26 @@ func TestCheckDigestConfDisabledSkipsValidation(t *testing.T) {
 	}
 }
 
+// TestCheckDigestConfNeedsChatMessenger: both calendars discard the digest, so
+// a calendar-only setup must not build, claim and log one that reaches nobody.
+func TestCheckDigestConfNeedsChatMessenger(t *testing.T) {
+	t.Parallel()
+
+	cfg := TomlConfig{CalendarEnabled: true, CalDAVEnabled: true}
+	checkDigestConf(&cfg)
+
+	if cfg.Digest.Active {
+		t.Error("digest active with only calendar backends enabled")
+	}
+
+	cfg = TomlConfig{CalDAVEnabled: true, MailEnabled: true}
+	checkDigestConf(&cfg)
+
+	if !cfg.Digest.Active {
+		t.Error("digest inactive although mail is enabled")
+	}
+}
+
 // TestDigestTOMLDecoding: absent means on, false means off, via the real decoder.
 func TestDigestTOMLDecoding(t *testing.T) {
 	t.Parallel()
@@ -80,6 +100,8 @@ func TestDigestTOMLDecoding(t *testing.T) {
 			if _, err := toml.Decode(tt.toml, &cfg); err != nil {
 				t.Fatalf("toml.Decode() failed: %v", err)
 			}
+
+			cfg.TelegramEnabled = true
 
 			checkDigestConf(&cfg)
 

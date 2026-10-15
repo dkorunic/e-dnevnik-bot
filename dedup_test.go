@@ -208,6 +208,46 @@ func TestMsgDedupReadingListGate(t *testing.T) {
 	})
 }
 
+// TestMsgDedupExamGates checks --exams and --nationalexams=false suppress only
+// their own code, and that suppressed events are still flagged.
+// Not parallel: mutates package-level flag pointers.
+func TestMsgDedupExamGates(t *testing.T) {
+	setRelevancePeriod(t, 0)
+
+	for _, tc := range []struct {
+		flag *(*bool)
+		code msgtypes.EventCode
+	}{
+		{&examAlerts, msgtypes.Exam},
+		{&nationalExamAlerts, msgtypes.NationalExam},
+	} {
+		orig := *tc.flag
+		off := false
+		*tc.flag = &off
+
+		eDB := openExistingDB(t, filepath.Join(t.TempDir(), "gate.db"))
+
+		ev := msgtypes.Message{Code: tc.code, Username: "u", Subject: "s", Fields: []string{"x"}}
+		other := grade("Matematika")
+
+		got := runDedup(t, t.Context(), eDB, ev, other)
+		if len(got) != 1 || got[0].Code != msgtypes.Grade {
+			t.Errorf("code %d off: forwarded %+v, want only the grade", tc.code, got)
+		}
+
+		on := true
+		*tc.flag = &on
+
+		if got := runDedup(t, t.Context(), eDB, ev); len(got) != 0 {
+			t.Errorf("code %d: re-enabling replayed %d suppressed events, want 0", tc.code, len(got))
+		}
+
+		*tc.flag = orig
+
+		_ = eDB.Close()
+	}
+}
+
 // TestMsgDedupCancelledContextDoesNotFlag pins the ordering in the loop's first
 // guard: msgDedup bails *before* CheckAndFlagTTL. An event flagged but not
 // forwarded is lost forever, whereas an unflagged one is simply re-scraped next

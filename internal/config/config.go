@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/google/renameio/v2/maybe"
 )
 
@@ -196,6 +197,8 @@ func checkMailConf(config *TomlConfig) {
 
 		checkMailPort(config.Mail.Port)
 
+		checkMailSubjects(&config.Mail)
+
 		for _, t := range config.Mail.To {
 			if !isValidMail(t) {
 				logger.Fatal().Msgf("Configuration error: mail to %v is not in mail format", t)
@@ -206,6 +209,26 @@ func checkMailConf(config *TomlConfig) {
 		logger.Info().Msg("Configuration: mail messenger enabled")
 
 		config.MailEnabled = true
+	}
+}
+
+// checkMailSubjects resolves [mail.subjects] keys to event codes. Fatal on an
+// unknown key, so a typo can't silently fall back to the default subject, and
+// on keys differing only in case, whose winner map order would pick at random.
+func checkMailSubjects(m *Mail) {
+	m.SubjectByCode = make(map[msgtypes.EventCode]string, len(m.Subjects))
+
+	for name, s := range m.Subjects {
+		code, ok := msgtypes.EventCodeNames[strings.ToLower(name)]
+		if !ok {
+			logger.Fatal().Msgf("Configuration error: unknown mail subjects key %q", name)
+		}
+
+		if _, dup := m.SubjectByCode[code]; dup {
+			logger.Fatal().Msgf("Configuration error: mail subjects key %q is set more than once", strings.ToLower(name))
+		}
+
+		m.SubjectByCode[code] = s
 	}
 }
 

@@ -15,7 +15,7 @@ const (
 	ReadingPrefix      = "📚 Lektira: "
 	FinalGradePrefix   = "🎓 ZAKLJUČNA OCJENA: "
 	NationalExamPrefix = "✍️ Nacionalni ispit: "
-	ExamDigestPrefix   = "🗓️ ISPITI IDUĆI TJEDAN: "
+	ExamDigestPrefix   = "🗓️ TJEDNI PREGLED ISPITA: " // not "next week": a catch-up digest covers the current one
 )
 
 // PlainMsg renders the report as cleartext.

@@ -77,13 +77,13 @@ func TestDetachedCtxRevivesCancelledContext(t *testing.T) {
 	}
 }
 
-// TestStoreFailedMsgsHonoursCancellation pins the layering. StoreFailedMsgs
-// takes the caller's context verbatim and lets cancellation through — it does
-// *not* detach internally. Shutdown-tolerance is the caller's decision, applied
-// by wrapping with detachedCtx (or messenger.queueStoreCtx). Making the write
-// detach unconditionally here would take that choice away and leave callers
-// unable to abort a queue write at all.
-func TestStoreFailedMsgsHonoursCancellation(t *testing.T) {
+// TestStoreFailedMsgsSurvivesShutdown: a SIGTERM arriving mid-send must not
+// cost the message. It is already flagged in the dedup store and will never be
+// re-scraped, so this write is the only thing between it and permanent loss.
+// StoreFailedMsgs detaches internally, so a caller passing its raw, cancelled
+// ctx must still persist — the call-site wrapping this replaced was something
+// a new send path could forget.
+func TestStoreFailedMsgsSurvivesShutdown(t *testing.T) {
 	t.Parallel()
 
 	eDB := newShutdownTestDB(t)
@@ -91,37 +91,10 @@ func TestStoreFailedMsgsHonoursCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	queueKey := []byte("shutdown-store-raw")
+	queueKey := []byte("shutdown-store")
 
-	if err := StoreFailedMsgs(ctx, eDB, queueKey, msgtypes.Message{Subject: "Kemija"}); err == nil {
-		t.Error("StoreFailedMsgs() with a cancelled context = nil; cancellation must propagate so callers stay in control")
-	}
-
-	if got := FetchFailedMsgs(context.Background(), eDB, queueKey); len(got) != 0 {
-		t.Errorf("FetchFailedMsgs = %+v, want nothing written on a cancelled context", got)
-	}
-}
-
-// TestStoreFailedMsgsSurvivesShutdownWhenWrapped is the other half of that
-// contract, and the one that matters in production: a SIGTERM arriving mid-send
-// must not cost the message. It is already flagged in the dedup store and will
-// never be re-scraped, so this write is the only thing between it and permanent
-// loss — which is why every messenger wraps the call before making it.
-func TestStoreFailedMsgsSurvivesShutdownWhenWrapped(t *testing.T) {
-	t.Parallel()
-
-	eDB := newShutdownTestDB(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	queueKey := []byte("shutdown-store-wrapped")
-
-	sctx, scancel := detachedCtx(ctx)
-	defer scancel()
-
-	if err := StoreFailedMsgs(sctx, eDB, queueKey, msgtypes.Message{Subject: "Kemija"}); err != nil {
-		t.Fatalf("StoreFailedMsgs() through detachedCtx = %v, want nil", err)
+	if err := StoreFailedMsgs(ctx, eDB, queueKey, msgtypes.Message{Subject: "Kemija"}); err != nil {
+		t.Fatalf("StoreFailedMsgs() with a cancelled ctx = %v, want nil", err)
 	}
 
 	got := FetchFailedMsgs(context.Background(), eDB, queueKey)

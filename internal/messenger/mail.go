@@ -4,6 +4,7 @@
 package messenger
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -50,8 +51,15 @@ type MailConfig struct {
 	Password string
 	From     string
 	Subject  string
+	Subjects map[msgtypes.EventCode]string // per-code override of Subject
 	To       []string
 	Retries  uint
+}
+
+// subjectFor resolves the subject: per-code override, then Subject, then
+// MailSubject. Empty counts as unset at every level.
+func (cfg MailConfig) subjectFor(code msgtypes.EventCode) string {
+	return cmp.Or(cfg.Subjects[code], cfg.Subject, MailSubject)
 }
 
 // Mail resends queued failures, then delivers ch to the configured recipients.
@@ -85,13 +93,13 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
 	resendQueued(ctx, eDB, MailQueueName, func(m msgtypes.Message) {
-		processMail(ctx, eDB, m, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
+		processMail(ctx, eDB, m, cfg.To, cfg.From, cfg.subjectFor(m.Code), rl, cfg.Retries)
 	})
 
 	// Drain fully; processMail durably queues on cancelled ctx, losing nothing.
 	for g := range ch {
 		inflight = &g
-		processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.Subject, rl, cfg.Retries)
+		processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.subjectFor(g.Code), rl, cfg.Retries)
 		inflight = nil
 	}
 
@@ -200,11 +208,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		m.SetBulk()
 
 		// Capped to avoid MTA-rejected headers.
-		if subject != "" {
-			m.Subject(truncateWithEllipsis(subject, MailMaxSubjectChars))
-		} else {
-			m.Subject(MailSubject)
-		}
+		m.Subject(truncateWithEllipsis(cmp.Or(subject, MailSubject), MailMaxSubjectChars))
 
 		m.SetBodyString(mail.TypeTextPlain, plainContent)
 		m.AddAlternativeString(mail.TypeTextHTML, htmlContent)

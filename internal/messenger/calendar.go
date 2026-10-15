@@ -16,7 +16,6 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/oauth"
-	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"github.com/dkorunic/e-dnevnik-bot/internal/version"
 	"go.uber.org/ratelimit"
@@ -133,41 +132,16 @@ func ensureCalendarInit(ctx context.Context, tokFile, name string) (*calendar.Se
 // for insertion once OAuth completes rather than flagged and lost; anything else
 // is dropped, the other messengers having already taken it.
 func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message) {
-	// Same contract as the full messengers: degrade, don't crash.
-	var inflight *msgtypes.Message
-
+	// Same contract as the full messengers: degrade, don't crash. No inflight:
+	// queueUndelivered's only panic-able step is the store itself.
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error().Msgf("%v", recoverMessenger(ctx, eDB, CalendarQueueName, ch, r, inflight))
+			logger.Error().Msgf("%v", recoverMessenger(ctx, eDB, CalendarQueueName, ch, r, nil))
 		}
 	}()
 
-	queued := 0
-
-	for g := range ch {
-		if g.Code != msgtypes.Exam {
-			continue
-		}
-
-		inflight = &g
-
-		// Must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err := queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
-
-		inflight = nil
-
-		queued++
-	}
-
-	if queued > 0 {
-		logger.Warn().Msgf("Google Calendar not yet initialized; queued %v exam events for delivery once OAuth is completed",
-			queued)
-	}
+	// QueueAccepts keeps only exams for this queue.
+	queueUndelivered(ctx, eDB, CalendarQueueName, ch)
 }
 
 // markCalendarPermanent stops retry-go on a permanent 4xx. 409 is permanent too
@@ -224,13 +198,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 	// Cancelled before insert: re-queue rather than be dropped.
 	if ctx.Err() != nil {
-		// Must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
+		storeQueued(ctx, eDB, CalendarQueueName, g)
 
 		return
 	}
@@ -267,13 +235,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
 
-		// Must survive ctx cancel.
-		sctx, scancel := queueStoreCtx(ctx)
-		if err = queue.StoreFailedMsgs(sctx, eDB, CalendarQueueName, g); err != nil {
-			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-		}
-
-		scancel()
+		storeQueued(ctx, eDB, CalendarQueueName, g)
 
 		return
 	}
@@ -331,11 +293,11 @@ func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service,
 // calendar (whose Summary is the owner's e-mail address, so it can never
 // match by name). Name matching is case-insensitive and space-tolerant.
 func getCalendarID(ctx context.Context, srv *calendar.Service, calendarName string) string {
-	if calendarName == "" || strings.EqualFold(calendarName, CalendarPrimary) {
+	// Trimmed first, so " primary " is the alias too, not a failed lookup.
+	want := strings.TrimSpace(calendarName)
+	if want == "" || strings.EqualFold(want, CalendarPrimary) {
 		return CalendarPrimary
 	}
-
-	want := strings.TrimSpace(calendarName)
 	nextPageToken := ""
 
 	for {
