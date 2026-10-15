@@ -420,18 +420,23 @@ func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
 			retry.IsRecoverable(rate), isPermanentSendErr(rate), isConfigSendErr(rate))
 	}
 
-	// An exhausted daily quota: no retry this cycle, requeued, cycle not
-	// stopped — it is no credential problem.
+	// An exhausted daily quota holds for every event: it stops the cycle and
+	// requeues, like a rejected credential.
 	quota := markCalendarPermanent(&googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "dailyLimitExceeded"}}})
-	if retry.IsRecoverable(quota) || isPermanentSendErr(quota) || isConfigSendErr(quota) {
-		t.Errorf("calendar quota 403: recoverable=%v permanent=%v config=%v, want false/false/false",
+	if retry.IsRecoverable(quota) || isPermanentSendErr(quota) || !isConfigSendErr(quota) {
+		t.Errorf("calendar quota 403: recoverable=%v permanent=%v config=%v, want false/false/true",
 			retry.IsRecoverable(quota), isPermanentSendErr(quota), isConfigSendErr(quota))
 	}
 
-	// restricted_action may bar the whole token, so it is of unknown reach:
-	// requeued for that channel, never dropped.
-	if restricted := markSlackPermanent(slack.SlackErrorResponse{Err: "restricted_action"}); isPermanentSendErr(restricted) {
-		t.Error("slack restricted_action is permanent; a workspace-wide restriction would drop every alert")
+	// Plain restricted_action is a workspace preference barring the token
+	// everywhere: it stops the cycle. Its per-channel variants condemn only
+	// that channel.
+	if !isConfigSendErr(markSlackPermanent(slack.SlackErrorResponse{Err: "restricted_action"})) {
+		t.Error("slack restricted_action does not stop the cycle; every channel would be tried for 30 days")
+	}
+
+	if !isPermanentSendErr(markSlackPermanent(slack.SlackErrorResponse{Err: "restricted_action_read_only_channel"})) {
+		t.Error("slack restricted_action_read_only_channel is not per-channel permanent")
 	}
 
 	// A per-channel Slack error still condemns only that channel.

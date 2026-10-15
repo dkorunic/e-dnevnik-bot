@@ -18,6 +18,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
@@ -656,8 +657,9 @@ func TestIsDiscordUnknownChannel(t *testing.T) {
 		err  error
 		want bool
 	}{
-		"unknown channel":    {rest(http.StatusNotFound, discordgo.ErrCodeUnknownChannel), true},
-		"404 without body":   {&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}}, true},
+		"unknown channel": {rest(http.StatusNotFound, discordgo.ErrCodeUnknownChannel), true},
+		// No Discord JSON body: an edge or proxy 404, not a vanished channel.
+		"404 without body":   {&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}}, false},
 		"other 404":          {rest(http.StatusNotFound, discordgo.ErrCodeUnknownUser), false},
 		"oversize embed 400": {rest(http.StatusBadRequest, 50035), false},
 		"blocked 403":        {rest(http.StatusForbidden, discordgo.ErrCodeCannotSendMessagesToThisUser), false},
@@ -666,5 +668,38 @@ func TestIsDiscordUnknownChannel(t *testing.T) {
 		if got := isDiscordUnknownChannel(tc.err); got != tc.want {
 			t.Errorf("%s: isDiscordUnknownChannel = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+// TestDiscordStaleChannelSurvivesRetryDo: Unknown Channel on a later attempt
+// must still be found after retry.Do. errors.As on the aggregate returns the
+// first attempt's RESTError, so a 502 before the 404 used to hide it — the
+// stale cache entry then stayed and every later alert to that user dropped.
+func TestDiscordStaleChannelSurvivesRetryDo(t *testing.T) {
+	t.Parallel()
+
+	attempts := []error{
+		&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusBadGateway}},
+		&discordgo.RESTError{
+			Response: &http.Response{StatusCode: http.StatusNotFound},
+			Message:  &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel},
+		},
+	}
+
+	i := 0
+
+	err := retry.New(retry.Attempts(3)).Do(func() error {
+		e := attempts[i]
+		i++
+
+		return markDiscordPermanent(e)
+	})
+
+	if !isDiscordStaleChannel(err) {
+		t.Errorf("Unknown Channel on attempt 2 was not found after retry.Do: %v", err)
+	}
+
+	if !isPermanentSendErr(err) {
+		t.Error("Unknown Channel lost its permanent marker")
 	}
 }

@@ -77,11 +77,19 @@ type persistingTokenSource struct {
 func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	tok, err := p.src.Token()
 	if err != nil {
-		if IsInvalidGrant(err) {
-			// Once per process: every call fails until re-authentication.
+		// Once per process: every call fails until the cause is fixed.
+		switch {
+		case IsInvalidGrant(err):
 			p.warnOnce.Do(func() {
 				logger.Error().Msgf("Google Calendar OAuth grant was revoked or expired; delete %q and re-run the bot interactively to re-authenticate",
 					p.tokenPath)
+			})
+		case IsAuthRejected(err):
+			// The client credentials are compiled in, so re-authenticating
+			// with the same build cannot help.
+			p.warnOnce.Do(func() {
+				logger.Error().Msgf("Google Calendar rejected this build's OAuth client (%v); exams are queued — update e-dnevnik-bot to a release with working credentials",
+					err)
 			})
 		}
 

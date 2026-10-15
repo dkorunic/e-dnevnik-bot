@@ -155,9 +155,9 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 // clear within the retry delays, so they are retried.
 var calendarRateReasons = []string{"rateLimitExceeded", "userRateLimitExceeded"}
 
-// calendarQuotaReasons are 403 reasons for an exhausted daily quota. Retrying
-// within the cycle only burns the budget, but it is no credential problem and
-// resets by itself, so the event is requeued without stopping the cycle.
+// calendarQuotaReasons are 403 reasons for an exhausted daily quota. Like a
+// rejected credential it holds for every event, so it stops the cycle (every
+// later insert would be rejected alike) and requeues; it resets by itself.
 var calendarQuotaReasons = []string{"quotaExceeded", "dailyLimitExceeded"}
 
 // calendarHasReason reports whether gaErr carries one of reasons.
@@ -173,8 +173,8 @@ func calendarHasReason(gaErr *googleapi.Error, reasons []string) bool {
 //
 // Config errors, queued until re-authorised: a revoked or expired grant or a
 // deleted OAuth client (oauth.IsAuthRejected; the transport's error never
-// becomes a googleapi.Error), a 401, and any 403 other than a rate or quota
-// limit — lost write access to the calendar is account-wide.
+// becomes a googleapi.Error), a 401, an exhausted daily quota, and any other
+// 403 except a rate limit — lost write access to the calendar is account-wide.
 func markCalendarPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -191,8 +191,7 @@ func markCalendarPermanent(err error) error {
 		case gaErr.Code == http.StatusForbidden && calendarHasReason(gaErr, calendarRateReasons):
 			return err
 		case gaErr.Code == http.StatusForbidden && calendarHasReason(gaErr, calendarQuotaReasons):
-			// Neither marker: requeued, cycle not stopped.
-			return retry.Unrecoverable(err)
+			return markConfigErr(err)
 		case gaErr.Code == http.StatusForbidden:
 			return markConfigErr(err)
 		}

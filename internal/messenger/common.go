@@ -47,8 +47,8 @@ type permanentError struct{ err error }
 func (e permanentError) Error() string { return e.err.Error() }
 func (e permanentError) Unwrap() error { return e.err }
 
-// configError marks a failure that applies to every recipient — a rejected
-// token, login or URL. Like permanentError it survives retry.Do's marker
+// configError marks a failure that applies to every recipient and message — a
+// rejected token, login or URL, or an exhausted quota. Like permanentError it survives retry.Do's marker
 // stripping, but its message is queued, not dropped: the alerts are already
 // dedup-flagged, and fixing the config and restarting delivers them.
 type configError struct{ err error }
@@ -91,7 +91,7 @@ func (c *cycleSender) send(ctx context.Context, eDB *sqlitedb.Edb, queueName []b
 	if process() {
 		c.tripped = true
 
-		logger.Warn().Msgf("Messenger %v: credentials or configuration rejected; queueing the rest of this cycle unsent",
+		logger.Warn().Msgf("Messenger %v: a failure affecting every message (credentials, configuration or quota); queueing the rest of this cycle unsent",
 			string(queueName))
 	}
 }

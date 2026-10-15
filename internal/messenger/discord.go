@@ -137,6 +137,13 @@ func markDiscordPermanent(err error) error {
 			return markConfigErr(err)
 		}
 
+		// Marked here, per attempt: after retry.Do, errors.As on the
+		// aggregate returns the first attempt's RESTError, so a 502 before
+		// the 404 would hide it (cf. putCalDAV's 412).
+		if isDiscordUnknownChannel(err) {
+			return retry.Unrecoverable(permanentError{discordStaleChannelError{err}})
+		}
+
 		if isPermanentHTTPStatus(rerr.Response.StatusCode) {
 			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
@@ -225,17 +232,36 @@ func discordEmbedFields(g msgtypes.Message, title string) []*discordgo.MessageEm
 }
 
 // isDiscordUnknownChannel reports Discord's answer for a DM channel that no
-// longer exists (404, JSON code 10003). Only that warrants re-resolving: any
+// longer exists: 404 with JSON code 10003. Only that warrants re-resolving: any
 // other rejection — an oversize embed, a user who blocked the bot — would fail
 // the same on a fresh channel, at the cost of an eviction, a channel create
-// and a resend per recipient against Discord's rate limits.
+// and a resend per recipient against Discord's rate limits. A 404 without
+// Discord's JSON body came from an edge or proxy, so it does not count.
+//
+// It inspects a single attempt's error; after retry.Do use
+// isDiscordStaleChannel.
 func isDiscordUnknownChannel(err error) bool {
 	rerr, ok := errors.AsType[*discordgo.RESTError](err)
 	if !ok || rerr.Response == nil || rerr.Response.StatusCode != http.StatusNotFound {
 		return false
 	}
 
-	return rerr.Message == nil || rerr.Message.Code == discordgo.ErrCodeUnknownChannel
+	return rerr.Message != nil && rerr.Message.Code == discordgo.ErrCodeUnknownChannel
+}
+
+// discordStaleChannelError marks an Unknown Channel answer inside permanentError, so
+// it is found in whichever retry attempt produced it.
+type discordStaleChannelError struct{ err error }
+
+func (e discordStaleChannelError) Error() string { return e.err.Error() }
+func (e discordStaleChannelError) Unwrap() error { return e.err }
+
+// isDiscordStaleChannel reports whether markDiscordPermanent saw Unknown
+// Channel on any attempt of err.
+func isDiscordStaleChannel(err error) bool {
+	_, ok := errors.AsType[discordStaleChannelError](err)
+
+	return ok
 }
 
 // discordChannelFor returns u's DM channel, resolved lazily and cached across
@@ -313,7 +339,7 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 		}
 
 		err = sendDiscordEmbed(ctx, channelID, &msg, retries)
-		if cached && isDiscordUnknownChannel(err) {
+		if cached && isDiscordStaleChannel(err) {
 			// A cached DM channel goes stale when the user closes the DM or it
 			// is deleted: evict, re-resolve and resend once before classifying.
 			// A failed re-resolve is classified on its own error, not the

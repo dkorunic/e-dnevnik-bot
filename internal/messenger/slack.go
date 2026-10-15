@@ -118,6 +118,8 @@ var slackTransientErrors = []string{"internal_error", "fatal_error", "service_un
 var slackChannelErrors = []string{
 	"channel_not_found", "not_in_channel", "is_archived", "msg_too_long", "no_text",
 	"invalid_blocks", "cannot_reply_to_message",
+	"restricted_action_read_only_channel", "restricted_action_thread_only_channel",
+	"restricted_action_non_threadable_channel",
 }
 
 // slackAuthErrors are token-wide: every channel fails alike, so they are config
@@ -125,6 +127,9 @@ var slackChannelErrors = []string{
 var slackAuthErrors = []string{
 	"invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive",
 	"missing_scope", "not_allowed_token_type", "no_permission", "team_access_not_granted",
+	// A workspace preference barring the token from posting anywhere; the
+	// per-channel restrictions have their own codes in slackChannelErrors.
+	"restricted_action",
 }
 
 // markSlackPermanent classifies an error by how far it reaches:
@@ -132,9 +137,7 @@ var slackAuthErrors = []string{
 //   - one channel (permanent 4xx StatusCodeError, slackChannelErrors):
 //     poison-dropped;
 //   - every channel (slackAuthErrors): a config error, queued, stops the cycle;
-//   - anything else, restricted_action included (a workspace preference that
-//     may bar one channel or the whole token): retrying is pointless, but its
-//     reach is unknown, so that
+//   - anything else: retrying is pointless, but its reach is unknown, so that
 //     recipient alone is requeued and the loop moves on. Treating an unknown
 //     per-channel code as token-wide would block every channel for 30 days;
 //     treating it as permanent would drop the alert.
