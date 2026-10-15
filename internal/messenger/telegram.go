@@ -105,9 +105,13 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	return nil
 }
 
-// markTelegramPermanent stops retry-go on Forbidden, BadRequest, Unauthorized,
-// NotFound, Conflict and MigrateError — a migrated chat's old ID is dead.
+// markTelegramPermanent stops retry-go on Forbidden, BadRequest, NotFound,
+// Conflict and MigrateError — a migrated chat's old ID is dead.
 // TooManyRequests and network errors stay transient.
+//
+// Unauthorized is a config error: the token is bad for every chat, so the
+// retry loop stops but the alert is queued, not dropped, until the token is
+// fixed and the bot restarted.
 func markTelegramPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -119,11 +123,15 @@ func markTelegramPermanent(err error) error {
 		return err
 	}
 
+	if errors.Is(err, bot.ErrorUnauthorized) {
+		// No permanentError inside: isPermanentSendErr stays false.
+		return retry.Unrecoverable(err)
+	}
+
 	var mig *bot.MigrateError
 	if errors.As(err, &mig) ||
 		errors.Is(err, bot.ErrorForbidden) ||
 		errors.Is(err, bot.ErrorBadRequest) ||
-		errors.Is(err, bot.ErrorUnauthorized) ||
 		errors.Is(err, bot.ErrorNotFound) ||
 		errors.Is(err, bot.ErrorConflict) {
 		// Inner sentinel survives retry.Do's marker stripping.
@@ -172,14 +180,12 @@ func processTelegram(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			ParseMode: models.ParseModeHTML,
 		}
 
-		// Before rl.Take(), so shutdown is not blocked on a token.
-		if ctx.Err() != nil {
+		// Shutdown must not wait out a token: interrupt and requeue.
+		if !takeCtx(ctx, rl) {
 			run.interrupt()
 
 			break
 		}
-
-		rl.Take()
 
 		err = sendTelegramMsg(ctx, &msg, retries)
 		if err != nil {

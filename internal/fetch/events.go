@@ -50,11 +50,16 @@ func parseInUTC(layout, value string) (time.Time, error) {
 
 // ConsumeICal is a ICS data decoder that extracts DTSTART, DESCRIPTION and SUMMARY values, parsing timestamp with
 // maximum flexibility and in local timezone, returning optional error.
+//
+// DESCRIPTION is only the optional exam note (RFC 5545 makes it optional too),
+// so an event without one is kept with an empty note rather than dropped: a
+// skipped exam never alerts, never reaches a calendar or the digest, and is
+// logged at Debug only.
 func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 	for _, el := range c.Events {
 		node := el.Data
 
-		if node == nil || node[EventDateStart] == nil || node[EventDescription] == nil || node[EventSummary] == nil {
+		if node == nil || node[EventDateStart] == nil || node[EventSummary] == nil {
 			logger.Debug().Msgf("invalid ICAL data for event: %v", el)
 
 			continue
@@ -76,9 +81,12 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 		}
 
 		d := Event{
-			Start:       dtstart,
-			Description: node[EventDescription].Val,
-			Summary:     node[EventSummary].Val,
+			Start:   dtstart,
+			Summary: node[EventSummary].Val,
+		}
+
+		if desc := node[EventDescription]; desc != nil {
+			d.Description = desc.Val
 		}
 		*e = append(*e, d)
 	}

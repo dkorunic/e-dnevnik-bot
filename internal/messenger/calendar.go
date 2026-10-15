@@ -144,9 +144,9 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 	queueUndelivered(ctx, eDB, CalendarQueueName, ch)
 }
 
-// markCalendarPermanent stops retry-go on a permanent 4xx. 409 is permanent too
-// but the caller reads it as success: the deterministic event ID means the
-// insert already landed. 5xx and transport errors stay transient.
+// markCalendarPermanent stops retry-go on a permanent 4xx. 5xx and transport
+// errors stay transient. 409 never gets here: the insert attempt reads it as
+// success.
 func markCalendarPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -196,16 +196,14 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		},
 	}
 
-	// Cancelled before insert: re-queue rather than be dropped.
-	if ctx.Err() != nil {
+	// Cancelled before insert, or while waiting for a token: re-queue
+	// rather than be dropped.
+	if !takeCtx(ctx, rl) {
 		storeQueued(ctx, eDB, CalendarQueueName, g)
 
 		return
 	}
 
-	rl.Take()
-
-	// 409 short-circuits here and reads as idempotent success below.
 	err = retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
@@ -214,19 +212,22 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 		func() error {
 			_, err := srv.Events.Insert(calID, newEvent).Context(ctx).Do()
 
+			// 409: the deterministic event ID already exists, so the insert
+			// landed — perhaps on an attempt that then timed out. Decided
+			// here, not after retry.Do: errors.As on the aggregated error
+			// finds the first attempt's error (cf. putCalDAV's 412).
+			if gaErr, ok := errors.AsType[*googleapi.Error](err); ok && gaErr.Code == http.StatusConflict {
+				logger.Debug().Msgf("Google Calendar event already exists (idempotent insert): %v", newEvent.Id)
+
+				return nil
+			}
+
 			return markCalendarPermanent(err)
 		},
 	)
 	if err != nil {
-		var gaErr *googleapi.Error
-		if errors.As(err, &gaErr) && gaErr.Code == http.StatusConflict {
-			logger.Debug().Msgf("Google Calendar event already exists (idempotent insert): %v", newEvent.Id)
-
-			return
-		}
-
 		if isPermanentSendErr(err) {
-			// Permanent and not a 409: drop, don't requeue.
+			// Permanent: drop, don't requeue.
 			logger.Error().Msgf("Permanently dropping Google Calendar event for %v/%v (will not retry): %v",
 				g.Username, g.Subject, err)
 

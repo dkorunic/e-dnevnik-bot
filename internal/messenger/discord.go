@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -114,6 +115,11 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 // markDiscordPermanent stops retry-go on a permanent 4xx REST error. Transport
 // errors keep their retry budget.
+//
+// 401 is a config error: the bot token is bad for every user, so the retry loop
+// stops but the alert is queued, not dropped, until the token is fixed and the
+// bot restarted. 403 stays permanent — it is per user (DMs closed, no shared
+// server).
 func markDiscordPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -121,6 +127,11 @@ func markDiscordPermanent(err error) error {
 
 	var rerr *discordgo.RESTError
 	if errors.As(err, &rerr) && rerr.Response != nil {
+		if rerr.Response.StatusCode == http.StatusUnauthorized {
+			// No permanentError inside: isPermanentSendErr stays false.
+			return retry.Unrecoverable(err)
+		}
+
 		if isPermanentHTTPStatus(rerr.Response.StatusCode) {
 			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})
@@ -227,14 +238,12 @@ func processDiscord(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			continue
 		}
 
-		// Before rl.Take(), so shutdown is not blocked on a token.
-		if ctx.Err() != nil {
+		// Shutdown must not wait out a token: interrupt and requeue.
+		if !takeCtx(ctx, rl) {
 			run.interrupt()
 
 			break
 		}
-
-		rl.Take()
 
 		// Resolved lazily, cached across recipients.
 		discordMu.Lock()

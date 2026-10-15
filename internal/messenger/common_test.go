@@ -4,10 +4,14 @@
 package messenger
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/textproto"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
@@ -15,6 +19,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/slack-go/slack"
 	"go.mau.fi/whatsmeow"
+	"go.uber.org/ratelimit"
 	"google.golang.org/api/googleapi"
 )
 
@@ -298,5 +303,96 @@ func TestQueueAcceptsExamOnlyQueues(t *testing.T) {
 
 	if !QueueAccepts(DiscordQueueName, grade) {
 		t.Error("a general-purpose queue rejected a grade")
+	}
+}
+
+// blockingLimiter never hands out a token, standing in for mail's minutes-long
+// wait once its slack is spent.
+type blockingLimiter struct{ release chan struct{} }
+
+func (b blockingLimiter) Take() time.Time {
+	<-b.release
+
+	return time.Now()
+}
+
+// TestTakeCtxReturnsOnCancel: a shutdown must not wait out a rate-limit token.
+// Take itself cannot be interrupted, and mail's can be minutes away — past a
+// container's stop timeout, so the SIGKILL would lose the buffered backlog.
+func TestTakeCtxReturnsOnCancel(t *testing.T) {
+	t.Parallel()
+
+	rl := blockingLimiter{release: make(chan struct{})}
+	defer close(rl.release) // lets the abandoned Take goroutine finish
+
+	ctx, cancel := context.WithCancel(t.Context())
+	res := make(chan bool, 1)
+
+	go func() { res <- takeCtx(ctx, rl) }()
+
+	cancel()
+
+	select {
+	case got := <-res:
+		if got {
+			t.Error("takeCtx reported a token after cancellation")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("takeCtx waited out the token despite a cancelled ctx")
+	}
+
+	if !takeCtx(t.Context(), ratelimit.NewUnlimited()) {
+		t.Error("takeCtx refused a token on a live ctx")
+	}
+}
+
+// TestMarkSlackAuthStopsRetrying: a bad token is bad for every attempt, so the
+// loop must stop at once — while still queueing, not poison-dropping.
+func TestMarkSlackAuthStopsRetrying(t *testing.T) {
+	t.Parallel()
+
+	got := markSlackPermanent(slack.SlackErrorResponse{Err: "invalid_auth"})
+	if retry.IsRecoverable(got) {
+		t.Error("invalid_auth is recoverable; retrying a bad token this cycle cannot succeed")
+	}
+
+	if isPermanentSendErr(got) {
+		t.Error("invalid_auth is permanent; the alert would be dropped instead of queued")
+	}
+}
+
+// TestAuthFailuresStopRetryingButQueue: a bad token or SMTP login is bad for
+// every attempt and every recipient. The retry loop must stop at once, yet the
+// alert must be queued: poison-dropping it would discard every already-flagged
+// alert until the config is fixed and the bot restarted.
+func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]error{
+		"telegram": markTelegramPermanent(bot.ErrorUnauthorized),
+		"discord":  markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusUnauthorized}}),
+		"slack":    markSlackPermanent(slack.SlackErrorResponse{Err: "invalid_auth"}),
+	}
+
+	for name, got := range cases {
+		if retry.IsRecoverable(got) {
+			t.Errorf("%s: auth failure is recoverable; retrying a bad credential this cycle cannot succeed", name)
+		}
+
+		if isPermanentSendErr(got) {
+			t.Errorf("%s: auth failure is permanent; the alert would be dropped instead of queued", name)
+		}
+	}
+
+	// Discord 403 is per user (DMs closed) and stays a poison-drop.
+	if !isPermanentSendErr(markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}})) {
+		t.Error("discord 403 is no longer permanent; a user with closed DMs would retry every cycle")
+	}
+
+	for code, want := range map[int]bool{530: true, 534: true, 535: true, 550: false, 421: false} {
+		err := fmt.Errorf("dial failed: %w", &textproto.Error{Code: code, Msg: "x"})
+		if got := isMailAuthErr(err); got != want {
+			t.Errorf("isMailAuthErr(%d) = %v, want %v", code, got, want)
+		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/avast/retry-go/v5"
@@ -98,10 +99,11 @@ func TestMarkPermanentClassification(t *testing.T) {
 	}{
 		// Discord: classification rides on the REST response status.
 		{
-			name:      "discord 401 is permanent",
+			// A bad bot token: queued until fixed, not dropped.
+			name:      "discord 401 is not permanent",
 			mark:      markDiscordPermanent,
 			err:       &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusUnauthorized}},
-			permanent: true,
+			permanent: false,
 		},
 		{
 			name:      "discord 404 is permanent",
@@ -143,10 +145,11 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: false,
 		},
 		{
-			name:      "telegram unauthorized is permanent",
+			// A revoked token: queued until fixed, not dropped.
+			name:      "telegram unauthorized is not permanent",
 			mark:      markTelegramPermanent,
 			err:       bot.ErrorUnauthorized,
-			permanent: true,
+			permanent: false,
 		},
 		{
 			name:      "telegram bad request is permanent",
@@ -193,10 +196,26 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: true,
 		},
 		{
-			name:      "slack API error response is permanent",
-			mark:      markSlackPermanent,
-			err:       &slack.SlackErrorResponse{Err: "channel_not_found"},
+			name: "slack API error response is permanent",
+			mark: markSlackPermanent,
+			// By value, as SlackResponse.Err returns it: a pointer here once
+			// hid that the production check never matched.
+			err:       slack.SlackErrorResponse{Err: "channel_not_found"},
 			permanent: true,
+		},
+		{
+			// Queued, not dropped: a revoked token would otherwise discard
+			// every already-flagged alert until restart.
+			name:      "slack auth API error is not permanent",
+			mark:      markSlackPermanent,
+			err:       slack.SlackErrorResponse{Err: "invalid_auth"},
+			permanent: false,
+		},
+		{
+			name:      "slack server-side API error is transient",
+			mark:      markSlackPermanent,
+			err:       slack.SlackErrorResponse{Err: "internal_error"},
+			permanent: false,
 		},
 
 		// Mail: SMTP errors carry their own temporary/permanent flag.
@@ -277,7 +296,17 @@ func TestMarkPermanentClassification(t *testing.T) {
 			}
 
 			// The original error must stay inspectable, or operators lose the
-			// only diagnostic they get for a poison-dropped recipient.
+			// only diagnostic they get for a poison-dropped recipient. A
+			// non-comparable error (slack.SlackErrorResponse holds a slice)
+			// can never satisfy errors.Is, so it is matched by type instead.
+			if !reflect.TypeOf(tt.err).Comparable() {
+				if !errors.As(got, reflect.New(reflect.TypeOf(tt.err)).Interface()) {
+					t.Errorf("mark(%v) = %v, which no longer unwraps to the original error type", tt.err, got)
+				}
+
+				return
+			}
+
 			if !errors.Is(got, tt.err) {
 				t.Errorf("mark(%v) = %v, which no longer unwraps to the original error", tt.err, got)
 			}

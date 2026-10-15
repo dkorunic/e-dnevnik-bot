@@ -192,7 +192,7 @@ func TestSlackPoisonedRecipientRecordedInSkipRecipients(t *testing.T) {
 		flaky = "C0000FLAK"
 	)
 
-	deadErr := &slack.SlackErrorResponse{Err: "channel_not_found"}
+	deadErr := slack.SlackErrorResponse{Err: "channel_not_found"}
 
 	slackMu.Lock()
 	orig := slackCli

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/textproto"
 	"strconv"
 	"sync"
 	"time"
@@ -139,6 +140,19 @@ func mailInit(server string, portInt int, username, password string) error {
 	return nil
 }
 
+// isMailAuthErr reports an SMTP login rejection (530 auth required, 534 auth
+// mechanism too weak, 535 bad credentials). It fails the dial, before any
+// message is attempted, and applies to every recipient: a config error, queued
+// rather than dropped.
+func isMailAuthErr(err error) bool {
+	var tpErr *textproto.Error
+	if !errors.As(err, &tpErr) {
+		return false
+	}
+
+	return tpErr.Code == 530 || tpErr.Code == 534 || tpErr.Code == 535
+}
+
 // markMailPermanent stops retry-go on a non-temporary SMTP error — permanent
 // 5xx, auth failure, malformed header, broken TLS — as classified by
 // *mail.SendError.IsTemp. Anything else keeps its retry budget.
@@ -220,12 +234,10 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 	switch {
 	case len(pendingMsgs) == 0:
 		// Nothing left to send after skips/poison.
-	case ctx.Err() != nil:
-		// Before rl.Take(), so shutdown is not blocked on a token.
+	case !takeCtx(ctx, rl):
+		// Mail's token can be minutes away; shutdown must not wait it out.
 		run.interrupt()
 	default:
-		rl.Take()
-
 		delivered, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, retries)
 		run.delivered(delivered...)
 
@@ -324,6 +336,13 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 			}
 
 			if !attempted {
+				// A rejected login already queues (it is no SendError, so
+				// markMailPermanent reads it as transient); it only needs to
+				// stop retrying credentials that cannot start working.
+				if isMailAuthErr(sendErr) {
+					return retry.Unrecoverable(sendErr)
+				}
+
 				return markMailPermanent(sendErr)
 			}
 

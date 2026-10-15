@@ -256,7 +256,12 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 			continue
 		}
 
-		rl.Take()
+		// Shutdown must not wait out a token: interrupt and requeue.
+		if !takeCtx(ctx, rl) {
+			run.interrupt()
+
+			break
+		}
 
 		err = retry.New(
 			retry.Attempts(retries),

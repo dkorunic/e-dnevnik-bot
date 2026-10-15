@@ -4,17 +4,22 @@
 package messenger
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
+	"github.com/rs/zerolog"
 	"go.uber.org/ratelimit"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
@@ -110,5 +115,57 @@ func TestGetCalendarID(t *testing.T) {
 	calID = getCalendarID(ctx, srv, "  test calendar ")
 	if calID != "test-id" {
 		t.Errorf("getCalendarID() = %s, want test-id for case/space-tolerant match", calID)
+	}
+}
+
+// TestProcessCalendarConflictAfterTransientIsSuccess: an attempt can fail
+// after Google stored the event, so the retry answers 409. That is success.
+// Deciding it after retry.Do read the first attempt's 503 instead, and logged
+// a false "Permanently dropping" for an event that exists.
+// Not parallel: swaps the package-level logger.
+func TestProcessCalendarConflictAfterTransientIsSuccess(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"code":503,"message":"backend error"}}`))
+
+			return
+		}
+
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":{"code":409,"message":"The requested identifier already exists."}}`))
+	}))
+	defer server.Close()
+
+	srv, err := calendar.NewService(t.Context(), option.WithEndpoint(server.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("Unable to create calendar service: %v", err)
+	}
+
+	var buf bytes.Buffer
+
+	orig := logger.Logger
+	logger.Logger = zerolog.New(&buf)
+
+	t.Cleanup(func() { logger.Logger = orig })
+
+	eDB := calendarTestDB(t)
+
+	processCalendar(t.Context(), eDB, futureExam(), ratelimit.NewUnlimited(), srv, "primary", 3)
+
+	if got := calls.Load(); got != 2 {
+		t.Errorf("server saw %d inserts, want 2 (503, then 409)", got)
+	}
+
+	if strings.Contains(buf.String(), "Permanently dropping") {
+		t.Errorf("a 409 after a transient failure was logged as a drop: %s", buf.String())
+	}
+
+	if q := queue.FetchFailedMsgs(t.Context(), eDB, CalendarQueueName); len(q) != 0 {
+		t.Errorf("queued %d rows for an event that already exists", len(q))
 	}
 }

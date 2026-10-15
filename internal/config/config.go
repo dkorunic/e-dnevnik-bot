@@ -339,10 +339,14 @@ func checkUserConf(config *TomlConfig) {
 			logger.Warn().Msgf("Configuration issue: username not ending with @skole.hr: %v", u.Username)
 		}
 
-		if _, dup := seen[u.Username]; dup {
+		// Case-folded: AAI usernames are e-mail addresses, so case variants
+		// log in as the same account, while dedup hashes the username as
+		// written and would alert every event twice.
+		key := strings.ToLower(u.Username)
+		if _, dup := seen[key]; dup {
 			logger.Fatal().Msgf("Configuration error: duplicate [[user]] block for username %v", u.Username)
 		}
 
-		seen[u.Username] = struct{}{}
+		seen[key] = struct{}{}
 	}
 }

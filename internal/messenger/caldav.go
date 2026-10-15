@@ -186,7 +186,12 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 
 	body := buildICalEvent(ev, time.Now())
 
-	rl.Take()
+	// Cancelled while waiting for a token: re-queue rather than be dropped.
+	if !takeCtx(ctx, rl) {
+		storeQueued(ctx, eDB, CalDAVQueueName, g)
+
+		return
+	}
 
 	err = retry.New(
 		retry.Attempts(cfg.Retries),

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -101,9 +102,22 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 	return nil
 }
 
-// markSlackPermanent stops retry-go on a permanent 4xx StatusCodeError or any
-// SlackErrorResponse (API-level "ok":false, e.g. invalid_auth). Network and 5xx
-// stay transient.
+// slackTransientErrors are API-level "ok":false codes Slack documents as
+// server-side and worth retrying.
+var slackTransientErrors = []string{"internal_error", "fatal_error", "service_unavailable", "request_timeout", "ratelimited"}
+
+// slackAuthErrors mean the token is bad for every channel. Retrying this cycle
+// cannot help, but neither can dropping: the alerts are already dedup-flagged,
+// so they are queued until the token is fixed and the bot restarted.
+var slackAuthErrors = []string{"invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive"}
+
+// markSlackPermanent stops retry-go on a permanent 4xx StatusCodeError or a
+// SlackErrorResponse (API-level "ok":false) such as channel_not_found. Network,
+// 5xx and slackTransientErrors stay transient; slackAuthErrors stop the retry
+// loop but are queued, not dropped.
+//
+// SlackErrorResponse is matched by value: SlackResponse.Err returns it that
+// way, so a pointer match never fires and every API error read as transient.
 func markSlackPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -116,9 +130,17 @@ func markSlackPermanent(err error) error {
 		}
 	}
 
-	if _, ok := errors.AsType[*slack.SlackErrorResponse](err); ok {
-		// Inner sentinel survives retry.Do's marker stripping.
-		return retry.Unrecoverable(permanentError{err})
+	if ser, ok := errors.AsType[slack.SlackErrorResponse](err); ok {
+		switch {
+		case slices.Contains(slackTransientErrors, ser.Err):
+			return err
+		case slices.Contains(slackAuthErrors, ser.Err):
+			// No permanentError inside: isPermanentSendErr stays false.
+			return retry.Unrecoverable(err)
+		default:
+			// Inner sentinel survives retry.Do's marker stripping.
+			return retry.Unrecoverable(permanentError{err})
+		}
 	}
 
 	return err
@@ -141,14 +163,12 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 			continue
 		}
 
-		// Before rl.Take(), so shutdown is not blocked on a token.
-		if ctx.Err() != nil {
+		// Shutdown must not wait out a token: interrupt and requeue.
+		if !takeCtx(ctx, rl) {
 			run.interrupt()
 
 			break
 		}
-
-		rl.Take()
 
 		err := retry.New(
 			retry.Attempts(retries),

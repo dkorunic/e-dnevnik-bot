@@ -248,6 +248,14 @@ func main() {
 				_ = sysdnotify.Status(scheduledOverdue)
 			}
 		case <-ticker.C:
+			// After a cycle that overran its interval, a pending tick and a
+			// SIGTERM can both be ready, and select picks at random. The tick
+			// must lose: a cycle on a cancelled ctx fails to open the database
+			// and turns a clean shutdown into a non-zero exit.
+			if ctx.Err() != nil {
+				continue
+			}
+
 			// Paused while scraping.
 			statusTicker.Stop()
 

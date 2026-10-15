@@ -188,6 +188,17 @@ var fatalCases = []struct {
 		},
 	},
 	{
+		// AAI usernames are e-mail addresses: case variants are one account,
+		// and would be scraped and alerted twice.
+		name: "duplicate usernames differing only in case",
+		run: func() {
+			checkUserConf(&TomlConfig{User: []User{
+				{Username: "pero.peric@skole.hr", Password: "a"},
+				{Username: "Pero.Peric@skole.hr", Password: "b"},
+			}})
+		},
+	},
+	{
 		// Basic-auth credentials would cross the network in cleartext.
 		name: "caldav plain http to a remote host",
 		run:  func() { checkCalDAVConf(&TomlConfig{CalDAV: validCalDAV("http://cal.example/dav/")}) },

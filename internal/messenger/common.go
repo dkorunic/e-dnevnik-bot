@@ -18,6 +18,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
+	"go.uber.org/ratelimit"
 )
 
 // configRewriteMu serialises LoadConfig→SaveConfig cycles so concurrent
@@ -67,6 +68,32 @@ func QueueAccepts(queueName []byte, g msgtypes.Message) bool {
 	}
 
 	return true
+}
+
+// takeCtx waits for a rate-limit token, reporting false once ctx is cancelled.
+// ratelimit.Limiter.Take cannot be interrupted, and mail's 20/h limit can sleep
+// minutes per message — past a container's or systemd's stop timeout, so the
+// SIGKILL would lose every buffered, already dedup-flagged message. An
+// abandoned Take finishes in its goroutine and spends a token nobody uses,
+// which is harmless on the way out.
+func takeCtx(ctx context.Context, rl ratelimit.Limiter) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		rl.Take()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // storeQueued queues g for the next cycle. The write survives ctx cancel (see

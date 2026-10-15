@@ -110,6 +110,37 @@ func TestConsumeICal(t *testing.T) {
 	}
 }
 
+// TestConsumeICalOptionalDescription: DESCRIPTION is only the optional exam
+// note, so an exam without one must be kept with an empty note — a skipped
+// exam never alerts and is logged at Debug only.
+func TestConsumeICalOptionalDescription(t *testing.T) {
+	t.Parallel()
+
+	noNote := goics.Event{
+		Data: map[string]*goics.IcsNode{
+			EventDateStart: {Val: "20250101T120000Z"},
+			EventSummary:   {Val: "Matematika"},
+		},
+	}
+
+	noSummary := goics.Event{
+		Data: map[string]*goics.IcsNode{
+			EventDateStart:   {Val: "20250101T120000Z"},
+			EventDescription: {Val: "Pisana provjera"},
+		},
+	}
+
+	events := &Events{}
+	if err := events.ConsumeICal(&goics.Calendar{Events: []*goics.Event{&noNote, &noSummary}}, nil); err != nil {
+		t.Fatalf("ConsumeICal failed: %v", err)
+	}
+
+	want := Events{{Start: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), Summary: "Matematika"}}
+	if !reflect.DeepEqual(*events, want) {
+		t.Errorf("events = %+v, want only the note-less exam %+v (SUMMARY stays required)", *events, want)
+	}
+}
+
 func TestNewClientWithContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
