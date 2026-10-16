@@ -26,7 +26,7 @@ env:
 
 tasks:
   default:
-    desc: Update dependencies and build the static PGO binary
+    desc: Update dependencies and build the static binary
     cmds:
       - task: update
       - task: build
@@ -64,11 +64,11 @@ tasks:
       - go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -fix -test ./...
 
   build:
-    desc: Format then produce the static PGO release binary (CGO off)
+    desc: Format then produce the static release binary (CGO off)
     vars: *build-vars
     cmds:
       - task: fmt
-      - go build -trimpath -pgo=auto -ldflags="-s -w -extldflags '-static' -X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -o {{.TARGET}}
+      - go build -trimpath -ldflags="-s -w -extldflags '-static' -X main.GitTag={{.GIT_LAST_TAG}} -X main.GitCommit={{.GIT_HEAD_COMMIT}} -X main.GitDirty={{.GIT_MODIFIED}} -X main.BuildTime={{.BUILD_DATE}}" -o {{.TARGET}}
 
   build-debug:
     desc: Build the race-enabled debug binary (CGO on, slower)

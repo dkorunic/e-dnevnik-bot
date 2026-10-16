@@ -5,7 +5,6 @@ before:
 builds:
   - flags:
       - -trimpath
-      - -pgo=auto
     env:
       - CGO_ENABLED=0
     ldflags: |

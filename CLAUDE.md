@@ -29,7 +29,7 @@ Root-level files in the `main` package:
 
 | File | Responsibility |
 |---|---|
-| `main.go` | Entry point, polling ticker loop, goroutine lifecycle, PGO/profiling. |
+| `main.go` | Entry point, polling ticker loop, goroutine lifecycle, pprof profiling. |
 | `routines.go` | `scrapers`, `msgDedup`, `msgSend`, `versionCheck` — the three pipeline stages. |
 | `init.go` | Interactive first-run setup for WhatsApp (pairing) and Calendar (OAuth2). |
 | `flags.go` | All CLI flags via `peterbourgon/ff/v4`. Flag vars are **package-level pointers** (see below). |
@@ -47,7 +47,7 @@ Root-level files in the `main` package:
 ## Commands
 
 ```bash
-task build          # fmt → static PGO build with ldflags (CGO off)
+task build          # fmt → static build with ldflags (CGO off)
 task build-debug    # fmt → race build (CGO on). Slower. Use for races only.
 task test           # go test ./...
 task lint           # fmt → golangci-lint (5m timeout)
@@ -65,7 +65,7 @@ The main binary accepts `-t`/`--test` for an **emulation mode** that pushes a sy
 
 `-0` / `--fulldebug` logs every scraped event before the dedup filter — the fastest way to debug "why didn't this alert fire?" questions. Implies `-v`.
 
-`-c <file>` / `-m <file>` write CPU and heap pprof profiles. The production build uses `-pgo=auto`; the toolchain picks up `default.pgo` from the repo root automatically.
+`-c <file>` / `-m <file>` write CPU and heap pprof profiles. No PGO profile is committed: at about 10 ms of CPU per hourly cycle there is nothing for one to speed up. `go build` would pick up a `default.pgo` in the repo root on its own, so adding one needs no build change.
 
 ## Mandatory before every commit
 

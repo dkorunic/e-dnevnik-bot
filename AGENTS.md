@@ -17,7 +17,7 @@ task update        # go get -u + go mod tidy
 task update-tools  # install gci, gofumpt, betteralign
 task fmt           # go mod tidy → gci → gofumpt → go fix → betteralign -apply
 task modernize     # gopls/modernize fixes across the tree
-task build         # fmt → static PGO build with ldflags
+task build         # fmt → static build with ldflags
 task build-debug   # fmt → race build (CGO on). Use for races only.
 task lint           # fmt → golangci-lint (5m timeout)
 task lint-nil       # fmt → nilaway. Separate pass, NOT part of `task lint`.

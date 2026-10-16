@@ -220,7 +220,6 @@
 | `peterbourgon/ff/v4`    | Layered flag+env+file configuration with minimal boilerplate                    |
 | `rs/zerolog`            | Zero-allocation structured JSON logging                                         |
 | `BurntSushi/toml`       | TOML parsing for the config file format                                         |
-| PGO (`-pgo=auto`)       | Profile-guided optimization on production builds                                |
 
 ---
 
@@ -275,7 +274,7 @@
 - Version check runs in a separate `wgVersion` goroutine — never delays the scrape cycle. Bounded by `versionCheckTimeout = 30s` so a stalled GitHub Releases endpoint cannot hold the goroutine past the poll interval.
 - ±10% jitter on polling interval prevents two instances started simultaneously from hammering the portal together. The factor is drawn from a *continuous* uniform distribution over `[0.9, 1.1)` via `math/rand/v2.Float64()` — not a 21-step discrete one — so concurrent daemons do not alias on a small number of discrete wake times.
 
-**PGO:** Production builds use `-pgo=auto` for CPU-profile-guided optimization. The profile is expected to live in the repo root (Go toolchain auto-discovery).
+**PGO:** Not used. A cycle spends about 10 ms on CPU against seconds of portal I/O, so a profile has nothing to optimise. `go build` defaults to `-pgo=auto`, so a `default.pgo` dropped into the repo root would take effect with no build change.
 
 ---
 
