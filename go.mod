@@ -15,7 +15,7 @@ require (
 	github.com/enetx/http v1.0.29
 	github.com/enetx/surf v1.0.206
 	github.com/fxamacker/cbor/v2 v2.9.6
-	github.com/go-chi/chi/v5 v5.4.0
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-telegram/bot v1.27.0
 	github.com/google/go-github/v92 v92.0.0
 	github.com/google/renameio/v2 v2.0.2
@@ -31,10 +31,10 @@ require (
 	github.com/slack-go/slack v0.30.1
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20261013142727-4cf8bc8e0aeb
+	go.mau.fi/whatsmeow v0.0.0-20261015105041-df33a485cc46
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.37.0
-	google.golang.org/api v0.303.0
+	google.golang.org/api v0.304.0
 	modernc.org/sqlite v1.60.1
 )
 
@@ -66,10 +66,10 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.63.0 // indirect
+	github.com/quic-go/quic-go v0.64.0 // indirect
 	github.com/refraction-networking/utls v1.8.3-0.20260623165621-880e27d8b0e5 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/vektah/gqlparser/v2 v2.5.62 // indirect
+	github.com/vektah/gqlparser/v2 v2.5.63 // indirect
 	github.com/wzshiming/socks5 v0.8.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.mau.fi/libsignal v0.2.2 // indirect
@@ -81,7 +81,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/exp v0.0.0-20261013213113-2ab7f3cbc5fb // indirect
+	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
