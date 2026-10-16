@@ -175,13 +175,17 @@ const mailNoAuthText = "server does not support SMTP AUTH"
 // markMailPermanent stops retry-go on a non-temporary SMTP error — permanent
 // 5xx, auth failure, malformed header, broken TLS — as classified by
 // *mail.SendError.IsTemp. Anything else keeps its retry budget.
+//
+// ErrConnCheck is transient whatever IsTemp says: go-mail judges temp by a
+// leading '4' in the error text, so a connection dropped after dial reads as
+// permanent and would poison-drop every recipient.
 func markMailPermanent(err error) error {
 	if err == nil {
 		return nil
 	}
 
 	var sendErr *mail.SendError
-	if errors.As(err, &sendErr) && !sendErr.IsTemp() {
+	if errors.As(err, &sendErr) && !sendErr.IsTemp() && sendErr.Reason != mail.ErrConnCheck {
 		// Inner sentinel survives retry.Do's marker stripping.
 		return retry.Unrecoverable(permanentError{err})
 	}

@@ -443,6 +443,8 @@ func TestTransientErrorsExhaustRetries(t *testing.T) {
 		{name: "telegram rate limit", mark: markTelegramPermanent, err: bot.ErrorTooManyRequests},
 		{name: "slack 503", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusServiceUnavailable}},
 		{name: "mail dial failure", mark: markMailPermanent, err: errors.New("connection refused")},
+		// go-mail reports a connection dropped after dial as non-temp.
+		{name: "mail lost connection", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrConnCheck}},
 		{name: "whatsapp socket close", mark: markWhatsAppPermanent, err: errors.New("websocket: close 1006")},
 		{name: "calendar 500", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusInternalServerError}},
 	}
