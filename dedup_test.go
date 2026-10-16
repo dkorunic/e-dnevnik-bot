@@ -41,7 +41,7 @@ func runDedup(t *testing.T, ctx context.Context, eDB *sqlitedb.Edb, msgs ...msgt
 
 	var wg sync.WaitGroup
 
-	msgDedup(ctx, eDB, &wg, gradesScraped, gradesMsg, nil)
+	msgDedup(ctx, eDB, &wg, gradesScraped, gradesMsg, nil, nil)
 	wg.Wait()
 
 	// msgDedup closes gradesMsg via defer, so this drain terminates. If it ever
@@ -291,7 +291,7 @@ func TestMsgDedupClosesOutputChannel(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, nil)
+	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, nil, nil)
 	wg.Wait()
 
 	select {
@@ -332,5 +332,120 @@ func TestMsgDedupRelevanceFilterAppliesAfterFlagging(t *testing.T) {
 
 	if got := runDedup(t, t.Context(), eDB, stale); len(got) != 0 {
 		t.Errorf("forwarded %d alerts after widening the relevance window, want 0 — stale events must be flagged when suppressed", len(got))
+	}
+}
+
+// runDedupSeeded is runDedup with per-user first-run tracking.
+func runDedupSeeded(t *testing.T, eDB *sqlitedb.Edb, sr *seedRun, msgs ...msgtypes.Message) []msgtypes.Message {
+	t.Helper()
+
+	gradesScraped := make(chan msgtypes.Message, len(msgs)+1)
+	for _, m := range msgs {
+		gradesScraped <- m
+	}
+
+	close(gradesScraped)
+
+	gradesMsg := make(chan msgtypes.Message, len(msgs)+1)
+
+	var wg sync.WaitGroup
+
+	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, nil, sr)
+	wg.Wait()
+
+	var out []msgtypes.Message
+	for m := range gradesMsg {
+		out = append(out, m)
+	}
+
+	return out
+}
+
+// userGrade is grade for a named user.
+func userGrade(user, subject string) msgtypes.Message {
+	g := grade(subject)
+	g.Username = user
+
+	return g
+}
+
+// reopen opens path afresh, as each poll cycle does: Existing is decided at
+// open time.
+func reopen(t *testing.T, path string) *sqlitedb.Edb {
+	t.Helper()
+
+	eDB, err := sqlitedb.New(t.Context(), path)
+	if err != nil {
+		t.Fatalf("sqlitedb.New: %v", err)
+	}
+
+	t.Cleanup(func() { _ = eDB.Close() })
+
+	return eDB
+}
+
+// TestMsgDedupFirstRunIsPerUser: a first run that scraped user A but not B
+// used to mark the whole database seeded, so B's entire history alerted on the
+// next cycle. Each user must seed silently on their own first successful run.
+// Not parallel: mutates package-level flag pointers.
+func TestMsgDedupFirstRunIsPerUser(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	path := filepath.Join(t.TempDir(), "peruser.db")
+	users := []string{"a@skole.hr", "b@skole.hr"}
+
+	// Cycle 1, fresh install: A scrapes, B's scrape fails. Nothing alerts.
+	failed := &userSet{}
+	failed.add("b@skole.hr")
+
+	if got := runDedupSeeded(t, reopen(t, path), &seedRun{failed: failed, users: users},
+		userGrade("a@skole.hr", "Matematika")); len(got) != 0 {
+		t.Fatalf("cycle 1 forwarded %d alerts on a fresh install, want 0", len(got))
+	}
+
+	// Cycle 2: both scrape. A's new grade alerts; B's history seeds silently.
+	got := runDedupSeeded(t, reopen(t, path), &seedRun{failed: &userSet{}, users: users},
+		userGrade("a@skole.hr", "Matematika"), userGrade("a@skole.hr", "Fizika"),
+		userGrade("b@skole.hr", "Kemija"), userGrade("b@skole.hr", "Biologija"))
+	if len(got) != 1 || got[0].Username != "a@skole.hr" || got[0].Subject != "Fizika" {
+		t.Fatalf("cycle 2 forwarded %+v, want only A's new Fizika grade — B's history must seed silently", got)
+	}
+
+	// Cycle 3: B is seeded now, so B's new grade alerts.
+	got = runDedupSeeded(t, reopen(t, path), &seedRun{failed: &userSet{}, users: users},
+		userGrade("b@skole.hr", "Kemija"), userGrade("b@skole.hr", "Povijest"))
+	if len(got) != 1 || got[0].Subject != "Povijest" {
+		t.Fatalf("cycle 3 forwarded %+v, want only B's new Povijest grade", got)
+	}
+
+	// A [[user]] added later seeds silently too.
+	users = append(users, "c@skole.hr")
+
+	if got := runDedupSeeded(t, reopen(t, path), &seedRun{failed: &userSet{}, users: users},
+		userGrade("c@skole.hr", "Geografija")); len(got) != 0 {
+		t.Fatalf("a newly added user's history forwarded %d alerts, want 0", len(got))
+	}
+}
+
+// TestMsgDedupMigratesPreSeedMarkerDatabase: a database from before per-user
+// markers holds every configured user's history, so the upgrade must count all
+// of them as seeded — otherwise the first cycle after upgrading drops alerts.
+// Not parallel: mutates package-level flag pointers.
+func TestMsgDedupMigratesPreSeedMarkerDatabase(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	path := filepath.Join(t.TempDir(), "legacy.db")
+
+	// The old code path: whole-database seeding, no markers written.
+	runDedup(t, t.Context(), reopen(t, path), userGrade("a@skole.hr", "Matematika"))
+
+	users := []string{"a@skole.hr"}
+
+	got := runDedupSeeded(t, reopen(t, path), &seedRun{failed: &userSet{}, users: users},
+		userGrade("a@skole.hr", "Matematika"), userGrade("a@skole.hr", "Fizika"))
+	if len(got) != 1 || got[0].Subject != "Fizika" {
+		t.Fatalf("first cycle after upgrade forwarded %+v, want the new Fizika grade", got)
 	}
 }

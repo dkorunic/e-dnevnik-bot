@@ -106,9 +106,11 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: false,
 		},
 		{
+			// A real Discord 404 carries its JSON code; a body-less one is
+			// an edge error and retried (TestMarkDiscordBodylessNotFoundIsTransient).
 			name:      "discord 404 is permanent",
 			mark:      markDiscordPermanent,
-			err:       &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}},
+			err:       &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownUser}},
 			permanent: true,
 		},
 		{

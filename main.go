@@ -392,7 +392,7 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 
 	scrapeStage(ctx, &wgScrape, gradesScraped, cfg, failed)
 
-	msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg, dg)
+	msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg, dg, &seedRun{failed: failed, users: usernames(cfg.User)})
 
 	msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
 

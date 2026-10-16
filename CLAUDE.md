@@ -100,9 +100,11 @@ The fan-out is a hand-rolled **non-blocking** dispatch (not `teivah/broadcast`, 
 
 `wgFilter` spawns exactly one goroutine. This is not a scaling limitation to "fix" — it guarantees consistent first-run detection and avoids sqlite write contention against the messenger queue writes. `gradesMsg` is closed in a `defer` so the fan-out loop unblocks on ctx cancel.
 
-### First-run seeding is silent on purpose — `internal/sqlitedb/db.go` + `msgDedup`
+### First-run seeding is silent on purpose, per user — `seed.go` + `msgDedup`
 
-A fresh DB (`!eDB.Existing()`) causes `msgDedup` to store hashes but forward nothing. This prevents flooding on first install. **If a user deletes `.e-dnevnik.db.sqlite`, the next run silently re-seeds without alerts** — users typically interpret this as "the bot missed events". Preserve the first-run seed behaviour; any change here is a UX regression.
+A user's first run stores hashes but forwards nothing. This prevents flooding on first install. **If a user deletes `.e-dnevnik.db.sqlite`, the next run silently re-seeds without alerts** — users typically interpret this as "the bot missed events". Preserve the first-run seed behaviour; any change here is a UX regression.
+
+"First run" is decided **per user**, through a `seeded\x00<user>` marker that `markSeeded` writes only after that user's scrape succeeded (not in the cycle's `failed` set, ctx not cancelled). It used to be decided for the whole database ("does any row exist"), so a first run that scraped user A but not B left B unseeded and the next cycle alerted B's entire history; adding a `[[user]]` to an existing install did the same. A database from before the markers (rows, but no `seeded-migrated` key) is migrated once by `loadSeeded`: every configured user is marked seeded, because the alternative is losing a cycle of alerts on upgrade. Accepted cost: a `[[user]]` added in that same upgrade alerts its history once. `msgDedup` with a nil `seedRun` keeps the old whole-database rule; only tests pass nil.
 
 ### TTL-based dedup re-fires after ~1 year — `internal/sqlitedb/db.go:CheckAndFlagTTL`
 
@@ -111,6 +113,8 @@ A fresh DB (`!eDB.Existing()`) causes `msgDedup` to store hashes but forward not
 ### `Message.Fields` is the dedup identity — `internal/scrape/helpers.go:cellValues`
 
 `msgDedup` hashes `(Username, Subject, Fields)`, so `Fields` is identity, not presentation: **any change to which cells `cellValues` emits re-alerts every stored event once**, bounded only by the relevance period. Moving to one entry per `div.cell` did that, and folded the note column into the identity — a teacher editing a note now re-alerts an old grade. Intended, but user-visible: ship such a change with a release note.
+
+**Known limitation — year-less identity.** Grade dates are `D.M.` with no year, and a single-class student's grade `Subject` carries no class name (only multi-class users get ` / <class>`; final grades always do). So the identical row — same subject, day, month, grade and note — in the next school year hashes to a key still inside `DefaultEntryTTL` (~375 days) and is never alerted. Both fixes cost more than the rare miss: adding the school year to the identity re-alerts every stored event once, and a TTL under a year is unsafe because a reading can stay on the portal for the whole school year. Revisit only together with an identity change that ships a release note anyway.
 
 `cellValues` is the single reader for grades, national exams and readings. Keep it that way — these were once three separate `div.cell > span` reads, and fixing only the grades one left the others dropping span-less cells and shifting later values a column left. The final-grade row is deliberately off this path: a single label/value row that compacts empty cells on purpose.
 

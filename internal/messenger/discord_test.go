@@ -703,3 +703,16 @@ func TestDiscordStaleChannelSurvivesRetryDo(t *testing.T) {
 		t.Error("Unknown Channel lost its permanent marker")
 	}
 }
+
+// TestMarkDiscordBodylessNotFoundIsTransient: a 404 without Discord's JSON
+// body came from an edge or proxy and says nothing about the channel. It must
+// be retried, not fall through to the generic 404-is-permanent rule and drop
+// the recipient's alert.
+func TestMarkDiscordBodylessNotFoundIsTransient(t *testing.T) {
+	t.Parallel()
+
+	got := markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}})
+	if !retry.IsRecoverable(got) || isPermanentSendErr(got) {
+		t.Errorf("body-less 404: recoverable=%v permanent=%v, want true/false", retry.IsRecoverable(got), isPermanentSendErr(got))
+	}
+}

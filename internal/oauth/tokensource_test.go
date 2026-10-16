@@ -4,13 +4,17 @@
 package oauth
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
+	"github.com/rs/zerolog"
 	"golang.org/x/oauth2"
 )
 
@@ -292,5 +296,46 @@ func TestPersistingTokenSourceTolerateUnwritablePath(t *testing.T) {
 
 	if tok.AccessToken != "access-1" {
 		t.Errorf("Token() AccessToken = %q, want access-1", tok.AccessToken)
+	}
+}
+
+// TestPersistingTokenSourceExplainsEachCauseOnce: a revoked grant and a
+// rejected client need different remedies, so each is explained once — a shared
+// latch let whichever came first hide the other's message until restart.
+// Not parallel: swaps the package-level logger.
+func TestPersistingTokenSourceExplainsEachCauseOnce(t *testing.T) {
+	var buf bytes.Buffer
+
+	orig := logger.Logger
+	logger.Logger = zerolog.New(&buf)
+
+	t.Cleanup(func() { logger.Logger = orig })
+
+	client := &oauth2.RetrieveError{ErrorCode: "unauthorized_client"}
+	grant := &oauth2.RetrieveError{ErrorCode: "invalid_grant"}
+
+	src := &stubTokenSource{
+		tokens: []*oauth2.Token{nil, nil, nil, nil},
+		errs:   []error{client, client, grant, grant},
+	}
+	p := &persistingTokenSource{src: src, tokenPath: filepath.Join(t.TempDir(), "calendar_token.json")}
+
+	for range 4 {
+		_, _ = p.Token()
+	}
+
+	out := buf.String()
+
+	if n := strings.Count(out, "rejected the OAuth client"); n != 1 {
+		t.Errorf("client rejection explained %d times, want 1:\n%s", n, out)
+	}
+
+	if n := strings.Count(out, "grant was revoked"); n != 1 {
+		t.Errorf("revoked grant explained %d times, want 1 — the client message must not hide it:\n%s", n, out)
+	}
+
+	// Re-authenticating is the likelier fix (a token from another client ID).
+	if !strings.Contains(out, "re-authenticate") || !strings.Contains(out, "rejected the OAuth client") {
+		t.Errorf("client rejection does not suggest re-authenticating first:\n%s", out)
 	}
 }

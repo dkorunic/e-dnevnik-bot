@@ -349,11 +349,14 @@ func storeOverflow(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g m
 }
 
 // msgDedup forwards only events the dedup store has not seen before, and only
-// once past the first run — a fresh database seeds silently instead of
-// flooding.
+// once past a user's first run — their existing events seed silently instead
+// of flooding. With sr set the first run is tracked per user (see seedRun);
+// nil falls back to the whole database being fresh or not.
 //
 // With dg set, it also emits due weekly digests once scraping ends.
-func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message, dg *digestRun) {
+func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtypes.Message,
+	dg *digestRun, sr *seedRun,
+) {
 	wgFilter.Go(func() {
 		// Close gradesMsg on exit so msgSend's fan-out loop unblocks.
 		defer close(gradesMsg)
@@ -371,7 +374,21 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			}
 		}()
 
-		if !eDB.Existing() {
+		// firstRun reports whether user's events this cycle only seed.
+		firstRun := func(string) bool { return !eDB.Existing() }
+
+		var seeded map[string]bool
+
+		if sr != nil {
+			seeded = loadSeeded(ctx, eDB, sr)
+			firstRun = func(user string) bool { return !seeded[user] }
+
+			for _, u := range sr.users {
+				if !seeded[u] {
+					logger.Info().Msgf("First run for %v: recording existing events without alerting", u)
+				}
+			}
+		} else if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't send new-event alerts in this run")
 		}
 
@@ -418,7 +435,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			flagged = &g
 
 			// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
-			if found || !eDB.Existing() {
+			if found || firstRun(g.Username) {
 				continue
 			}
 
@@ -443,6 +460,10 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 		// The last event's decision is made; a digest panic must not forward it.
 		flagged = nil
+
+		if sr != nil {
+			markSeeded(ctx, eDB, sr, seeded)
+		}
 
 		if dg != nil {
 			sendDigestsFn(ctx, eDB, dg, exams, gradesMsg)

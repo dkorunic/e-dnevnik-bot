@@ -155,11 +155,6 @@ func CalendarDeferred(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes
 // clear within the retry delays, so they are retried.
 var calendarRateReasons = []string{"rateLimitExceeded", "userRateLimitExceeded"}
 
-// calendarQuotaReasons are 403 reasons for an exhausted daily quota. Like a
-// rejected credential it holds for every event, so it stops the cycle (every
-// later insert would be rejected alike) and requeues; it resets by itself.
-var calendarQuotaReasons = []string{"quotaExceeded", "dailyLimitExceeded"}
-
 // calendarHasReason reports whether gaErr carries one of reasons.
 func calendarHasReason(gaErr *googleapi.Error, reasons []string) bool {
 	return slices.ContainsFunc(gaErr.Errors, func(e googleapi.ErrorItem) bool {
@@ -190,9 +185,10 @@ func markCalendarPermanent(err error) error {
 			return markConfigErr(err)
 		case gaErr.Code == http.StatusForbidden && calendarHasReason(gaErr, calendarRateReasons):
 			return err
-		case gaErr.Code == http.StatusForbidden && calendarHasReason(gaErr, calendarQuotaReasons):
-			return markConfigErr(err)
 		case gaErr.Code == http.StatusForbidden:
+			// Lost write access, and an exhausted daily quota (quotaExceeded,
+			// dailyLimitExceeded), hold for every event alike: stop the cycle
+			// and requeue. The quota resets by itself.
 			return markConfigErr(err)
 		}
 

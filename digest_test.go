@@ -165,7 +165,7 @@ func runDigestCycle(t *testing.T, eDB *sqlitedb.Edb, dg *digestRun, msgs ...msgt
 
 	var wg sync.WaitGroup
 
-	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, dg)
+	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, dg, nil)
 	wg.Wait()
 
 	var out []msgtypes.Message
@@ -306,7 +306,7 @@ func TestDigestOnFirstRun(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, dg)
+	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, dg, nil)
 	wg.Wait()
 
 	var codes []msgtypes.EventCode
@@ -352,7 +352,7 @@ func TestDigestPanicDoesNotForwardSkippedEvent(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, dg)
+	msgDedup(t.Context(), eDB, &wg, gradesScraped, gradesMsg, dg, nil)
 	wg.Wait()
 
 	for m := range gradesMsg {

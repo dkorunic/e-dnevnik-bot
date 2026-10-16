@@ -144,6 +144,12 @@ func markDiscordPermanent(err error) error {
 			return retry.Unrecoverable(permanentError{discordStaleChannelError{err}})
 		}
 
+		// A 404 without Discord's JSON body came from an edge or proxy: it
+		// says nothing about the channel, so it is retried, not dropped.
+		if rerr.Response.StatusCode == http.StatusNotFound && rerr.Message == nil {
+			return err
+		}
+
 		if isPermanentHTTPStatus(rerr.Response.StatusCode) {
 			// Inner sentinel survives retry.Do's marker stripping.
 			return retry.Unrecoverable(permanentError{err})

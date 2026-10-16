@@ -445,7 +445,9 @@ func TestRunPollCycleKeepsDBOpenForMessengers(t *testing.T) {
 	// CalendarDeferred is a queue-only sink: every exam it receives is written
 	// to the database, so a premature close shows up as missing rows.
 	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
-		runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true})
+		// The user is configured: first-run seeding is per user, and an
+		// unconfigured one would seed silently and forward nothing.
+		runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true, User: []config.User{{Username: "pero.peric"}}})
 	})
 
 	// Reopen: runPollCycle closed its own handle on the way out.

@@ -64,11 +64,12 @@ var contentFS embed.FS
 // persistingTokenSource writes refreshed tokens to disk, so a restart survives
 // rotation.
 type persistingTokenSource struct {
-	src       oauth2.TokenSource
-	last      *oauth2.Token
-	tokenPath string
-	mu        sync.Mutex
-	warnOnce  sync.Once
+	src        oauth2.TokenSource
+	last       *oauth2.Token
+	tokenPath  string
+	mu         sync.Mutex
+	grantOnce  sync.Once // invalid_grant explained once
+	clientOnce sync.Once // client rejection explained once; separate, so neither hides the other
 }
 
 // Token returns a cached or refreshed token, persisting it whenever it differs
@@ -80,16 +81,18 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 		// Once per process: every call fails until the cause is fixed.
 		switch {
 		case IsInvalidGrant(err):
-			p.warnOnce.Do(func() {
+			p.grantOnce.Do(func() {
 				logger.Error().Msgf("Google Calendar OAuth grant was revoked or expired; delete %q and re-run the bot interactively to re-authenticate",
 					p.tokenPath)
 			})
 		case IsAuthRejected(err):
-			// The client credentials are compiled in, so re-authenticating
-			// with the same build cannot help.
-			p.warnOnce.Do(func() {
-				logger.Error().Msgf("Google Calendar rejected this build's OAuth client (%v); exams are queued — update e-dnevnik-bot to a release with working credentials",
-					err)
+			// Two causes share these codes: a saved token issued to another
+			// client ID (after an upgrade that ships new credentials —
+			// re-authenticating fixes it), or this build's compiled-in
+			// client being deleted or disabled (only a newer release does).
+			p.clientOnce.Do(func() {
+				logger.Error().Msgf("Google Calendar rejected the OAuth client (%v); exams are queued. Delete %q and re-run the bot interactively to re-authenticate; if that fails too, update e-dnevnik-bot to a release with working credentials",
+					err, p.tokenPath)
 			})
 		}
 
