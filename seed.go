@@ -57,16 +57,38 @@ func loadSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun) map[string]
 	}
 
 	migrated, err := eDB.ScanPrefix(ctx, seedMigratedKey)
-	if err != nil || len(migrated) > 0 {
+	if err != nil {
+		// Unknown migration state: an unmarked user here may be a pre-marker
+		// one, and guessing "first run" flags their new events unsent.
+		logger.Error().Msgf("Unable to read first-run marker migration state, falling back to database presence: %v", err)
+
+		for _, u := range sr.users {
+			seeded[u] = seeded[u] || eDB.Existing()
+		}
+
 		return seeded
 	}
 
+	if len(migrated) > 0 {
+		return seeded
+	}
+
+	// The migration key commits the migration, so it is written only once
+	// every marker is: a missing marker behind it reads as a first run.
+	complete := true
+
 	if eDB.Existing() {
 		for _, u := range sr.users {
-			putSeedMarker(ctx, eDB, u)
+			if !putSeedMarker(ctx, eDB, u) {
+				complete = false
+			}
 
 			seeded[u] = true
 		}
+	}
+
+	if !complete {
+		return seeded
 	}
 
 	if err := eDB.Put(ctx, seedMigratedKey, []byte{1}); err != nil {
@@ -88,17 +110,22 @@ func markSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun, seeded map[
 			continue
 		}
 
-		putSeedMarker(ctx, eDB, u)
-
-		logger.Info().Msgf("First run for %v recorded; new-event alerts start next cycle", u)
+		if putSeedMarker(ctx, eDB, u) {
+			logger.Info().Msgf("First run for %v recorded; new-event alerts start next cycle", u)
+		}
 	}
 }
 
-// putSeedMarker writes u's marker, with no TTL so the TTL sweep keeps it.
-func putSeedMarker(ctx context.Context, eDB *sqlitedb.Edb, u string) {
+// putSeedMarker writes u's marker, with no TTL so the TTL sweep keeps it, and
+// reports whether it landed.
+func putSeedMarker(ctx context.Context, eDB *sqlitedb.Edb, u string) bool {
 	key := append(append([]byte{}, seedKeyPrefix...), u...)
 
 	if err := eDB.Put(ctx, key, []byte{1}); err != nil {
 		logger.Error().Msgf("Unable to record first-run marker for %v: %v", u, err)
+
+		return false
 	}
+
+	return true
 }
