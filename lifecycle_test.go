@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
+	"google.golang.org/api/calendar/v3"
 )
 
 // setDBFile points the package-level database flag at a fresh temp path.
@@ -458,5 +460,53 @@ func TestRunPollCycleKeepsDBOpenForMessengers(t *testing.T) {
 	if len(got) != events {
 		t.Fatalf("queue holds %d of %d exams; the database must stay open until every messenger has finished writing, or already-flagged events are lost for good",
 			len(got), events)
+	}
+}
+
+// TestCheckCalendarStaysLiveOnceConsentSaved: interactive consent can succeed —
+// the token is on disk — and the calendar lookup that follows still fail on a
+// network blip. Deferring then parked exams in the stub's queue, which nothing
+// reads, until a restart. With the token saved the runtime init retries every
+// cycle without prompting, so Calendar must stay live.
+// Not parallel: mutates package-level seams and flag pointers.
+func TestCheckCalendarStaysLiveOnceConsentSaved(t *testing.T) {
+	tokFile := filepath.Join(t.TempDir(), "calendar_token.json")
+	setCalTokFile(t, tokFile)
+
+	origTerm, origInit := interactiveTerminal, calendarInit
+
+	t.Cleanup(func() { interactiveTerminal, calendarInit = origTerm, origInit })
+
+	interactiveTerminal = func() bool { return true }
+
+	for _, tt := range []struct {
+		name      string
+		saveToken bool
+		wantLive  bool
+	}{
+		{name: "token saved, lookup failed", saveToken: true, wantLive: true},
+		{name: "consent failed", saveToken: false, wantLive: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_ = os.Remove(tokFile)
+
+			calendarInit = func(context.Context, string, string, bool) (*calendar.Service, string, error) {
+				if tt.saveToken {
+					if err := os.WriteFile(tokFile, []byte(`{"access_token":"a"}`), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				return nil, "", errors.New("injected calendar lookup failure")
+			}
+
+			cfg := config.TomlConfig{CalendarEnabled: true}
+			checkCalendar(t.Context(), &cfg)
+
+			if cfg.CalendarEnabled != tt.wantLive || cfg.CalendarDeferred == tt.wantLive {
+				t.Errorf("CalendarEnabled=%v CalendarDeferred=%v, want live=%v",
+					cfg.CalendarEnabled, cfg.CalendarDeferred, tt.wantLive)
+			}
+		})
 	}
 }

@@ -37,7 +37,13 @@ type seedRun struct {
 // every configured user's seed, so all are marked, or the upgrade would cost a
 // cycle of alerts. A [[user]] added in that same upgrade is marked too and may
 // alert its history once — the one case the migration cannot tell apart.
-func loadSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun) map[string]bool {
+//
+// ok is false when a fresh database could not record that markers are in use.
+// The caller must then flag nothing this cycle: rows without the migration key
+// are what a pre-marker database looks like, so the next cycle would mark every
+// user seeded and one whose first scrape failed would alert its whole history.
+// Nothing alerts on a fresh database anyway, and unflagged events re-scrape.
+func loadSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun) (map[string]bool, bool) {
 	seeded := make(map[string]bool, len(sr.users))
 
 	rows, err := eDB.ScanPrefix(ctx, seedKeyPrefix)
@@ -49,7 +55,7 @@ func loadSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun) map[string]
 			seeded[u] = eDB.Existing()
 		}
 
-		return seeded
+		return seeded, eDB.Existing()
 	}
 
 	for _, r := range rows {
@@ -66,11 +72,11 @@ func loadSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun) map[string]
 			seeded[u] = seeded[u] || eDB.Existing()
 		}
 
-		return seeded
+		return seeded, eDB.Existing()
 	}
 
 	if len(migrated) > 0 {
-		return seeded
+		return seeded, true
 	}
 
 	// The migration key commits the migration, so it is written only once
@@ -87,15 +93,18 @@ func loadSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun) map[string]
 		}
 	}
 
+	// Only reachable on a pre-marker database, which retries next cycle.
 	if !complete {
-		return seeded
+		return seeded, true
 	}
 
 	if err := eDB.Put(ctx, seedMigratedKey, []byte{1}); err != nil {
 		logger.Error().Msgf("Unable to record first-run marker migration: %v", err)
+
+		return seeded, eDB.Existing()
 	}
 
-	return seeded
+	return seeded, true
 }
 
 // markSeeded records every unseeded user whose scrape succeeded this cycle. A

@@ -750,6 +750,26 @@ func TestResolveHRYear(t *testing.T) {
 			want: time.Date(2025, 9, 20, 0, 0, 0, 0, time.UTC),
 		},
 		{
+			// A UTC clock at 22:45 is already "tomorrow" in Croatia, and a
+			// teacher may date a grade a day ahead: neither is a year old.
+			name: "tomorrow is this year",
+			date: "19.10.",
+			now:  time.Date(2026, 10, 18, 22, 45, 0, 0, time.UTC),
+			want: time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "new year's day seen on new year's eve is next year",
+			date: "1.1.",
+			now:  time.Date(2026, 12, 31, 23, 0, 0, 0, time.UTC),
+			want: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "past the slack is still last year",
+			date: "21.10.",
+			now:  time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC),
+			want: time.Date(2025, 10, 21, 0, 0, 0, 0, time.UTC),
+		},
+		{
 			name: "leap day in a leap year is itself",
 			date: "29.2.",
 			now:  time.Date(2028, 3, 5, 0, 0, 0, 0, time.UTC),

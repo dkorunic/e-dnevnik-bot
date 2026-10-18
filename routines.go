@@ -380,7 +380,21 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 		var seeded map[string]bool
 
 		if sr != nil {
-			seeded = loadSeeded(ctx, eDB, sr)
+			var ok bool
+
+			seeded, ok = loadSeeded(ctx, eDB, sr)
+			if !ok {
+				// Flag nothing, digest claims included: see loadSeeded. The
+				// drain is what lets the scrapers finish (cf. recoverDedup).
+				logger.Error().Msg("Unable to record first-run state in a new database, skipping this cycle")
+				exitWithError.Store(true)
+
+				for range gradesScraped {
+				}
+
+				return
+			}
+
 			firstRun = func(user string) bool { return !seeded[user] }
 
 			for _, u := range sr.users {
@@ -526,24 +540,31 @@ func recoverDedup(gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtyp
 // century (1900, 2100) stretches the worst case to seven steps.
 const maxLeapYearLookback = 8
 
+// hrDateFutureSlackDays is how far ahead of today a "D.M." date may sit and
+// still count as this year. A clock without TZ runs in UTC, up to two hours
+// behind the portal's Croatian dates, and a teacher may date a grade a day
+// ahead. Without slack such a date resolves to last year, reads as a year old
+// and is suppressed — after dedup has flagged it, so it never alerts.
+const hrDateFutureSlackDays = 2
+
 // resolveHRYear dates a "D.M." column to the latest year in which it has
-// already passed. The walk exists for 29 February: time.Date rolls it to 1
-// March in a common year, making an older leap-year grade read as days old.
+// already passed, or falls within hrDateFutureSlackDays of today. The walk
+// exists for 29 February: time.Date rolls it to 1 March in a common year,
+// making an older leap-year grade read as days old.
 //
 // Reports false when no year in range holds the date; callers must fail open.
 // Returning a normalised date instead would read as years old and suppress the
 // alert silently.
 func resolveHRYear(t, now time.Time) (time.Time, bool) {
-	year := now.Year()
+	limit := time.Date(now.Year(), now.Month(), now.Day()+hrDateFutureSlackDays, 0, 0, 0, 0, t.Location())
 
-	// Still ahead of today: it belongs to last year.
-	if t.Month() > now.Month() || (t.Month() == now.Month() && t.Day() > now.Day()) {
-		year--
-	}
+	// From next year: 1 January seen on 31 December is within the slack.
+	year := now.Year() + 1
 
-	for range maxLeapYearLookback {
+	for range maxLeapYearLookback + 1 {
 		// Normalisation is what signals the date is absent.
-		if d := time.Date(year, t.Month(), t.Day(), 0, 0, 0, 0, t.Location()); d.Day() == t.Day() {
+		d := time.Date(year, t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+		if d.Day() == t.Day() && !d.After(limit) {
 			return d, true
 		}
 
