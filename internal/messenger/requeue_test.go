@@ -70,7 +70,7 @@ func TestProcessShutdownRequeuesEveryMessenger(t *testing.T) {
 			name:  "whatsapp",
 			queue: WhatsAppQueueName,
 			run: func(ctx context.Context, eDB *sqlitedb.Edb, rl ratelimit.Limiter) {
-				processWhatsApp(ctx, nil, eDB, g, []string{"111@s.whatsapp.net", "222@s.whatsapp.net"}, rl, 1)
+				processWhatsApp(ctx, nil, eDB, g, []string{"111@s.whatsapp.net", "222@s.whatsapp.net"}, false, rl, 1)
 			},
 		},
 	}

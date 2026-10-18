@@ -45,7 +45,7 @@ func TestProcessWhatsApp(t *testing.T) {
 	}
 	defer eDB.Close()
 
-	processWhatsApp(context.Background(), whatsAppCli, eDB, msg, []string{"12345@s.whatsapp.net"}, rl, 1)
+	processWhatsApp(context.Background(), whatsAppCli, eDB, msg, []string{"12345@s.whatsapp.net"}, false, rl, 1)
 }
 
 // TestWhatsAppLoginReturnsErrorOnConnectFailure verifies that whatsAppLogin propagates

@@ -186,13 +186,13 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 
 	rl := ratelimit.New(WhatsAppAPILimit, ratelimit.Per(WhatsAppWindow))
 
-	userIDs = whatsAppEffectiveUserIDs(ctx, cli, userIDs, groups)
+	userIDs, groupsPending := whatsAppEffectiveUserIDs(ctx, cli, userIDs, groups)
 
 	var cs cycleSender
 
 	resendQueued(ctx, eDB, WhatsAppQueueName, func(m msgtypes.Message) {
 		cs.send(ctx, eDB, WhatsAppQueueName, m, func() bool {
-			return processWhatsApp(ctx, cli, eDB, m, userIDs, rl, cfg.Retries)
+			return processWhatsApp(ctx, cli, eDB, m, userIDs, groupsPending, rl, cfg.Retries)
 		})
 	})
 
@@ -200,7 +200,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	for g := range ch {
 		inflight = &g
 		cs.send(ctx, eDB, WhatsAppQueueName, g, func() bool {
-			return processWhatsApp(ctx, cli, eDB, g, userIDs, rl, cfg.Retries)
+			return processWhatsApp(ctx, cli, eDB, g, userIDs, groupsPending, rl, cfg.Retries)
 		})
 		inflight = nil
 	}
@@ -234,9 +234,11 @@ func markWhatsAppPermanent(err error) error {
 }
 
 // processWhatsApp sends g as plain text to each recipient JID, re-queueing on
-// partial or total failure. Invalid JIDs are dropped without spending rate
-// budget.
-func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string, rl ratelimit.Limiter, retries uint) bool {
+// partial or total failure, or when groupsPending says configured groups are
+// missing from userIDs. Invalid JIDs are dropped without spending rate budget.
+func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb, g msgtypes.Message, userIDs []string,
+	groupsPending bool, rl ratelimit.Limiter, retries uint,
+) bool {
 	// PlainMsg: Conversation rendering would interpret Markdown metacharacters.
 	mRaw := truncateWithEllipsis(format.PlainMsg(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields), WhatsAppMaxMessageChars)
 	m := waE2E.Message{Conversation: &mRaw}
@@ -300,6 +302,12 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 		run.delivered(u)
 	}
 
+	// The groups are recipients this list could not name: queue the message
+	// for them, skipping whoever it reached.
+	if groupsPending {
+		run.interrupt()
+	}
+
 	return run.finish(ctx, eDB, WhatsAppQueueName, g)
 }
 
@@ -352,21 +360,23 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) ([]string, [
 	return jids, names
 }
 
-// whatsAppEffectiveUserIDs merges resolved group JIDs into the static user IDs.
+// whatsAppEffectiveUserIDs merges resolved group JIDs into the static user IDs,
+// reporting whether configured groups are missing from the result because they
+// could not be resolved at all (see processWhatsApp's groupsPending).
 // The TTL, rather than a process-lifetime cache, is what lets a lost membership
 // stop consuming sends: a zero-match lookup keeps the last good resolution only
 // until whatsAppGroupsStaleLimit after it was made. Cache state is guarded by
 // whatsAppGroupsMu.
-func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, userIDs, groups []string) []string {
+func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, userIDs, groups []string) ([]string, bool) {
 	if len(groups) == 0 {
-		return userIDs
+		return userIDs, false
 	}
 
 	if !whatsAppGroupsNeedsResolution() {
 		whatsAppGroupsMu.Lock()
 		defer whatsAppGroupsMu.Unlock()
 
-		return whatsAppResolvedUserIDs
+		return whatsAppResolvedUserIDs, false
 	}
 
 	userIDSize := len(userIDs)
@@ -379,11 +389,20 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		// the last good cache meanwhile. No stale limit here, unlike a zero
 		// match: a failed lookup says nothing about membership, and dropping
 		// the groups would send to none of them and queue nothing.
+		//
+		// With no cache to serve, the groups are pending: the caller queues
+		// each message for them rather than count the static recipients as
+		// complete delivery.
 		whatsAppGroupsMu.Lock()
-		if whatsAppGroupsResolved {
+		resolvedBefore := whatsAppGroupsResolved
+		if resolvedBefore {
 			userIDs = whatsAppResolvedUserIDs
 		}
 		whatsAppGroupsMu.Unlock()
+
+		if !resolvedBefore {
+			return userIDs, true
+		}
 	case len(matched) > 0:
 		userIDs = resolved
 
@@ -455,7 +474,7 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		}
 	}
 
-	return userIDs
+	return userIDs, false
 }
 
 // whatsAppGroupsLatchWarning reports whether a warning about names, of the
@@ -472,6 +491,18 @@ func whatsAppGroupsLatchWarning(kind string, names []string) bool {
 	whatsAppGroupsWarned = key
 
 	return true
+}
+
+// whatsAppGroupsInvalidate forces a fresh group lookup next cycle, after a
+// reconnect may have staled the cache, but keeps the cached JIDs: a lookup
+// right after a reconnect is the likeliest to fail, and its fallback is that
+// cache. Wiping it sent such a cycle's alerts to no group and queued nothing.
+// Clearing Complete is the lever because whatsAppGroupsNeedsResolution reads it
+// and the stale rule does not, so the resolution keeps its real age.
+func whatsAppGroupsInvalidate() {
+	whatsAppGroupsMu.Lock()
+	whatsAppGroupsComplete = false
+	whatsAppGroupsMu.Unlock()
 }
 
 // whatsAppGroupsNeedsResolution reports whether the cache is absent or stale.
@@ -669,11 +700,7 @@ func whatsAppEventHandler(rawEvt any) {
 	case *events.StreamReplaced, *events.KeepAliveTimeout:
 		logger.Debug().Msgf("%v", ErrWhatsAppDisconnected)
 
-		// Server-side replacement may have staled the JIDs.
-		whatsAppGroupsMu.Lock()
-		whatsAppGroupsResolved = false
-		whatsAppResolvedUserIDs = nil
-		whatsAppGroupsMu.Unlock()
+		whatsAppGroupsInvalidate()
 	case *events.ClientOutdated:
 		logger.Error().Msgf("%v", ErrWhatsAppOutdated)
 	case *events.TemporaryBan:

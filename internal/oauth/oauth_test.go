@@ -308,7 +308,7 @@ func TestGetClientInvalidGrant(t *testing.T) {
 		},
 	}
 
-	_, err = GetClient(context.Background(), cfg, tmpfile.Name())
+	_, err = GetClient(context.Background(), cfg, tmpfile.Name(), true)
 	if !errors.Is(err, ErrOAuthGrantRevoked) {
 		t.Fatalf("GetClient() error = %v, want ErrOAuthGrantRevoked", err)
 	}
@@ -620,5 +620,39 @@ func TestIsAuthRejected(t *testing.T) {
 		if got := IsAuthRejected(err); got != want {
 			t.Errorf("IsAuthRejected(%q) = %v, want %v", code, got, want)
 		}
+	}
+}
+
+// TestGetClientNonInteractiveMissingToken: the poll cycle calls GetClient too,
+// from a messenger goroutine of a daemon nobody is watching. A missing token
+// there bound the callback port and waited out AuthTimeout for a consent no one
+// would give, stalling the cycle by five minutes each time. Non-interactive, it
+// must fail at once and never reach the consent flow.
+// NOTE: not parallel — stubs the package-level browserOpen.
+func TestGetClientNonInteractiveMissingToken(t *testing.T) {
+	origBrowser := browserOpen
+	defer func() { browserOpen = origBrowser }()
+
+	opened := false
+	browserOpen = func(string) error {
+		opened = true
+
+		return nil
+	}
+
+	// Bounds the RED case, where the consent flow would otherwise wait out
+	// AuthTimeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cfg := &oauth2.Config{ClientID: "test-client", Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.example.invalid/auth"}}
+
+	_, err := GetClient(ctx, cfg, filepath.Join(t.TempDir(), "absent.json"), false)
+	if !errors.Is(err, ErrOAuthTokenMissing) {
+		t.Errorf("GetClient() error = %v, want ErrOAuthTokenMissing", err)
+	}
+
+	if opened {
+		t.Error("GetClient() started the interactive consent flow without a terminal to answer it")
 	}
 }

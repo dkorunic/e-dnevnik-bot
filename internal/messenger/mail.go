@@ -172,25 +172,39 @@ func isMailAuthErr(err error) bool {
 // mailNoAuthText is go-mail v0.8's error for a server without SMTP AUTH.
 const mailNoAuthText = "server does not support SMTP AUTH"
 
-// markMailPermanent stops retry-go on a non-temporary SMTP error — permanent
-// 5xx, auth failure, malformed header, broken TLS — as classified by
-// *mail.SendError.IsTemp. Anything else keeps its retry budget.
-//
-// ErrConnCheck is transient whatever IsTemp says: go-mail judges temp by a
-// leading '4' in the error text, so a connection dropped after dial reads as
-// permanent and would poison-drop every recipient.
+// markMailPermanent stops retry-go on a SendError isPermanentMailSendErr
+// condemns. Anything else keeps its retry budget.
 func markMailPermanent(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	var sendErr *mail.SendError
-	if errors.As(err, &sendErr) && !sendErr.IsTemp() && sendErr.Reason != mail.ErrConnCheck {
+	if sendErr, ok := errors.AsType[*mail.SendError](err); ok && isPermanentMailSendErr(sendErr) {
 		// Inner sentinel survives retry.Do's marker stripping.
 		return retry.Unrecoverable(permanentError{err})
 	}
 
 	return err
+}
+
+// isPermanentMailSendErr reports whether se can never succeed on retry: a 5xx
+// reply, or a message go-mail itself cannot address or encode.
+//
+// IsTemp alone cannot decide it. go-mail judges temp by a leading '4' in the
+// error text, so a transport failure — EOF, a reset, a timeout, a connection
+// dropped after dial or between messages — reads as permanent and would
+// poison-drop alerts dedup has already flagged. Such errors carry no server
+// code, which is what tells them apart from a real rejection.
+func isPermanentMailSendErr(se *mail.SendError) bool {
+	if se.IsTemp() {
+		return false
+	}
+
+	if se.Reason == mail.ErrGetSender || se.Reason == mail.ErrGetRcpts || se.Reason == mail.ErrNoUnencoded {
+		return true
+	}
+
+	return se.ErrorCode() >= 500
 }
 
 // processMail delivers g as a multipart/alternative batch, one message per
@@ -373,8 +387,8 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 
 			// Retrying helps only if one remaining failure is transient.
 			for _, m := range pendingMsgs {
-				var msgErr *mail.SendError
-				if !errors.As(m.SendError(), &msgErr) || msgErr.IsTemp() {
+				msgErr, ok := errors.AsType[*mail.SendError](m.SendError())
+				if !ok || !isPermanentMailSendErr(msgErr) {
 					return sendErr
 				}
 			}

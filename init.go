@@ -69,9 +69,15 @@ func init() {
 	BuildTime = strings.TrimSpace(BuildTime)
 }
 
+// Test seams: the consent path otherwise needs a TTY and a live Google account.
+var (
+	interactiveTerminal = isTerminal
+	calendarInit        = messenger.InitCalendar
+)
+
 // checkCalendar runs first-run OAuth when no token file exists, deferring to the
-// queue-only stub if setup fails, no terminal is present, or the file cannot be
-// stat'd.
+// queue-only stub if consent fails, no terminal is present, or the file cannot
+// be stat'd.
 func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 	if config == nil {
 		return
@@ -99,14 +105,26 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 		// EACCES and friends: defer rather than fail confusingly later.
 		logger.Error().Msgf("Cannot stat Google Calendar token file %q: %v. Deferring Calendar integration.", *calTokFile, err)
 		deferCal()
-	case !isTerminal():
+	case !interactiveTerminal():
 		logger.Warn().Msgf("Google Calendar token file %q not found; first-run OAuth requires an interactive terminal. Deferring Calendar integration (exams will be queued for delivery once OAuth is completed).", *calTokFile)
 		deferCal()
 	default:
-		if _, _, err := messenger.InitCalendar(ctx, *calTokFile, config.Calendar.Name); err != nil {
-			logger.Error().Msgf("Error initializing Google Calendar API: %v. Deferring Calendar integration (exams will be queued for retry).", err)
-			deferCal()
+		_, _, err := calendarInit(ctx, *calTokFile, config.Calendar.Name, true)
+		if err == nil {
+			break
 		}
+
+		// Consent saved, only what followed it failed: the runtime init
+		// retries every cycle without prompting. Deferring would park exams
+		// in the stub's queue, which nothing reads, until a restart.
+		if _, serr := os.Stat(*calTokFile); serr == nil {
+			logger.Error().Msgf("Error initializing Google Calendar API: %v. OAuth consent is saved; retrying every cycle (exams are queued meanwhile).", err)
+
+			break
+		}
+
+		logger.Error().Msgf("Error initializing Google Calendar API: %v. Deferring Calendar integration (exams will be queued until OAuth is completed).", err)
+		deferCal()
 	}
 }
 

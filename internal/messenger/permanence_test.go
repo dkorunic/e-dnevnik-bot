@@ -221,11 +221,11 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: false,
 		},
 
-		// Mail: SMTP errors carry their own temporary/permanent flag.
+		// Mail: only a real 5xx reply is permanent (see isPermanentMailSendErr).
 		{
 			name:      "mail permanent SMTP failure is permanent",
 			mark:      markMailPermanent,
-			err:       &mail.SendError{Reason: mail.ErrSMTPMailFrom},
+			err:       smtpReplyError(t, "550 5.7.1 rejected"),
 			permanent: true,
 		},
 		{
@@ -351,7 +351,7 @@ func TestMarkPermanentSurvivesWrapping(t *testing.T) {
 		},
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
 		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
-		{name: "mail", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
+		{name: "mail", mark: markMailPermanent, err: smtpReplyError(t, "550 5.7.1 rejected")},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
 		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},
 	}
@@ -389,7 +389,7 @@ func TestPermanenceSurvivesRetryDo(t *testing.T) {
 		},
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
 		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
-		{name: "mail", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
+		{name: "mail", mark: markMailPermanent, err: smtpReplyError(t, "550 5.7.1 rejected")},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
 		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},
 	}
@@ -445,6 +445,8 @@ func TestTransientErrorsExhaustRetries(t *testing.T) {
 		{name: "mail dial failure", mark: markMailPermanent, err: errors.New("connection refused")},
 		// go-mail reports a connection dropped after dial as non-temp.
 		{name: "mail lost connection", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrConnCheck}},
+		// Nor a transport failure between messages: no server code.
+		{name: "mail dropped mid-session", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
 		{name: "whatsapp socket close", mark: markWhatsAppPermanent, err: errors.New("websocket: close 1006")},
 		{name: "calendar 500", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusInternalServerError}},
 	}

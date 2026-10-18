@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
@@ -98,7 +99,7 @@ func TestWhatsAppPoisonedRecipientRecordedInSkipRecipients(t *testing.T) {
 		Fields:       []string{"A"},
 	}
 
-	processWhatsApp(context.Background(), cli, eDB, g, []string{dead, flaky}, ratelimit.New(1000), 1)
+	processWhatsApp(context.Background(), cli, eDB, g, []string{dead, flaky}, false, ratelimit.New(1000), 1)
 
 	failed := queue.FetchFailedMsgs(context.Background(), eDB, WhatsAppQueueName)
 	if len(failed) != 1 {
@@ -126,7 +127,7 @@ func TestWhatsAppEffectiveUserIDsDropsCacheOnZeroMatches(t *testing.T) {
 	other := types.JID{User: "9990001", Server: types.GroupServer}
 	cli := &stubGroupLister{groups: []*types.GroupInfo{{JID: other, Name: "Some Other Group"}}}
 
-	got := whatsAppEffectiveUserIDs(context.Background(), cli, userIDs, []string{"Razred 5.a"})
+	got, _ := whatsAppEffectiveUserIDs(context.Background(), cli, userIDs, []string{"Razred 5.a"})
 
 	if !slices.Equal(got, userIDs) {
 		t.Errorf("effective user IDs = %v, want the configured IDs unchanged", got)
@@ -142,5 +143,83 @@ func TestWhatsAppEffectiveUserIDsDropsCacheOnZeroMatches(t *testing.T) {
 
 	if cached != nil {
 		t.Errorf("stale resolution %v was retained after zero matches", cached)
+	}
+}
+
+// TestWhatsAppReconnectKeepsGroupFallback: KeepAliveTimeout and StreamReplaced
+// are routine, and the group lookup right after one is the likeliest to fail.
+// Wiping the cache on those events left that failed lookup nothing to fall back
+// on, so the cycle's alerts reached no group and nothing was queued. The event
+// must force a fresh lookup while keeping the cached JIDs as the fallback.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppReconnectKeepsGroupFallback(t *testing.T) {
+	static := []string{"111@s.whatsapp.net"}
+	cached := []string{"111@s.whatsapp.net", "9990001@g.us"}
+
+	setGroupCache(t, cached, time.Now())
+
+	whatsAppGroupsInvalidate()
+
+	if !whatsAppGroupsNeedsResolution() {
+		t.Fatal("a reconnect did not force a fresh group lookup")
+	}
+
+	lister := &stubGroupLister{err: errors.New("usync timeout")}
+
+	got, pending := whatsAppEffectiveUserIDs(context.Background(), lister, static, []string{"Razred 5.a"})
+	if lister.calls != 1 {
+		t.Errorf("GetJoinedGroups called %d times, want 1", lister.calls)
+	}
+
+	if !slices.Equal(got, cached) || pending {
+		t.Errorf("whatsAppEffectiveUserIDs() = %v, pending %v; want the cached resolution %v, not pending", got, pending, cached)
+	}
+}
+
+// TestWhatsAppUnresolvedGroupsQueueMessage: a failed lookup with no cache (the
+// first cycle after a restart) left the groups out of the recipient list, so
+// their alerts were neither sent nor queued — and a groups-only config
+// "delivered" to nobody. The message must be queued for the groups, skipping
+// the static recipients it did reach.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppUnresolvedGroupsQueueMessage(t *testing.T) {
+	resetWhatsAppGroupCache(t)
+
+	static := "111@s.whatsapp.net"
+	lister := &stubGroupLister{err: errors.New("usync timeout")}
+
+	for _, tt := range []struct {
+		name    string
+		userIDs []string
+	}{
+		{name: "with static recipients", userIDs: []string{static}},
+		{name: "groups only"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, pending := whatsAppEffectiveUserIDs(context.Background(), lister, tt.userIDs, []string{"Razred 5.a"})
+			if !pending {
+				t.Fatalf("whatsAppEffectiveUserIDs() = %v, not pending; the unresolved groups would be skipped silently", got)
+			}
+
+			eDB, err := sqlitedb.New(context.Background(), filepath.Join(t.TempDir(), "wa-pending.db.sqlite"))
+			if err != nil {
+				t.Fatalf("sqlitedb.New() failed: %v", err)
+			}
+
+			defer eDB.Close() //nolint:errcheck
+
+			g := msgtypes.Message{Username: "u", Subject: "wa-pending", Descriptions: []string{"D"}, Fields: []string{"A"}}
+
+			processWhatsApp(context.Background(), &stubWhatsAppSender{}, eDB, g, got, pending, ratelimit.New(1000), 1)
+
+			failed := queue.FetchFailedMsgs(context.Background(), eDB, WhatsAppQueueName)
+			if len(failed) != 1 {
+				t.Fatalf("FetchFailedMsgs = %+v, want the message queued for the unresolved groups", failed)
+			}
+
+			if want := tt.userIDs; !slices.Equal(failed[0].Msg.SkipRecipients, want) {
+				t.Errorf("SkipRecipients = %v, want %v: reached recipients must not get it twice", failed[0].Msg.SkipRecipients, want)
+			}
+		})
 	}
 }

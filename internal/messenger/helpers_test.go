@@ -331,12 +331,12 @@ func TestSlackInitRebuildsOnlyOnCredentialChange(t *testing.T) {
 func TestWhatsAppEffectiveUserIDsWithoutGroups(t *testing.T) {
 	userIDs := []string{"111@s.whatsapp.net", "222@s.whatsapp.net"}
 
-	got := whatsAppEffectiveUserIDs(t.Context(), nil, userIDs, nil)
+	got, _ := whatsAppEffectiveUserIDs(t.Context(), nil, userIDs, nil)
 	if !reflect.DeepEqual(got, userIDs) {
 		t.Errorf("whatsAppEffectiveUserIDs() = %v, want the configured IDs unchanged", got)
 	}
 
-	if got := whatsAppEffectiveUserIDs(t.Context(), nil, nil, nil); len(got) != 0 {
+	if got, _ := whatsAppEffectiveUserIDs(t.Context(), nil, nil, nil); len(got) != 0 {
 		t.Errorf("whatsAppEffectiveUserIDs() = %v, want empty", got)
 	}
 }
@@ -363,7 +363,7 @@ func TestWhatsAppEffectiveUserIDsServesFreshCache(t *testing.T) {
 		whatsAppGroupsMu.Unlock()
 	})
 
-	got := whatsAppEffectiveUserIDs(t.Context(), nil, []string{"111@s.whatsapp.net"}, []string{"Razred 5.a"})
+	got, _ := whatsAppEffectiveUserIDs(t.Context(), nil, []string{"111@s.whatsapp.net"}, []string{"Razred 5.a"})
 	if !reflect.DeepEqual(got, cached) {
 		t.Errorf("whatsAppEffectiveUserIDs() = %v, want the cached resolution %v", got, cached)
 	}
@@ -567,8 +567,8 @@ func TestWhatsAppEffectiveUserIDsPersistsOncePerName(t *testing.T) {
 	lister := fakeGroupLister{{JID: jid, Name: "Razred 5.a"}}
 	groups := []string{"Razred 5.a", "Razred 5.b"}
 
-	whatsAppEffectiveUserIDs(ctx, lister, nil, groups)
-	whatsAppEffectiveUserIDs(ctx, lister, nil, groups)
+	_, _ = whatsAppEffectiveUserIDs(ctx, lister, nil, groups)
+	_, _ = whatsAppEffectiveUserIDs(ctx, lister, nil, groups)
 
 	whatsAppGroupsMu.Lock()
 	defer whatsAppGroupsMu.Unlock()
@@ -588,7 +588,7 @@ func TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch(t *testing.T) {
 	// Past the TTL (forces a lookup) but within the stale limit.
 	setGroupCache(t, cached, time.Now().Add(-whatsAppGroupsCacheTTL-time.Hour))
 
-	got := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, []string{"111@s.whatsapp.net"}, []string{"Razred 5.a"})
+	got, _ := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, []string{"111@s.whatsapp.net"}, []string{"Razred 5.a"})
 	if !reflect.DeepEqual(got, cached) {
 		t.Errorf("whatsAppEffectiveUserIDs() = %v, want the cached resolution %v", got, cached)
 	}
@@ -607,7 +607,7 @@ func TestWhatsAppEffectiveUserIDsDropsStaleCacheOnZeroMatch(t *testing.T) {
 
 	setGroupCache(t, []string{"111@s.whatsapp.net", "9990001@g.us"}, time.Now().Add(-whatsAppGroupsStaleLimit-time.Hour))
 
-	got := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, static, []string{"Razred 5.a"})
+	got, _ := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, static, []string{"Razred 5.a"})
 	if !reflect.DeepEqual(got, static) {
 		t.Errorf("whatsAppEffectiveUserIDs() = %v, want only the static IDs %v", got, static)
 	}
@@ -623,7 +623,7 @@ func TestWhatsAppEffectiveUserIDsPartialMatchRetries(t *testing.T) {
 	jid, _ := types.ParseJID("9990001@g.us")
 	lister := fakeGroupLister{{JID: jid, Name: "Razred 5.a"}}
 
-	got := whatsAppEffectiveUserIDs(t.Context(), lister, nil, []string{"Razred 5.a", "Razred 5.b"})
+	got, _ := whatsAppEffectiveUserIDs(t.Context(), lister, nil, []string{"Razred 5.a", "Razred 5.b"})
 	if want := []string{"9990001@g.us"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("whatsAppEffectiveUserIDs() = %v, want %v", got, want)
 	}

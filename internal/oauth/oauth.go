@@ -53,6 +53,7 @@ var (
 	ErrInvalidCallbackState = errors.New("invalid OAuth callback state")
 	ErrOAuthDenied          = errors.New("OAuth consent flow returned an error")
 	ErrOAuthGrantRevoked    = errors.New("OAuth grant revoked or expired")
+	ErrOAuthTokenMissing    = errors.New("no usable OAuth token file")
 )
 
 // browserOpen is a test seam; production uses browser.OpenURL.
@@ -117,9 +118,12 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	return tok, nil
 }
 
-// GetClient returns an authenticated client, running the interactive flow if
-// tokenPath holds no token, and persisting any rotation.
-func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*http.Client, error) {
+// GetClient returns an authenticated client, persisting any rotation. A
+// tokenPath holding no token runs the interactive consent flow only when
+// interactive is set; otherwise it fails with ErrOAuthTokenMissing at once.
+// Poll cycles pass false: the flow binds the callback port and waits out
+// AuthTimeout for a consent nobody watching a daemon will give.
+func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, interactive bool) (*http.Client, error) {
 	tok, err := tokenFromFile(tokenPath)
 	saveToFile := false
 
@@ -145,6 +149,11 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 			}
 		}
 	} else {
+		if !interactive {
+			return nil, fmt.Errorf("%w: %q (%w); re-run the bot interactively to authenticate",
+				ErrOAuthTokenMissing, tokenPath, err)
+		}
+
 		tok, err = getTokenFromWeb(ctx, config)
 		if err != nil {
 			return nil, err

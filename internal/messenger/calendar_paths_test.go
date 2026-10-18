@@ -6,6 +6,7 @@ package messenger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/oauth"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"go.uber.org/ratelimit"
@@ -560,5 +562,31 @@ func TestProcessCalendarEventIDGolden(t *testing.T) {
 		}
 	default:
 		t.Fatal("no event was inserted")
+	}
+}
+
+// TestEnsureCalendarInitNeverPromptsForConsent: ensureCalendarInit runs inside
+// a poll cycle. Reaching the interactive consent flow there stalled the cycle
+// for oauth.AuthTimeout whenever the token file was missing; it must fail at
+// once so the exams are queued.
+// Not parallel: reads and resets the calendar globals.
+func TestEnsureCalendarInitNeverPromptsForConsent(t *testing.T) {
+	calendarMu.Lock()
+	origSrv, origID := calendarSrv, calendarID
+	calendarSrv, calendarID = nil, ""
+	calendarMu.Unlock()
+
+	t.Cleanup(func() {
+		calendarMu.Lock()
+		calendarSrv, calendarID = origSrv, origID
+		calendarMu.Unlock()
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	_, _, err := ensureCalendarInit(ctx, filepath.Join(t.TempDir(), "absent.json"), "primary")
+	if !errors.Is(err, oauth.ErrOAuthTokenMissing) {
+		t.Errorf("ensureCalendarInit() error = %v, want oauth.ErrOAuthTokenMissing", err)
 	}
 }

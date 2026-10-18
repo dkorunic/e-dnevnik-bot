@@ -123,7 +123,8 @@ func ensureCalendarInit(ctx context.Context, tokFile, name string) (*calendar.Se
 	defer calendarMu.Unlock()
 
 	if calendarSrv == nil || calendarID == "" {
-		srv, id, err := InitCalendar(ctx, tokFile, name)
+		// Non-interactive: this runs inside a poll cycle.
+		srv, id, err := InitCalendar(ctx, tokFile, name, false)
 		if err != nil {
 			return nil, "", err
 		}
@@ -283,9 +284,10 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 	return false
 }
 
-// InitCalendar builds an authenticated Calendar service, running interactive
-// consent if tokFile holds no valid token, and resolves name to a calendar ID.
-func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service, string, error) {
+// InitCalendar builds an authenticated Calendar service and resolves name to a
+// calendar ID. With interactive set, a tokFile holding no token runs the
+// consent flow; without, it fails (see oauth.GetClient).
+func InitCalendar(ctx context.Context, tokFile, name string, interactive bool) (*calendar.Service, string, error) {
 	b, err := credentialFS.ReadFile(CalendarCredentials)
 	if err != nil {
 		logger.Error().Msgf("Unable to read credentials file %s: %v", CalendarCredentials, err)
@@ -304,7 +306,7 @@ func InitCalendar(ctx context.Context, tokFile, name string) (*calendar.Service,
 
 	var client *http.Client
 
-	client, err = oauth.GetClient(ctx, config, tokFile)
+	client, err = oauth.GetClient(ctx, config, tokFile, interactive)
 	if err != nil {
 		logger.Error().Msgf("Unable to initialize Google Calendar OAuth: %v", err)
 
