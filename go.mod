@@ -13,8 +13,8 @@ require (
 	github.com/dustin/go-humanize v1.1.0
 	github.com/enetx/g v1.1.1
 	github.com/enetx/http v1.0.29
-	github.com/enetx/surf v1.0.206
-	github.com/fxamacker/cbor/v2 v2.9.6
+	github.com/enetx/surf v1.0.207
+	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-telegram/bot v1.27.0
 	github.com/google/go-github/v92 v92.0.0
@@ -28,22 +28,22 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.1
-	github.com/slack-go/slack v0.30.1
+	github.com/slack-go/slack v0.33.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20261017175727-b2b1e71d45e2
+	go.mau.fi/whatsmeow v0.0.0-20261030195514-56e5ad0581ce
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.37.0
-	google.golang.org/api v0.308.0
+	google.golang.org/api v0.310.0
 	modernc.org/sqlite v1.61.0
 )
 
 require (
-	cloud.google.com/go/auth v0.24.1 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
+	cloud.google.com/go/auth v0.24.2 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -64,7 +64,7 @@ require (
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b // indirect
+	github.com/petermattis/goid v0.0.0-20261030104850-e60ce7d9a607 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.64.1 // indirect
 	github.com/refraction-networking/utls v1.8.3-0.20260623165621-880e27d8b0e5 // indirect
@@ -82,15 +82,15 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
-	google.golang.org/grpc v1.84.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect
+	google.golang.org/grpc v1.85.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	modernc.org/libc v1.79.0 // indirect
+	modernc.org/libc v1.79.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
