@@ -137,10 +137,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	messenger.WhatsAppPairingMu.Lock()
 	defer messenger.WhatsAppPairingMu.Unlock()
 
-	if fi, err := os.Stat(WhatsAppDBOldName); err == nil && fi.Mode().IsRegular() {
-		logger.Debug().Msgf("Found old WhatsApp DB %v, renaming to %v", WhatsAppDBOldName, messenger.WhatsAppDBName)
-		_ = os.Rename(WhatsAppDBOldName, messenger.WhatsAppDBName)
-	}
+	migrateWhatsAppDB(WhatsAppDBOldName, messenger.WhatsAppDBName)
 
 	// 3-month sync only.
 	store.DeviceProps.RequireFullSync = new(false)
@@ -277,6 +274,32 @@ func whatsAppPairByPhone(ctx context.Context, ch <-chan whatsmeow.QRChannelItem,
 			logger.Info().Msgf("WhatsApp link code: %v", linkCode)
 		case evt.Event == whatsmeow.QRChannelTimeout.Event:
 			logger.Warn().Msg("WhatsApp pairing window expired; restart the bot for a new link code")
+		}
+	}
+}
+
+// migrateWhatsAppDB moves a store left under the old name. The sidecars go with
+// it because recent session writes live in the -wal until a checkpoint, and first
+// because a failure then leaves the database under the old name, to retry. An
+// existing store wins: it is the session in use.
+func migrateWhatsAppDB(oldPath, newPath string) {
+	if fi, err := os.Stat(oldPath); err != nil || !fi.Mode().IsRegular() {
+		return
+	}
+
+	if _, err := os.Stat(newPath); err == nil {
+		logger.Warn().Msgf("Ignoring old WhatsApp DB %v: %v already exists", oldPath, newPath)
+
+		return
+	}
+
+	logger.Debug().Msgf("Found old WhatsApp DB %v, renaming to %v", oldPath, newPath)
+
+	for _, suffix := range []string{"-wal", "-shm", ""} {
+		if err := os.Rename(oldPath+suffix, newPath+suffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logger.Error().Msgf("Unable to move old WhatsApp DB: %v", err)
+
+			return
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
+	"go.mau.fi/whatsmeow"
 	"go.uber.org/ratelimit"
 )
 
@@ -97,6 +99,33 @@ func (c *cycleSender) send(ctx context.Context, eDB *sqlitedb.Edb, queueName []b
 	}
 }
 
+// isUnreachable reports a timeout or a failed dial: nothing the server said about
+// this message, so the next one would wait out the same timeouts while every
+// messenger's next poll waits too. A reset mid-request stays per message, and
+// whatsmeow's ErrNotConnected too: it clears on a reconnect, within the retries.
+func isUnreachable(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+
+	if errors.Is(err, whatsmeow.ErrIQTimedOut) || errors.Is(err, whatsmeow.ErrMessageTimedOut) {
+		return true
+	}
+
+	if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() {
+		return true
+	}
+
+	oe, ok := errors.AsType[*net.OpError](err)
+
+	return ok && oe.Op == "dial"
+}
+
+// stopsCycle reports a failure that would repeat for every remaining message.
+func stopsCycle(err error) bool {
+	return isConfigSendErr(err) || isUnreachable(err)
+}
+
 // isPermanentSendErr reports whether a markNamePermanent helper classified err
 // as permanent, before or after retry.Do. Such failures — blocked bot, deleted
 // chat, 4xx — must be poison-dropped, never requeued: they would re-attempt
@@ -149,36 +178,12 @@ func takeCtx(ctx context.Context, rl ratelimit.Limiter) bool {
 
 // storeQueued queues g for the next cycle. The write survives ctx cancel (see
 // queue.StoreFailedMsgs); a failure is only logged — with one durable store
-// there is no fallback — and counted, so resendQueued keeps the row it came from.
+// there is no fallback. queue counts it, which is how resendQueued keeps the row
+// it came from.
 func storeQueued(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) {
 	if err := queue.StoreFailedMsgs(ctx, eDB, queueName, g); err != nil {
 		logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
-
-		storeFailuresMu.Lock()
-		storeFailures[storeFailureKey{eDB, string(queueName)}]++
-		storeFailuresMu.Unlock()
 	}
-}
-
-// storeFailureKey is per database so a failure cannot leak into a later cycle's
-// handle, and per queue because each queue has a single reader, so a change in
-// the count during process can only be that process's own.
-type storeFailureKey struct {
-	eDB   *sqlitedb.Edb
-	queue string
-}
-
-var (
-	storeFailuresMu sync.Mutex
-	storeFailures   = map[storeFailureKey]uint64{} // grows only on failed writes
-)
-
-// storeFailureCount returns how many writes to queueName have failed so far.
-func storeFailureCount(eDB *sqlitedb.Edb, queueName []byte) uint64 {
-	storeFailuresMu.Lock()
-	defer storeFailuresMu.Unlock()
-
-	return storeFailures[storeFailureKey{eDB, string(queueName)}]
 }
 
 // rewriteConfig applies mutate to confFile as it is on disk now and saves the
@@ -363,13 +368,13 @@ func resendQueued(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, proc
 			continue
 		}
 
-		failures := storeFailureCount(eDB, queueName)
+		failures := queue.StoreFailureCount(eDB, queueName)
 
 		process(q.Msg)
 
 		// A requeue that did not land leaves this row the only copy. Recipients
 		// reached just now may see a duplicate, which beats a lost alert.
-		if storeFailureCount(eDB, queueName) != failures {
+		if queue.StoreFailureCount(eDB, queueName) != failures {
 			continue
 		}
 
@@ -401,8 +406,8 @@ type recipientRun struct {
 	// nothing failed.
 	interrupted bool
 
-	// A config error (see markConfigErr): bad for every recipient, so the
-	// recipient loop stops and finish reports it to cycleSender.
+	// A failure bad for every recipient (see stopsCycle), so the recipient loop
+	// stops and finish reports it to cycleSender.
 	configFailed bool
 }
 
@@ -436,12 +441,12 @@ func (r *recipientRun) poison(ids ...string) {
 }
 
 // failed records a non-permanent failure, which requeues the message. It
-// reports whether err is a config error, in which case the caller must stop
-// its recipient loop: the rest would only repeat the rejected credential.
+// reports whether err stops the cycle (see stopsCycle), in which case the caller
+// must stop its recipient loop: the rest would only repeat the same failure.
 func (r *recipientRun) failed(err error) bool {
 	r.anyFailed = true
 
-	if isConfigSendErr(err) {
+	if stopsCycle(err) {
 		r.configFailed = true
 	}
 

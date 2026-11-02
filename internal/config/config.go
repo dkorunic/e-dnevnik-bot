@@ -205,10 +205,20 @@ func checkMailConf(config *TomlConfig) {
 			}
 		}
 
+		checkMailLogin(&config.Mail)
+
 		// After the validators, so a Fatal leaves the error as the last line.
 		logger.Info().Msg("Configuration: mail messenger enabled")
 
 		config.MailEnabled = true
+	}
+}
+
+// checkMailLogin requires credentials: the client always uses SMTP AUTH, so
+// without them every send fails and alerts queue until they expire.
+func checkMailLogin(m *Mail) {
+	if m.Username == "" || m.Password == "" {
+		logger.Fatal().Msg("Configuration error: mail username and password are both required")
 	}
 }
 

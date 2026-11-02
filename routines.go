@@ -388,7 +388,12 @@ func enabledQueues(cfg config.TomlConfig) [][]byte {
 // a row, so those send it again: a duplicate after a hard kill, instead of a loss.
 // A row stays until every queue holds it.
 func recoverOutbox(ctx context.Context, eDB *sqlitedb.Edb, cfg config.TomlConfig) {
-	for _, q := range queue.FetchFailedMsgs(ctx, eDB, queue.OutboxKey) {
+	rows := queue.FetchFailedMsgs(ctx, eDB, queue.OutboxKey)
+	if len(rows) > 0 {
+		logger.Warn().Msgf("Recovering %d messages from a cycle that did not finish; some may repeat", len(rows))
+	}
+
+	for _, q := range rows {
 		stored := true
 
 		for _, name := range enabledQueues(cfg) {
@@ -520,7 +525,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				continue
 			}
 
-			logger.Info().Msgf("New alert for: %v/%v: %+v", g.Username, g.Subject, g)
+			logger.Info().Msgf("New alert for: %v/%v (code %v)", g.Username, g.Subject, g.Code)
 
 			// Blocking handoff: flagged events must reach msgSend; receiver lives until close.
 			gradesMsg <- g
@@ -642,7 +647,7 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 	switch {
 	case g.Code == msgtypes.Exam && !g.Timestamp.IsZero():
 		if time.Since(g.Timestamp) > *relevancePeriod {
-			logger.Warn().Msgf("Ignoring old exam event: %v/%v: %+v", g.Username, g.Subject, g)
+			logger.Warn().Msgf("Ignoring old exam event: %v/%v", g.Username, g.Subject)
 
 			return true
 		}
@@ -659,7 +664,7 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 		t, err := time.Parse(formatHRDateOnly, g.Fields[0])
 		if err != nil {
 			// Fail open: a stale alert beats a silent drop.
-			logger.Error().Msgf("Unable to parse date for: %v/%v: %+v: %v", g.Username, g.Subject, g, err)
+			logger.Error().Msgf("Unable to parse date for: %v/%v: %v", g.Username, g.Subject, err)
 
 			return false
 		}
@@ -673,7 +678,7 @@ func isStaleEvent(g msgtypes.Message, now time.Time) bool {
 		}
 
 		if time.Since(resolved) > *relevancePeriod {
-			logger.Warn().Msgf("Ignoring changes in an old event: %v/%v: %+v", g.Username, g.Subject, g)
+			logger.Warn().Msgf("Ignoring changes in an old event: %v/%v", g.Username, g.Subject)
 
 			return true
 		}

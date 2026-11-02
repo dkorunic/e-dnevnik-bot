@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -98,7 +99,49 @@ func detachedCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 // after SIGTERM, and dropping it there loses the alert for good. Detaching here
 // rather than at each call site means no send path can forget to.
 func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
-	return storeRow(ctx, eDB, rowKey(key), g)
+	err := storeRow(ctx, eDB, rowKey(key), g)
+	if err != nil {
+		storeFailuresMu.Lock()
+		storeFailures[storeFailureKey{eDB, string(key)}]++
+		storeFailuresMu.Unlock()
+	}
+
+	return err
+}
+
+// storeFailureKey is per database so a failure cannot leak into a later cycle's
+// handle, and per queue because each queue has a single reader, so a change in
+// the count while that reader processes a row can only be its own.
+type storeFailureKey struct {
+	eDB   *sqlitedb.Edb
+	queue string
+}
+
+var (
+	storeFailuresMu sync.Mutex
+	storeFailures   = map[storeFailureKey]uint64{} // grows only on failed writes
+)
+
+// StoreFailureCount returns how many writes to queue key have failed so far.
+func StoreFailureCount(eDB *sqlitedb.Edb, key []byte) uint64 {
+	storeFailuresMu.Lock()
+	defer storeFailuresMu.Unlock()
+
+	return storeFailures[storeFailureKey{eDB, string(key)}]
+}
+
+// anyStoreFailure reports whether any queue write on eDB has failed.
+func anyStoreFailure(eDB *sqlitedb.Edb) bool {
+	storeFailuresMu.Lock()
+	defer storeFailuresMu.Unlock()
+
+	for k := range storeFailures {
+		if k.eDB == eDB {
+			return true
+		}
+	}
+
+	return false
 }
 
 // storeRow writes g under the exact row key, stamped as StoreFailedMsgs describes.
@@ -150,7 +193,16 @@ func StoreOutbox(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message) err
 // ClearOutbox empties the outbox, surviving a cancelled ctx: the shutdown path
 // finishes its cycle too, and a row left behind alerts everyone again. Failing
 // only costs that.
+//
+// A failed queue write this cycle keeps the outbox: its row may be the last copy
+// of a flagged event, and a duplicate next cycle beats losing the alert.
 func ClearOutbox(ctx context.Context, eDB *sqlitedb.Edb) {
+	if anyStoreFailure(eDB) {
+		logger.Warn().Msg("A queue write failed this cycle; keeping the outbox, so some alerts may repeat next cycle")
+
+		return
+	}
+
 	dctx, cancel := detachedCtx(ctx)
 	defer cancel()
 

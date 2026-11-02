@@ -120,9 +120,9 @@ func clampFlags() {
 	}
 
 	// Still polls once per window, so a warning: it may be a swapped range.
-	if active := quietHours.activeSpan(); *daemon && active < *tickInterval {
+	if *daemon && quietHours.tooShortFor(*tickInterval) {
 		logger.Warn().Msgf("Quiet hours %v leave %v a day to poll, less than the poll interval of %v; expect one poll a day",
-			quietHours, durafmt.Parse(active).String(), durafmt.Parse(*tickInterval).String())
+			quietHours, durafmt.Parse(quietHours.activeSpan()).String(), durafmt.Parse(*tickInterval).String())
 	}
 
 	if *relevancePeriod < 0 {

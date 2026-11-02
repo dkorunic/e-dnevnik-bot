@@ -278,7 +278,7 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 
 		storeQueued(ctx, eDB, CalendarQueueName, g)
 
-		return isConfigSendErr(err)
+		return stopsCycle(err)
 	}
 
 	return false

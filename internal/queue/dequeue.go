@@ -4,6 +4,7 @@
 package queue
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"time"
@@ -136,7 +137,8 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		logger.Warn().Msgf("Dropped %v messages older than %v from queue %v", dropped, MaxQueueAge, queueKeyStr)
 	}
 
-	if len(kept) > 0 {
+	// The outbox is no resend queue; recoverOutbox reports its own.
+	if len(kept) > 0 && !bytes.Equal(queueKey, OutboxKey) {
 		logger.Info().Msgf("Found %v failed messages in queue %v, trying to resend", len(kept), queueKeyStr)
 	}
 

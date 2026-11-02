@@ -226,7 +226,7 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 
 	storeQueued(ctx, eDB, CalDAVQueueName, g)
 
-	return isConfigSendErr(err)
+	return stopsCycle(err)
 }
 
 // putCalDAV sends one create-only PUT and classifies the answer for retry-go.

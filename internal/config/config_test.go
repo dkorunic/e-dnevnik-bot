@@ -374,6 +374,8 @@ func TestCheckMailConfSubjects(t *testing.T) {
 
 	cfg := TomlConfig{Mail: Mail{
 		Server:   "smtp.example.com",
+		Username: "user",
+		Password: "password",
 		From:     "a@example.com",
 		To:       []string{"b@example.com"},
 		Subjects: map[string]string{"Exam": "ispit", "examdigest": "tjedni pregled"},

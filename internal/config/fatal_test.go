@@ -317,10 +317,12 @@ func TestConfigValidBlocksAreAccepted(t *testing.T) {
 		{
 			name: "mail",
 			cfg: TomlConfig{Mail: Mail{
-				Server: "smtp.example.com",
-				Port:   "587",
-				From:   "bot@example.com",
-				To:     []string{"pero@example.com", "ana@example.com"},
+				Server:   "smtp.example.com",
+				Port:     "587",
+				Username: "bot",
+				Password: "password",
+				From:     "bot@example.com",
+				To:       []string{"pero@example.com", "ana@example.com"},
 			}},
 			check:   checkMailConf,
 			enabled: func(c TomlConfig) bool { return c.MailEnabled },

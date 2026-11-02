@@ -165,6 +165,7 @@ func TestRunPollCycleWithDeferredCalendar(t *testing.T) {
 func TestRunPollCycleIsRepeatable(t *testing.T) {
 	setRelevancePeriod(t, 0)
 	setReadingList(t, false)
+	resetExitLatch(t)
 
 	setDBFile(t, "poll-repeat.db")
 

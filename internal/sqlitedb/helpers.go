@@ -31,19 +31,28 @@ const privateFileMode = 0o600
 // PrepareFile creates path if absent and tightens it and its WAL sidecars to
 // privateFileMode. Created up front because SQLite would use the umask, and its
 // sidecars copy the main file's mode. Best effort, like the config's chmod: a
-// read-only filesystem or a foreign owner only warns.
+// read-only filesystem or a foreign owner only warns, once per file, since this
+// runs every poll cycle.
 func PrepareFile(path string) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, privateFileMode)
 	if err != nil {
-		logger.Warn().Msgf("Unable to create database file %q privately: %v", path, err)
+		warnPrepareOnce(path, err)
 	} else {
 		_ = f.Close()
 	}
 
 	for _, p := range []string{path, path + "-wal", path + "-shm"} {
 		if err := os.Chmod(p, privateFileMode); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logger.Warn().Msgf("Unable to tighten permissions on %q to 0600: %v", p, err)
+			warnPrepareOnce(p, err)
 		}
+	}
+}
+
+var prepareWarned sync.Map // paths already warned about
+
+func warnPrepareOnce(path string, err error) {
+	if _, seen := prepareWarned.LoadOrStore(path, struct{}{}); !seen {
+		logger.Warn().Msgf("Unable to keep %q private to this user: %v", path, err)
 	}
 }
 

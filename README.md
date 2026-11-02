@@ -194,7 +194,7 @@ Steps required:
 [mail]
 server = "smtp.gmail.com"
 port = "587" # 465 uses TLS from the first byte; any other port uses STARTTLS
-username = "user.name@gmail.com"
+username = "user.name@gmail.com" # username and password are required: the bot always logs in
 password = "legacy_app_password"
 from = "user.name@gmail.com"
 subject = "Nova ocjena iz e-Dnevnika"

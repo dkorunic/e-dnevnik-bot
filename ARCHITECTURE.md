@@ -165,7 +165,8 @@
 [msgDedup goroutine]             ← wgFilter (single goroutine)
   For each Message:
     hash = SHA-256(username + subject + fields)
-    CheckAndFlagTTL(hash): report if already live; else flag it (seed) with TTL
+    CheckAndFlagOutbox(hash): report if already live; else flag it (seed) with TTL,
+        and in the same transaction store an outbox row if it will be forwarded
     if already seen → discard (duplicate)
     if firstRun (fresh DB) → discard (seeded above, not forwarded)
     if --readinglist not set and Code == Reading → discard

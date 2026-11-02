@@ -154,6 +154,12 @@ func (q *quietWindow) untilEnd(t time.Time) time.Duration {
 	return end.Sub(t)
 }
 
+// tooShortFor reports whether the window cuts interval down to one poll a day,
+// as a swapped range would. An interval of a day or more polls that rarely anyway.
+func (q *quietWindow) tooShortFor(interval time.Duration) bool {
+	return interval < minutesPerDay*time.Minute && q.activeSpan() < interval
+}
+
 // activeSpan returns the daily time outside the window.
 func (q *quietWindow) activeSpan() time.Duration {
 	if q.start == q.end {

@@ -36,13 +36,13 @@ func examEventOf(backend string, g msgtypes.Message) (examEvent, bool) {
 	// Dates, not instants, recomputed per call: exam timestamps are midnight-UTC
 	// markers, so an instant comparison would drop an exam on its own day.
 	if g.Timestamp.Format(time.DateOnly) < time.Now().UTC().Format(time.DateOnly) {
-		logger.Info().Msgf("%v: skipping old exam event for %v/%v: %+v", backend, g.Username, g.Subject, g)
+		logger.Info().Msgf("%v: skipping old exam event for %v/%v", backend, g.Username, g.Subject)
 
 		return examEvent{}, false
 	}
 
 	if len(g.Fields) == 0 {
-		logger.Warn().Msgf("%v: skipping exam event for %v/%v with no fields: %+v", backend, g.Username, g.Subject, g)
+		logger.Warn().Msgf("%v: skipping exam event for %v/%v with no fields", backend, g.Username, g.Subject)
 
 		return examEvent{}, false
 	}
