@@ -47,6 +47,14 @@ func TestTokenFileOperations(t *testing.T) {
 		t.Fatalf("tokenFromFile failed: %v", err)
 	}
 
+	// Equal, not DeepEqual: it compares time.Time's location pointer, and JSON
+	// decodes a UTC instant to a different one than time.Now() holds under TZ=UTC.
+	if !expectedToken.Expiry.Equal(actualToken.Expiry) {
+		t.Errorf("expiry mismatch: expected %v, got %v", expectedToken.Expiry, actualToken.Expiry)
+	}
+
+	actualToken.Expiry = expectedToken.Expiry
+
 	if !reflect.DeepEqual(expectedToken, actualToken) {
 		t.Errorf("token mismatch: expected %v, got %v", expectedToken, actualToken)
 	}
