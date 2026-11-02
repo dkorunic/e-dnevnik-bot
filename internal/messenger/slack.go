@@ -107,7 +107,7 @@ func Slack(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, c
 		inflight = nil
 	}
 
-	return nil
+	return sendFailureErr(eDB, SlackQueueName)
 }
 
 // slackTransientErrors are API-level "ok":false codes Slack documents as

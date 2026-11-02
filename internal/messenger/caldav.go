@@ -123,7 +123,7 @@ func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, 
 		inflight = nil
 	}
 
-	return nil
+	return sendFailureErr(eDB, CalDAVQueueName)
 }
 
 // markCalDAVPermanent stops retry-go on an answer that cannot change: a 4xx.
@@ -186,6 +186,8 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 		logger.Error().Msgf("Permanently dropping CalDAV event for %v/%v: cannot build resource URL: %v",
 			g.Username, g.Subject, err)
 
+		recordSendFailure(eDB, CalDAVQueueName, err)
+
 		return false
 	}
 
@@ -215,8 +217,12 @@ func processCalDAV(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, r
 		logger.Error().Msgf("Permanently dropping CalDAV event for %v/%v (will not retry): %v",
 			g.Username, g.Subject, err)
 
+		recordSendFailure(eDB, CalDAVQueueName, err)
+
 		return false
 	}
+
+	recordSendFailure(eDB, CalDAVQueueName, err)
 
 	if se, ok := errors.AsType[*caldavStatusError](err); ok && isCalDAVConfigStatus(se.code) {
 		logger.Error().Msgf("Unable to store CalDAV event, check the [caldav] url, username and password (queued for retry): %v", err)

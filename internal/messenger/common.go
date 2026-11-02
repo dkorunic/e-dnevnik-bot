@@ -77,12 +77,28 @@ func isConfigSendErr(err error) bool {
 // queued unsent: retrying a bad SMTP password per message is how an account
 // gets locked out, and a revoked token only collects more rejections. Lives
 // for one entry-point call, so the next cycle tries the credentials afresh.
-type cycleSender struct{ tripped bool }
+//
+// limit, when set, also caps how many messages one cycle sends, the rest waiting
+// in the queue for the next: mail's rate limiter sleeps minutes per message, and
+// the poll cycle waits for it.
+type cycleSender struct {
+	limit   int
+	sent    int
+	tripped bool
+}
 
 // send runs process for g — which reports whether it hit a config error —
 // unless an earlier message already did, in which case g is queued as is.
 func (c *cycleSender) send(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message, process func() bool) {
-	if c.tripped {
+	full := c.limit > 0 && c.sent >= c.limit
+	if full && c.sent == c.limit {
+		c.sent++ // once
+
+		logger.Info().Msgf("Messenger %v: sent its %d messages for this cycle; queueing the rest for the next",
+			string(queueName), c.limit)
+	}
+
+	if c.tripped || full {
 		// A calendar queue would only discard a non-exam on resend.
 		if QueueAccepts(queueName, g) {
 			storeQueued(ctx, eDB, queueName, g)
@@ -91,12 +107,57 @@ func (c *cycleSender) send(ctx context.Context, eDB *sqlitedb.Edb, queueName []b
 		return
 	}
 
+	c.sent++
+
 	if process() {
 		c.tripped = true
 
 		logger.Warn().Msgf("Messenger %v: a failure affecting every message (credentials, configuration, quota or an unreachable server); queueing the rest of this cycle unsent",
 			string(queueName))
 	}
+}
+
+// ErrSendFailed is an entry point's report that a message it took did not fully
+// land: it was dropped for a recipient, or queued for another try. Without it a
+// bad password latched nothing, so -t and a cron run exited 0 having sent nothing.
+var ErrSendFailed = errors.New("some messages were not delivered, see the errors above")
+
+// sendFailureKey is per database, opened afresh each cycle, so a failure counts
+// for the cycle it happened in; and per queue, so one messenger's failure does not
+// read as another's.
+type sendFailureKey struct {
+	eDB   *sqlitedb.Edb
+	queue string
+}
+
+var (
+	sendFailuresMu sync.Mutex
+	sendFailures   = map[sendFailureKey]struct{}{} // grows only on failed sends
+)
+
+// recordSendFailure notes a send that did not land, for the entry point's return.
+// A shutdown cutting it short does not count: SIGTERM must still exit clean.
+func recordSendFailure(eDB *sqlitedb.Edb, queueName []byte, err error) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+
+	sendFailuresMu.Lock()
+	defer sendFailuresMu.Unlock()
+
+	sendFailures[sendFailureKey{eDB, string(queueName)}] = struct{}{}
+}
+
+// sendFailureErr returns ErrSendFailed if a send on queueName failed this cycle.
+func sendFailureErr(eDB *sqlitedb.Edb, queueName []byte) error {
+	sendFailuresMu.Lock()
+	defer sendFailuresMu.Unlock()
+
+	if _, failed := sendFailures[sendFailureKey{eDB, string(queueName)}]; failed {
+		return fmt.Errorf("%w: %s", ErrSendFailed, queueName)
+	}
+
+	return nil
 }
 
 // isUnreachable reports a timeout or a failed dial: nothing the server said about
@@ -402,6 +463,10 @@ type recipientRun struct {
 	// A transient failure: requeue so the recipient is retried next cycle.
 	anyFailed bool
 
+	// Something did not land for a reason other than shutdown; reported to the
+	// entry point through recordSendFailure.
+	failure bool
+
 	// Cancelled before every recipient was attempted: requeue even though
 	// nothing failed.
 	interrupted bool
@@ -438,6 +503,7 @@ func (r *recipientRun) delivered(ids ...string) {
 // loudly, never requeued.
 func (r *recipientRun) poison(ids ...string) {
 	r.poisoned = append(r.poisoned, ids...)
+	r.failure = true
 }
 
 // failed records a non-permanent failure, which requeues the message. It
@@ -445,6 +511,10 @@ func (r *recipientRun) poison(ids ...string) {
 // must stop its recipient loop: the rest would only repeat the same failure.
 func (r *recipientRun) failed(err error) bool {
 	r.anyFailed = true
+
+	if !errors.Is(err, context.Canceled) {
+		r.failure = true
+	}
 
 	if stopsCycle(err) {
 		r.configFailed = true
@@ -456,6 +526,13 @@ func (r *recipientRun) failed(err error) bool {
 // interrupt records that recipients were left unattempted.
 func (r *recipientRun) interrupt() {
 	r.interrupted = true
+}
+
+// unreached records recipients this attempt could not even name, which requeues
+// the message like an interruption but, unlike one, counts as a failure.
+func (r *recipientRun) unreached() {
+	r.interrupted = true
+	r.failure = true
 }
 
 // resolved returns every recipient not to attempt again, delivered and poisoned
@@ -472,6 +549,10 @@ func (r *recipientRun) resolved() []string {
 // into SkipRecipients first. A run with neither a transient failure nor an
 // interruption is complete — an all-poisoned one included — and writes nothing.
 func (r *recipientRun) finish(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) bool {
+	if r.failure {
+		recordSendFailure(eDB, queueName, nil)
+	}
+
 	if !r.anyFailed && !r.interrupted {
 		return r.configFailed
 	}

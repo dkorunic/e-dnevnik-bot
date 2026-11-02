@@ -108,7 +108,7 @@ func Telegram(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		inflight = nil
 	}
 
-	return nil
+	return sendFailureErr(eDB, TelegramQueueName)
 }
 
 // markTelegramPermanent stops retry-go on Forbidden, BadRequest, Conflict and

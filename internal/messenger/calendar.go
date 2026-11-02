@@ -112,7 +112,7 @@ func Calendar(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		inflight = nil
 	}
 
-	return nil
+	return sendFailureErr(eDB, CalendarQueueName)
 }
 
 // ensureCalendarInit lazily initialises the shared service. The unlock is
@@ -271,10 +271,14 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 			logger.Error().Msgf("Permanently dropping Google Calendar event for %v/%v (will not retry): %v",
 				g.Username, g.Subject, err)
 
+			recordSendFailure(eDB, CalendarQueueName, err)
+
 			return false
 		}
 
 		logger.Error().Msgf("Unable to insert Google Calendar event: %v", err)
+
+		recordSendFailure(eDB, CalendarQueueName, err)
 
 		storeQueued(ctx, eDB, CalendarQueueName, g)
 

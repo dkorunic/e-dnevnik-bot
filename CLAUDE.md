@@ -99,6 +99,8 @@ Dedup never re-fires a flagged event, so a flag that commits before delivery is 
 
 `msgSend` uses a dedicated `wgInner` to track the per-messenger goroutines. The deferred sequence closes **every messenger channel** first, **then** `wgInner.Wait()`. Reversed ordering deadlocks because each messenger's `range` loop only exits once its channel is closed.
 
+A slow messenger still holds the *cycle*, since `runPollCycle` waits for all of them, so its time is bounded too: `stopsCycle` for failures, `MailCycleLimit` for mail's rate limiter.
+
 The fan-out is a hand-rolled **non-blocking** dispatch (not `teivah/broadcast`, which was removed): for each message it calls `dispatch()` per messenger, which does `select { case ch <- g: default: storeOverflow(...) }`. A messenger that has fallen behind (full buffer) has the message spilled to its failed-message queue for next-cycle delivery, so a slow/stalled messenger (e.g. mail mid-retry) never paces the others. Trade-off: under sustained overload a slow messenger's messages are delivered a cycle late and slightly out of order.
 
 ### Dedup is single-threaded by design — `routines.go:msgDedup`
@@ -196,7 +198,8 @@ Every messenger follows an identical lifecycle and set of rules. When adding a n
 4. **Partial delivery — `SkipRecipients`**: successful *and* poisoned recipient IDs are merged into `g.SkipRecipients` before requeuing (via `mergeSkipRecipients`, deduplicated so it doesn't grow unboundedly). On retry, iterate over recipients and skip those already in the set.
 5. **`resendQueued` drops what has expired** (`queuedExpired`): an exam already sat, or a digest whose week has ended. Grades never expire; a late grade is still news.
 6. **Queue writes go through `storeQueued`** (or `queueUndelivered` for a whole channel). Both are shutdown-tolerant already (see above); pass the raw `ctx`. `queue.StoreFailedMsgs` counts failed writes per database and queue, which is how `resendQueued` knows to keep the original row and `ClearOutbox` to keep the outbox.
-7. **Every API client has a timeout.** The send context only ends on shutdown, so a server that accepts a request and never answers would otherwise hold the poll cycle for good, with the watchdog still reporting healthy. `slack.New` and `oauth2.NewClient` default to no timeout (`SlackTimeout`, `oauth.httpTimeout`).
+7. **A send that did not land reaches the entry point's return.** `recipientRun` reports poison drops and failures through `recordSendFailure`, the calendar backends call it directly, and each entry point ends in `return sendFailureErr(eDB, NameQueueName)`. That is the only way a failed send reaches `exitWithError`, and so the exit status of `-t` and one-shot runs. A shutdown cutting a send short does not count.
+8. **Every API client has a timeout.** The send context only ends on shutdown, so a server that accepts a request and never answers would otherwise hold the poll cycle for good, with the watchdog still reporting healthy. `slack.New` and `oauth2.NewClient` default to no timeout (`SlackTimeout`, `oauth.httpTimeout`).
 
 ### Outbound formatting contract — `internal/format`, `internal/messenger`
 

@@ -130,6 +130,20 @@ func startProfiling() func() {
 	}
 }
 
+// signalContext returns the context whose end stops the bot: a signal, or
+// messenger.RequestShutdown.
+func signalContext() (context.Context, context.CancelFunc) {
+	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(sigCtx)
+
+	messenger.SetShutdown(cancel)
+
+	return ctx, func() {
+		cancel()
+		stopSignals()
+	}
+}
+
 // main wires up config, logging, memory limits, signals and profiling, runs
 // first-run setup, then does a single run or drives the poll loop.
 func main() {
@@ -167,7 +181,7 @@ func main() {
 		logger.Debug().Msg("Detected and enabled systemd notify support")
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signalContext()
 	defer stop()
 
 	cfg, err := config.LoadConfig(*confFile)
@@ -520,6 +534,13 @@ func testSingleRun(ctx context.Context, config config.TomlConfig) {
 	wgMsg.Wait()
 
 	closeDB(eDB)
+
+	// fatalIfErrors exits non-zero on this; the point of -t is to say so.
+	if exitWithError.Load() {
+		logger.Error().Msg("Emulation failed: the test message did not reach every messenger, see the errors above")
+
+		return
+	}
 
 	logger.Info().Msg("Exiting with a success from the emulation.")
 }

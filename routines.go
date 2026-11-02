@@ -505,12 +505,16 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			})
 			if err != nil {
 				// Not Fatal: os.Exit here would bypass in-flight messenger
-				// queue writes and deferred cleanup. SIGTERM-to-self runs the
+				// queue writes and deferred cleanup. RequestShutdown runs the
 				// normal graceful shutdown instead; unforwarded events are
-				// unflagged and re-scrape next run.
+				// unflagged and re-scrape next run. The drain is what lets the
+				// scrapers finish (cf. recoverDedup).
 				logger.Error().Msgf("Problem with database, cannot continue: %v", err)
 				exitWithError.Store(true)
 				messenger.RequestShutdown()
+
+				for range gradesScraped {
+				}
 
 				return
 			}

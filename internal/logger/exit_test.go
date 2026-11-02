@@ -51,8 +51,8 @@ func TestFatalExitsNonZero(t *testing.T) {
 
 // TestFatalSkipsDeferredFunctions pins the distinction that drives the design
 // decision in msgDedup: Fatal exits via os.Exit, so deferred cleanup never
-// runs. If this ever stopped being true, the SIGTERM-to-self workaround there
-// would be unnecessary.
+// runs. If this ever stopped being true, RequestShutdown there would be
+// unnecessary.
 func TestFatalSkipsDeferredFunctions(t *testing.T) {
 	if os.Getenv(fatalCaseEnv) == "defer" {
 		defer func() {

@@ -34,6 +34,12 @@ const (
 	// MailImplicitTLSPort is the submissions port (RFC 8314), TLS from the first
 	// byte. Every other port gets STARTTLS.
 	MailImplicitTLSPort = 465
+
+	// MailCycleLimit keeps a backlog from delaying the next poll. The ticker re-arms
+	// before a cycle, so one shorter than the interval costs that poll nothing, and
+	// this many messages wait 42 minutes on the limiter against a shortest interval
+	// of 54 (1h less jitter). A backlog therefore drains at 15 an hour.
+	MailCycleLimit = 15
 )
 
 var (
@@ -98,7 +104,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	rl := ratelimit.New(MailSendLimit, ratelimit.Per(MailWindow))
 
-	var cs cycleSender
+	cs := cycleSender{limit: MailCycleLimit}
 
 	resendQueued(ctx, eDB, MailQueueName, func(m msgtypes.Message) {
 		cs.send(ctx, eDB, MailQueueName, m, func() bool {
@@ -115,7 +121,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 		inflight = nil
 	}
 
-	return nil
+	return sendFailureErr(eDB, MailQueueName)
 }
 
 // mailInit lazily builds the shared client, rebuilding when any credential

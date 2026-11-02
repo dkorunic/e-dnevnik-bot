@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -107,20 +106,35 @@ var (
 	// cannot race.
 	WhatsAppPairingMu sync.Mutex
 
-	// Fires SIGTERM once, however many fatal events arrive.
-	shutdownOnce sync.Once
+	shutdownMu sync.Mutex // guards shutdownFn
+	shutdownFn func()
 )
 
-// RequestShutdown self-signals SIGTERM so main runs its normal graceful
-// shutdown and drains the queue on the way out; logger.Fatal would bypass both.
-// For unrecoverable conditions not worth crashing on: LoggedOut, PairError with
-// a nil device, and a broken dedup database.
+// SetShutdown registers what RequestShutdown runs; main passes the cancel of its
+// context.
+func SetShutdown(fn func()) {
+	shutdownMu.Lock()
+	defer shutdownMu.Unlock()
+
+	shutdownFn = fn
+}
+
+// RequestShutdown runs main's normal graceful shutdown, which drains the queue on
+// the way out; logger.Fatal would bypass both. For unrecoverable conditions not
+// worth crashing on: LoggedOut, PairError with a nil device, and a broken dedup
+// database.
+//
+// A context cancel, not a SIGTERM to self: Windows supports only Kill through
+// Process.Signal, so a signal there did nothing and the bot carried on. Cancelling
+// twice is harmless, so repeated fatal events need no guard.
 func RequestShutdown() {
-	shutdownOnce.Do(func() {
-		if p, err := os.FindProcess(os.Getpid()); err == nil {
-			_ = p.Signal(syscall.SIGTERM)
-		}
-	})
+	shutdownMu.Lock()
+	fn := shutdownFn
+	shutdownMu.Unlock()
+
+	if fn != nil {
+		fn()
+	}
 }
 
 // whatsAppSender is the slice of *whatsmeow.Client the send path uses, so tests
@@ -205,7 +219,7 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 		inflight = nil
 	}
 
-	return nil
+	return sendFailureErr(eDB, WhatsAppQueueName)
 }
 
 // markWhatsAppPermanent stops retry-go on the "impossible request" sentinels:
@@ -305,7 +319,7 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 	// The groups are recipients this list could not name: queue the message
 	// for them, skipping whoever it reached.
 	if groupsPending {
-		run.interrupt()
+		run.unreached()
 	}
 
 	return run.finish(ctx, eDB, WhatsAppQueueName, g)

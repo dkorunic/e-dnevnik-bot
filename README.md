@@ -110,12 +110,12 @@ By default, the bot runs from the current working directory and loads its [TOML]
 
 Other flags:
 
-- `-b`: path to the alert database file used to track seen alerts (default: `.e-dnevnik.db`); note that the `.sqlite` extension is appended automatically, so the actual file on disk will be `.e-dnevnik.db.sqlite`. It and the WhatsApp session store are created and kept at `0600`, so only the bot's user can read them,
+- `-b`: path to the alert database file used to track seen alerts (default: `.e-dnevnik.db`); note that the `.sqlite` extension is appended automatically, so the actual file on disk will be `.e-dnevnik.db.sqlite`. It and the WhatsApp session store are created and kept at `0600`, so only the bot's user can read them (on Windows that mode restricts nothing, so protect the directory instead),
 - `-d`: enables daemon/service mode, where the bot runs continuously and wakes up at regular intervals (specified with `-i`); disabled by default,
 - `-f`: path to the configuration file containing usernames, passwords, and messaging service settings (in [TOML](https://github.com/toml-lang/toml) format),
 - `-i`: interval between polls in daemon/service mode (minimum 1h, default 1h),
 - `-r`: number of retry attempts on scraping or delivery failures (default: 3),
-- `-t`: sends a test message to all configured messaging services, using a throwaway database so a failed test send is never queued for delivery on a later run; calendar backends (Google Calendar, CalDAV) only ever receive exam events, so they are not exercised by `-t`,
+- `-t`: sends a test message to all configured messaging services and exits non-zero if any send fails, using a throwaway database so a failed test send is never queued for delivery on a later run; calendar backends (Google Calendar, CalDAV) only ever receive exam events, so they are not exercised by `-t`,
 - `-v`: enables verbose/debug logging for detailed insight into bot operation; disabled by default,
 - `-l`: enables colorized console logging with JSON output disabled,
 - `-g`: path to the Google Calendar API token file for reading and storing the OAuth2 token,

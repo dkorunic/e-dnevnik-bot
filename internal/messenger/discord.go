@@ -116,7 +116,7 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 		inflight = nil
 	}
 
-	return nil
+	return sendFailureErr(eDB, DiscordQueueName)
 }
 
 // markDiscordPermanent stops retry-go on a permanent 4xx REST error. Transport
