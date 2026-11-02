@@ -27,6 +27,7 @@ const (
 	SlackWindow   = 1 * time.Minute
 	SlackMinDelay = SlackWindow / SlackAPILimit
 	SlackQueue    = "slack-queue"
+	SlackTimeout  = 30 * time.Second
 )
 
 var (
@@ -245,6 +246,13 @@ func processSlack(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, ch
 	return run.finish(ctx, eDB, SlackQueueName, g)
 }
 
+// newSlackClient bounds every request: slack.New's default client has no timeout
+// and the send context only ends on shutdown, so a server that never answers
+// would stall the poll loop for good.
+func newSlackClient(token string, timeout time.Duration, opts ...slack.Option) *slack.Client {
+	return slack.New(token, append(opts, slack.OptionHTTPClient(&http.Client{Timeout: timeout}))...)
+}
+
 // slackInit lazily builds the shared client, rebuilding on a token change.
 func slackInit(token string) error {
 	slackMu.Lock()
@@ -256,7 +264,7 @@ func slackInit(token string) error {
 
 	logger.Debug().Msg("Initializing Slack client")
 
-	slackCli = slack.New(token)
+	slackCli = newSlackClient(token, SlackTimeout)
 	slackCreds.record(token)
 
 	return nil

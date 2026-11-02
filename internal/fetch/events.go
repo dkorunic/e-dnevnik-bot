@@ -60,7 +60,7 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 		node := el.Data
 
 		if node == nil || node[EventDateStart] == nil || node[EventSummary] == nil {
-			logger.Debug().Msgf("invalid ICAL data for event: %v", el)
+			logger.Warn().Msgf("Skipping calendar event without a date or summary, possible portal drift: %v", el)
 
 			continue
 		}
@@ -69,13 +69,14 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 
 		dtstart, err := parseFirstDateTime(dateLayouts, timestamp.Val)
 		if err != nil {
-			logger.Debug().Msgf("failed to parse event date %v: %v", timestamp.Val, err)
+			// Warn: this drops the exam, and a format change would drop them all.
+			logger.Warn().Msgf("Skipping calendar event, possible portal drift: %v", err)
 
 			continue
 		}
 
 		if dtstart.IsZero() {
-			logger.Debug().Msgf("failed to parse event date %v", timestamp.Val)
+			logger.Warn().Msgf("Skipping calendar event with a zero date, possible portal drift: %v", timestamp.Val)
 
 			continue
 		}

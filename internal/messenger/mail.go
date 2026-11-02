@@ -30,6 +30,10 @@ const (
 	MailMinDelay  = MailWindow / MailSendLimit
 	MailSubject   = "Nova ocjena/ispit iz e-Dnevnika"
 	MailQueue     = "mail-queue"
+
+	// MailImplicitTLSPort is the submissions port (RFC 8314), TLS from the first
+	// byte. Every other port gets STARTTLS.
+	MailImplicitTLSPort = 465
 )
 
 var (
@@ -128,14 +132,7 @@ func mailInit(server string, portInt int, username, password string) error {
 
 	logger.Debug().Msg("Initializing e-mail client")
 
-	// Mandatory STARTTLS: AUTH PLAIN must never cross cleartext.
-	cli, err := mail.NewClient(server,
-		mail.WithPort(portInt),
-		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithTLSPolicy(mail.TLSMandatory),
-		mail.WithUsername(username),
-		mail.WithPassword(password),
-	)
+	cli, err := newMailClient(server, portInt, portInt == MailImplicitTLSPort, username, password)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrMailDialer, err)
 	}
@@ -145,6 +142,26 @@ func mailInit(server string, portInt int, username, password string) error {
 	mailCreds.record(server, port, username, password)
 
 	return nil
+}
+
+// newMailClient builds a client that never sends AUTH PLAIN in cleartext:
+// implicit TLS, or mandatory STARTTLS. They cannot substitute for each other: a
+// STARTTLS client waits for a banner that an implicit-TLS port withholds until
+// the handshake, so each side waits on the other until the timeout.
+func newMailClient(server string, port int, implicitTLS bool, username, password string) (*mail.Client, error) {
+	opts := []mail.Option{
+		mail.WithPort(port),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithTLSPolicy(mail.TLSMandatory),
+		mail.WithUsername(username),
+		mail.WithPassword(password),
+	}
+
+	if implicitTLS {
+		opts = append(opts, mail.WithSSL())
+	}
+
+	return mail.NewClient(server, opts...)
 }
 
 // isMailAuthErr reports an SMTP login rejection (530 auth required, 534 auth
@@ -186,6 +203,15 @@ func markMailPermanent(err error) error {
 
 	return err
 }
+
+// mailConnError marks an attempt that reached no message: the server could not
+// be reached or spoke no SMTP. It keeps its retries, but one that outlives them
+// stops the cycle, since each further message would spend minutes of retry delay
+// failing the same way while every other messenger's next poll waits.
+type mailConnError struct{ err error }
+
+func (e mailConnError) Error() string { return e.err.Error() }
+func (e mailConnError) Unwrap() error { return e.err }
 
 // isPermanentMailSendErr reports whether se can never succeed on retry: a 5xx
 // reply, or a message go-mail itself cannot address or encode.
@@ -293,6 +319,10 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		default:
 			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
+			if _, unreachable := errors.AsType[mailConnError](err); unreachable {
+				err = markConfigErr(err)
+			}
+
 			run.failed(err)
 		}
 	}
@@ -382,7 +412,11 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 					return markConfigErr(sendErr)
 				}
 
-				return markMailPermanent(sendErr)
+				if marked := markMailPermanent(sendErr); isPermanentSendErr(marked) {
+					return marked
+				}
+
+				return mailConnError{sendErr}
 			}
 
 			// Retrying helps only if one remaining failure is transient.

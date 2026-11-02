@@ -28,6 +28,27 @@ const scrapeMaxAttempts = 100
 // outlive several sessions.
 const maxSessionRecoveries = 2
 
+// ErrNoActiveClasses reports a login that worked and a class list with nothing
+// in it. An error, not an empty success, because callers read success as "this
+// user's events were seen": it seeds a new user, so the next cycle alerts their
+// history, and it claims the digest week.
+var ErrNoActiveClasses = errors.New("no active classes")
+
+// activeClasses parses the class list, reporting an empty one as
+// ErrNoActiveClasses.
+func activeClasses(username string, rawClasses []byte) (fetch.Classes, error) {
+	classes, err := parseClasses(username, rawClasses)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(classes) == 0 {
+		return nil, ErrNoActiveClasses
+	}
+
+	return classes, nil
+}
+
 // recoverSession re-authenticates and re-runs fn in place, so recovery survives
 // retry-go's final attempt — with -r 1 every attempt is the final one. budget
 // spans the whole scrape.
@@ -141,7 +162,7 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		return err
 	}
 
-	classes, err := parseClasses(username, rawClasses)
+	classes, err := activeClasses(username, rawClasses)
 	if err != nil {
 		return err
 	}

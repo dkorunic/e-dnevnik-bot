@@ -13,6 +13,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
@@ -204,7 +205,7 @@ func sendDigests(ctx context.Context, eDB *sqlitedb.Edb, dg *digestRun, exams ma
 
 		if dg.failed.has(user) {
 			// Debug: the scrape failure itself is already logged, every cycle.
-			logger.Debug().Msgf("Weekly exam digest for %v postponed: scraping failed this cycle", user)
+			logger.Debug().Msgf("Weekly exam digest for %v postponed: no complete scrape this cycle", user)
 
 			continue
 		}
@@ -229,6 +230,13 @@ func sendDigests(ctx context.Context, eDB *sqlitedb.Edb, dg *digestRun, exams ma
 		}
 
 		logger.Info().Msgf("Weekly exam digest for %v: %d exams", user, len(msg.Fields))
+
+		// ponytail: not in the claim's transaction, so a kill in between loses this
+		// week's digest. FetchAndStore has no second row to write, and the next
+		// digest is a week away at worst.
+		if err := queue.StoreOutbox(ctx, eDB, msg); err != nil {
+			logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+		}
 
 		gradesMsg <- msg
 	}

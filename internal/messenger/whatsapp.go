@@ -579,6 +579,14 @@ func whatsAppPersistResolvedGroups(confFile string, jids, names []string) {
 	}
 }
 
+// OpenWhatsAppStore opens the session store, whose keys are enough to act as the
+// linked device, so it is private to this user.
+func OpenWhatsAppStore(ctx context.Context) (*sqlstore.Container, error) {
+	sqlitedb.PrepareFile(WhatsAppDBName)
+
+	return sqlstore.New(ctx, "sqlite", fmt.Sprintf(WhatsAppDBConnstring, WhatsAppDBName), nil)
+}
+
 // whatsAppLogin opens the store, loads the first device and connects. Globals
 // are published only on full success, so a failed attempt leaves a clean slate.
 func whatsAppLogin(ctx context.Context) error {
@@ -588,8 +596,7 @@ func whatsAppLogin(ctx context.Context) error {
 	store.DeviceProps.Os = new(WhatsAppOS)
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 
-	storeContainer, err := sqlstore.New(ctx, "sqlite",
-		fmt.Sprintf(WhatsAppDBConnstring, WhatsAppDBName), nil)
+	storeContainer, err := OpenWhatsAppStore(ctx)
 	if err != nil {
 		logger.Error().Msgf("%v: %v", ErrWhatsAppUnableConnect, err)
 

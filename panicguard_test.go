@@ -389,19 +389,16 @@ func TestRecoverDedupForwardsNothingWhenNoEventWasFlagged(t *testing.T) {
 	}
 }
 
-// TestMsgDedupPanicInWindowForwardsFlaggedEvent covers the loop instrumentation
-// that recordsimagine the in-flight event, end to end.
+// TestMsgDedupPanicInDecisionLeavesEventUnflagged: the decision to forward runs
+// inside the flag's transaction, so a panic there rolls the flag back and the next
+// scrape alerts the event. Flagging first and deciding after is what used to need
+// a forward from the panic path. recoverDedup's own forward, for what is left of
+// that window, has its tests above.
 //
-// CheckAndFlagTTL commits the "seen" row, then ~30 lines of suppression checks
-// run before the forward. A panic in that window leaves the event flagged but
-// undelivered, and dedup never re-fires a flagged event — so the alert is gone
-// on this cycle and every cycle after.
-//
-// The panic is raised the way it would really happen: *readingList is a
-// package-level flag pointer dereferenced inside that window, so a nil one
-// faults exactly between the flag and the send.
+// The panic is raised the way it would really happen: relevancePeriod is a
+// package-level flag pointer dereferenced in the decision.
 // Not parallel: nils a package-level flag pointer and the exit latch.
-func TestMsgDedupPanicInWindowForwardsFlaggedEvent(t *testing.T) {
+func TestMsgDedupPanicInDecisionLeavesEventUnflagged(t *testing.T) {
 	resetExitLatch(t)
 
 	dbPath := filepath.Join(t.TempDir(), "dedup.db.sqlite")
@@ -432,7 +429,7 @@ func TestMsgDedupPanicInWindowForwardsFlaggedEvent(t *testing.T) {
 		t.Fatal("reopened database does not report Existing(); the test would prove nothing")
 	}
 
-	// Faults inside the flag-to-forward window.
+	// Faults while deciding whether to forward, inside the flag's transaction.
 	origRelevance := relevancePeriod
 	relevancePeriod = nil
 
@@ -457,8 +454,15 @@ func TestMsgDedupPanicInWindowForwardsFlaggedEvent(t *testing.T) {
 		forwarded = append(forwarded, m)
 	}
 
-	if len(forwarded) != 1 || forwarded[0].Subject != "flagged-then-interrupted" {
-		t.Fatalf("forwarded %+v, want the flagged event; it is already marked seen, so dropping it loses the alert permanently",
-			forwarded)
+	if len(forwarded) != 0 {
+		t.Fatalf("forwarded %+v, want nothing from a decision that never finished", forwarded)
+	}
+
+	// The fault is gone and the event is scraped again: an unflagged event alerts
+	// now, where a flag that survived the panic would have lost it for good.
+	relevancePeriod = origRelevance
+
+	if out := runDedup(t, t.Context(), eDB, guardTestMsg("flagged-then-interrupted")); len(out) != 1 {
+		t.Fatalf("next cycle forwarded %+v, want the interrupted event", out)
 	}
 }

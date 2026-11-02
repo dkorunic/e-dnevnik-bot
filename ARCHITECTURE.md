@@ -58,7 +58,7 @@
 
 **Responsibility:** Flag parsing, config loading, polling ticker loop, goroutine lifecycle, systemd integration, profiling, graceful shutdown.
 **Key deps:** `peterbourgon/ff/v4`, `iguanesolutions/go-systemd/v6`, `KimMachineGun/automemlimit`
-**Patterns:** Signal-context cancellation, atomic error flag (`sync/atomic.Bool`), jitter-based polling ticker, GOMEMLIMIT tuning to 90% of container/host memory. Long-running background goroutines (systemd watchdog) are tracked via a dedicated `bgWG sync.WaitGroup` so shutdown waits for them with a bounded `exitDelay` ceiling instead of sleeping unconditionally.
+**Patterns:** Signal-context cancellation, atomic error flag (`sync/atomic.Bool`), jitter-based polling ticker that waits out the quiet-hours window (`-q`, see `quiet.go`; the first poll after startup always runs), GOMEMLIMIT tuning to 90% of container/host memory. Long-running background goroutines (systemd watchdog) are tracked via a dedicated `bgWG sync.WaitGroup` so shutdown waits for them with a bounded `exitDelay` ceiling instead of sleeping unconditionally.
 
 ### `internal/config/`
 
@@ -146,7 +146,9 @@
 ### Core pipeline
 
 ```
-[Polling ticker fires]
+[Polling ticker fires]           ← re-armed past quiet hours by nextPollDelay
+        │
+[recoverOutbox]                  ← a killed cycle's forwarded events go to the queues
         │
         ▼
 [Per-user goroutine launched]    ← wgScrape (one per user, parallel)

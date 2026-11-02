@@ -24,6 +24,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dustin/go-humanize"
 	"github.com/hako/durafmt"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
@@ -42,6 +43,7 @@ const (
 	scheduledActive  = "Scheduled run in progress"
 	scheduledNext    = "Next scheduled run in %s"
 	scheduledOverdue = "Scheduled run is overdue"
+	scheduledQuiet   = "Skipping scheduled run during quiet hours"
 )
 
 var (
@@ -215,6 +217,8 @@ func main() {
 
 	var nextRunAt time.Time
 
+	firstPoll := true
+
 	if *daemon {
 		interval := durafmt.Parse(*tickInterval).String()
 		if *jitter {
@@ -224,6 +228,8 @@ func main() {
 			logger.Info().Msgf("Service started, will collect information every %v",
 				interval)
 		}
+
+		logger.Info().Msgf("Quiet hours (no polling): %v", quietHours.describe(time.Now()))
 	} else {
 		logger.Info().Msg("Service is not enabled, doing just a single run")
 	}
@@ -259,17 +265,26 @@ func main() {
 			// Paused while scraping.
 			statusTicker.Stop()
 
-			logger.Info().Msg(scheduledActive)
+			now := time.Now()
 
-			// Spreads concurrent daemons off the portal's lockstep.
-			nextInterval := *tickInterval
-			if *jitter {
-				nextInterval = durationRandJitter(*tickInterval)
-			}
+			nextInterval := nextPollDelay(now)
 
 			ticker.Reset(nextInterval)
-			nextRunAt = time.Now().Add(nextInterval)
+			nextRunAt = now.Add(nextInterval)
 
+			runs := pollRuns(now, firstPoll)
+			firstPoll = false
+
+			// nextPollDelay keeps ticks out of the window, so only a clock change
+			// gets here. After the Reset: the ticker is what wakes the next poll.
+			if !runs {
+				logger.Info().Msg(scheduledQuiet)
+				announceIdleWindow(ctx, statusTicker, nextRunAt)
+
+				continue
+			}
+
+			logger.Info().Msg(scheduledActive)
 			_ = sysdnotify.Status(scheduledActive)
 
 			runPollCycle(ctx, cfg)
@@ -378,6 +393,9 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 		return
 	}
 
+	// Before the messengers start, whose resend picks these up.
+	recoverOutbox(ctx, eDB, cfg)
+
 	failed := &userSet{}
 
 	var dg *digestRun
@@ -402,6 +420,9 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 	wgFilter.Wait()
 	wgMsg.Wait()
 	wgVersion.Wait()
+
+	// Everything is delivered or queued by now.
+	queue.ClearOutbox(ctx, eDB)
 
 	closeDB(eDB)
 }

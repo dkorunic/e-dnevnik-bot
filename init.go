@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"os/signal"
@@ -26,10 +25,8 @@ import (
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -151,8 +148,7 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 	store.DeviceProps.Os = new(messenger.WhatsAppOS)
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 
-	storeContainer, err := sqlstore.New(ctx, "sqlite",
-		fmt.Sprintf(messenger.WhatsAppDBConnstring, messenger.WhatsAppDBName), nil)
+	storeContainer, err := messenger.OpenWhatsAppStore(ctx)
 	if err != nil {
 		logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppUnableConnect, err)
 	}
@@ -189,26 +185,24 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 		}
 	}
 
-	//nolint:nestif
 	go func() {
-		for evt := range ch {
-			if evt.Event == "code" {
-				if config.WhatsApp.PhoneNumber != "" {
-					linkCode, err := whatsAppPairingCli.PairPhone(qrCtx, config.WhatsApp.PhoneNumber, true,
-						whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)
-					if err != nil {
-						logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailLink, err)
-					}
+		if config.WhatsApp.PhoneNumber != "" {
+			whatsAppPairByPhone(qrCtx, ch, func() (string, error) {
+				return whatsAppPairingCli.PairPhone(qrCtx, config.WhatsApp.PhoneNumber, true,
+					whatsmeow.PairClientChrome, messenger.WhatsAppDisplayName)
+			})
 
-					logger.Info().Msgf("WhatsApp link code: %v", linkCode)
-				} else {
-					if isTerminal() {
-						logger.Info().Msg("WhatsApp QR code below")
-						qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-					} else {
-						logger.Fatal().Msg("WhatsApp first run requires running under a terminal or pairing through phone number.")
-					}
+			return
+		}
+
+		for evt := range ch {
+			if evt.Event == whatsmeow.QRChannelEventCode {
+				if !isTerminal() {
+					logger.Fatal().Msg("WhatsApp first run requires running under a terminal or pairing through phone number.")
 				}
+
+				logger.Info().Msg("WhatsApp QR code below")
+				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 			}
 		}
 	}()
@@ -256,6 +250,35 @@ func checkWhatsApp(ctx context.Context, config *config.TomlConfig) {
 
 	// Grace period for the full sync.
 	awaitShielded(ctx, "the WhatsApp transfer acknowledgement", time.After(initialWhatsAppDelay), nil)
+}
+
+// whatsAppPairByPhone requests one link code. The QR channel emits a "code" event
+// per rotation, but another request would replace the code the user is typing.
+// It still closes the channel and disconnects when its rotations run out, which
+// ends the link code's usefulness too.
+func whatsAppPairByPhone(ctx context.Context, ch <-chan whatsmeow.QRChannelItem, pair func() (string, error)) {
+	requested := false
+
+	for evt := range ch {
+		switch {
+		case evt.Event == whatsmeow.QRChannelEventCode && !requested:
+			requested = true
+
+			linkCode, err := pair()
+			if err != nil {
+				// Shutdown cut the request short: no failure of the link.
+				if ctx.Err() != nil {
+					return
+				}
+
+				logger.Fatal().Msgf("%v: %v", messenger.ErrWhatsAppFailLink, err)
+			}
+
+			logger.Info().Msgf("WhatsApp link code: %v", linkCode)
+		case evt.Event == whatsmeow.QRChannelTimeout.Event:
+			logger.Warn().Msg("WhatsApp pairing window expired; restart the bot for a new link code")
+		}
+	}
 }
 
 // pairedMeanwhile catches a PairSuccess racing a stop signal or timeout, which

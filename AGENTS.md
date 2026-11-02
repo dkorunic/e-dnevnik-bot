@@ -43,6 +43,7 @@ Single test: `go test -run TestName ./path/to/package/`
 | `-j` / `--jitter` | ±10% continuous jitter on poll interval |
 | `-c <file>` / `-m <file>` | CPU / heap pprof profiles |
 | `-i <duration>` | Poll interval (minimum 1h) |
+| `-q <HH:MM-HH:MM>` / `--quiethours` | Daily local-time window with no polls, daemon mode only (default `23:00-06:00`, `off` disables) |
 | `--readinglist` | Process reading list events |
 | `--exams` / `--nationalexams` / `--digest` | Default true; `=false` suppresses those alerts (suppressed events are still dedup-flagged) |
 | `-r <uint>` | Retry attempts on error (default: 3) |

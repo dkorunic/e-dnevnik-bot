@@ -54,16 +54,26 @@ var (
 // only with events in flight, which otherwise needs the live portal.
 var scrapeStage = scrapers
 
+// scrapeUser is a test seam: a scrape's outcome otherwise needs the live portal.
+var scrapeUser = scrape.GetGradesAndEvents
+
 // scrapers scrapes every configured user, recording failed scrapes in failed.
 func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<- msgtypes.Message, cfg config.TomlConfig, failed *userSet) {
 	logger.Debug().Msg("Starting scrapers")
 
 	for _, i := range cfg.User {
 		wgScrape.Go(func() {
-			err := scrape.GetGradesAndEvents(ctx, gradesScraped, i.Username, i.Password, *retries)
+			err := scrapeUser(ctx, gradesScraped, i.Username, i.Password, *retries)
 			if err != nil {
 				// A failed scrape must not read as a quiet week.
 				failed.add(i.Username)
+
+				// Normal over the summer break, and parseClasses has warned.
+				if errors.Is(err, scrape.ErrNoActiveClasses) {
+					logger.Debug().Msgf("Nothing to scrape for user %v: %v", i.Username, err)
+
+					return
+				}
 
 				// A shutdown is not a cycle failure.
 				if ctx.Err() != nil && errors.Is(err, context.Canceled) {
@@ -348,6 +358,57 @@ func storeOverflow(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g m
 	}
 }
 
+// enabledQueues lists the queues of the messengers msgSend will start. Keep the
+// two in step: a messenger missing here loses only what a hard kill interrupts.
+func enabledQueues(cfg config.TomlConfig) [][]byte {
+	var names [][]byte
+
+	for _, q := range []struct {
+		name    []byte
+		enabled bool
+	}{
+		{messenger.DiscordQueueName, cfg.DiscordEnabled},
+		{messenger.TelegramQueueName, cfg.TelegramEnabled},
+		{messenger.SlackQueueName, cfg.SlackEnabled},
+		{messenger.MailQueueName, cfg.MailEnabled},
+		{messenger.CalendarQueueName, cfg.CalendarEnabled || cfg.CalendarDeferred},
+		{messenger.CalDAVQueueName, cfg.CalDAVEnabled},
+		{messenger.WhatsAppQueueName, cfg.WhatsAppEnabled},
+	} {
+		if q.enabled {
+			names = append(names, q.name)
+		}
+	}
+
+	return names
+}
+
+// recoverOutbox hands what a killed cycle left in the outbox to every messenger's
+// queue, for this cycle's resend. Nothing says which messengers already delivered
+// a row, so those send it again: a duplicate after a hard kill, instead of a loss.
+// A row stays until every queue holds it.
+func recoverOutbox(ctx context.Context, eDB *sqlitedb.Edb, cfg config.TomlConfig) {
+	for _, q := range queue.FetchFailedMsgs(ctx, eDB, queue.OutboxKey) {
+		stored := true
+
+		for _, name := range enabledQueues(cfg) {
+			if !messenger.QueueAccepts(name, q.Msg) {
+				continue
+			}
+
+			if err := queue.StoreFailedMsgs(ctx, eDB, name, q.Msg); err != nil {
+				logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+
+				stored = false
+			}
+		}
+
+		if stored {
+			queue.Dequeue(ctx, eDB, q.Key)
+		}
+	}
+}
+
 // msgDedup forwards only events the dedup store has not seen before, and only
 // once past a user's first run — their existing events seed silently instead
 // of flooding. With sr set the first run is tracked per user (see seedRun);
@@ -396,12 +457,6 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			}
 
 			firstRun = func(user string) bool { return !seeded[user] }
-
-			for _, u := range sr.users {
-				if !seeded[u] {
-					logger.Info().Msgf("First run for %v: recording existing events without alerting", u)
-				}
-			}
 		} else if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't send new-event alerts in this run")
 		}
@@ -431,7 +486,18 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				exams[g.Username] = append(exams[g.Username], g)
 			}
 
-			found, err := eDB.CheckAndFlagTTL(ctx, g.Username, g.Subject, g.Fields)
+			forward := false
+
+			// Seeded regardless of forward (not skipped before the flag), which
+			// prevents a flood when a suppressing flag is first enabled.
+			found, err := eDB.CheckAndFlagOutbox(ctx, g.Username, g.Subject, g.Fields, func() ([]byte, []byte, error) {
+				forward = !firstRun(g.Username) && !suppressedCode(g.Code) && !isStaleEvent(g, now)
+				if !forward {
+					return nil, nil, nil
+				}
+
+				return queue.OutboxRow(g)
+			})
 			if err != nil {
 				// Not Fatal: os.Exit here would bypass in-flight messenger
 				// queue writes and deferred cleanup. SIGTERM-to-self runs the
@@ -448,19 +514,9 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			// suppresses, so a panic in between must forward.
 			flagged = &g
 
-			// Skip on first run or duplicate: prevents first-install flood / repeat alerts.
-			if found || firstRun(g.Username) {
-				continue
-			}
-
-			// Seeded above but only forwarded when its flag allows. Flagging
-			// regardless (not skipping before CheckAndFlagTTL) prevents a flood
-			// when the flag is first enabled.
-			if suppressedCode(g.Code) {
-				continue
-			}
-
-			if isStaleEvent(g, now) {
+			// Skip a duplicate, a first run (no first-install flood), a suppressed
+			// code or a stale event.
+			if found || !forward {
 				continue
 			}
 

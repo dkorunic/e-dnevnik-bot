@@ -143,7 +143,12 @@ func TestGetTokenFromWebDenied(t *testing.T) {
 
 	var cbPage string
 
+	// The flow no longer waits for the browser, so the page is not read until this closes.
+	browserDone := make(chan struct{})
+
 	browserOpen = func(url string) error {
+		defer close(browserDone)
+
 		cbPage = driveCallback(t, url, "error=access_denied")
 
 		return nil
@@ -159,6 +164,8 @@ func TestGetTokenFromWebDenied(t *testing.T) {
 	}
 
 	_, err := getTokenFromWeb(context.Background(), cfg)
+
+	<-browserDone
 	if !errors.Is(err, ErrOAuthDenied) {
 		t.Fatalf("getTokenFromWeb() error = %v, want ErrOAuthDenied", err)
 	}
@@ -184,7 +191,12 @@ func TestGetTokenFromWebSuccess(t *testing.T) {
 
 	var cbPage string
 
+	// The flow no longer waits for the browser, so the page is not read until this closes.
+	browserDone := make(chan struct{})
+
 	browserOpen = func(url string) error {
+		defer close(browserDone)
+
 		cbPage = driveCallback(t, url, "code=stub-auth-code")
 
 		return nil
@@ -200,6 +212,8 @@ func TestGetTokenFromWebSuccess(t *testing.T) {
 	}
 
 	tok, err := getTokenFromWeb(context.Background(), cfg)
+
+	<-browserDone
 	if err != nil {
 		t.Fatalf("getTokenFromWeb() failed: %v", err)
 	}
@@ -381,7 +395,12 @@ func TestGetTokenFromWebRejectsForgedState(t *testing.T) {
 
 	var cbPage string
 
+	// The flow no longer waits for the browser, so the page is not read until this closes.
+	browserDone := make(chan struct{})
+
 	browserOpen = func(rootURL string) error {
+		defer close(browserDone)
+
 		// Skip the consent page entirely: hit the callback with a state the
 		// server never issued, as a third party would have to.
 		resp, err := http.Get(rootURL + CallBackURL + "?state=forged-by-attacker&code=attacker-auth-code") //nolint:noctx // test-only
@@ -413,6 +432,8 @@ func TestGetTokenFromWebRejectsForgedState(t *testing.T) {
 	}
 
 	_, err := getTokenFromWeb(context.Background(), cfg)
+
+	<-browserDone
 	if !errors.Is(err, ErrInvalidCallbackState) {
 		t.Fatalf("getTokenFromWeb() error = %v, want ErrInvalidCallbackState; a callback carrying a state the server never issued must never be exchanged", err)
 	}
@@ -432,7 +453,12 @@ func TestGetTokenFromWebRejectsMissingCode(t *testing.T) {
 	origBrowser := browserOpen
 	defer func() { browserOpen = origBrowser }()
 
+	// The flow no longer waits for the browser, so the page is not read until this closes.
+	browserDone := make(chan struct{})
+
 	browserOpen = func(rootURL string) error {
+		defer close(browserDone)
+
 		// Correct state (driveCallback reads it from the consent page), but no
 		// code and no error parameter.
 		driveCallback(t, rootURL, "")
@@ -450,6 +476,8 @@ func TestGetTokenFromWebRejectsMissingCode(t *testing.T) {
 	}
 
 	_, err := getTokenFromWeb(context.Background(), cfg)
+
+	<-browserDone
 	if !errors.Is(err, ErrInvalidCallbackState) {
 		t.Fatalf("getTokenFromWeb() error = %v, want ErrInvalidCallbackState for a callback with no code", err)
 	}

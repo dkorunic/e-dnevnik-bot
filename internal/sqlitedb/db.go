@@ -45,6 +45,8 @@ func New(ctx context.Context, filePath string) (*Edb, error) {
 
 	isExisting := dbExists(filePath)
 
+	PrepareFile(filePath)
+
 	logger.Debug().Msgf("Opening database: %v", filePath)
 
 	// Encoded so a '?', '#' or '%' cannot corrupt the pragma query.
@@ -107,6 +109,16 @@ func (db *Edb) Close() error {
 // live legacy hit counts as seen and is re-flagged under the current key, so the
 // old row ages out and an upgrade does not re-alert every historical event.
 func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, target []string) (bool, error) {
+	return db.CheckAndFlagOutbox(ctx, bucket, subBucket, target, nil)
+}
+
+// CheckAndFlagOutbox is CheckAndFlagTTL that also stores the row a new event's
+// row func returns, in the same transaction: dedup never re-fires a flagged
+// event, so a flag that commits alone is an alert a hard kill can lose. row runs
+// only for an event not seen before and may return a nil key to store nothing; an
+// error leaves the event unflagged. It holds the write lock, so it must not touch
+// the database.
+func (db *Edb) CheckAndFlagOutbox(ctx context.Context, bucket, subBucket string, target []string, row func() ([]byte, []byte, error)) (bool, error) {
 	key := hashContent(bucket, subBucket, target)
 
 	now := time.Now()
@@ -161,6 +173,20 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 	if _, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
 		key, []byte(""), expiry); err != nil {
 		return false, err
+	}
+
+	if row != nil && !migrated {
+		rowKey, rowVal, err := row()
+		if err != nil {
+			return false, err
+		}
+
+		if rowKey != nil {
+			if _, err = conn.ExecContext(ctx, "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, NULL)",
+				rowKey, rowVal); err != nil {
+				return false, err
+			}
+		}
 	}
 
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {

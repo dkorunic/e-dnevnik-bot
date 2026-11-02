@@ -23,6 +23,8 @@ const (
 	DefaultRelevancePeriod = 720 * time.Hour       // default relevance window for grade/exam events (~30 days)
 	DefaultRetries         = 3                     // default retry attempts
 	DefaultDBPath          = ".e-dnevnik.db"       // default SQLite DB
+	DefaultQuietStart      = 23 * 60               // default start of quiet hours (23:00), in minutes since midnight
+	DefaultQuietEnd        = 6 * 60                // default end of quiet hours (06:00), in minutes since midnight
 )
 
 var (
@@ -31,6 +33,7 @@ var (
 	confFile, dbFile, cpuProfile, memProfile, calTokFile                                 *string
 	tickInterval, relevancePeriod                                                        *time.Duration
 	retries                                                                              *uint
+	quietHours                                                                           *quietWindow
 )
 
 // parseFlags populates the package-level flag pointers.
@@ -60,6 +63,9 @@ func parseFlags() {
 	relevancePeriod = fs.Duration('p', "relevance", DefaultRelevancePeriod, "maximum relevance period for grade and exam events (0 = unlimited)")
 
 	retries = fs.Uint('r', "retries", DefaultRetries, "number of retry attempts on error")
+
+	quietHours = &quietWindow{start: DefaultQuietStart, end: DefaultQuietEnd}
+	fs.Value('q', "quiethours", quietHours, "local time window with no polls in daemon mode, or off")
 
 	var err error
 
@@ -111,6 +117,12 @@ func clampFlags() {
 			durafmt.Parse(DefaultTickInterval).String(), durafmt.Parse(DefaultTickInterval).String())
 
 		*tickInterval = DefaultTickInterval
+	}
+
+	// Still polls once per window, so a warning: it may be a swapped range.
+	if active := quietHours.activeSpan(); *daemon && active < *tickInterval {
+		logger.Warn().Msgf("Quiet hours %v leave %v a day to poll, less than the poll interval of %v; expect one poll a day",
+			quietHours, durafmt.Parse(active).String(), durafmt.Parse(*tickInterval).String())
 	}
 
 	if *relevancePeriod < 0 {

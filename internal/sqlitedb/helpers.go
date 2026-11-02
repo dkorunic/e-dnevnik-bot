@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 )
 
 // Oversized buffers are dropped rather than recycled, bounding pool memory.
@@ -20,6 +22,29 @@ var hashBufPool = sync.Pool{
 
 		return &b
 	},
+}
+
+// privateFileMode keeps queued grades and the WhatsApp session away from other
+// local users, as the config and token files already are.
+const privateFileMode = 0o600
+
+// PrepareFile creates path if absent and tightens it and its WAL sidecars to
+// privateFileMode. Created up front because SQLite would use the umask, and its
+// sidecars copy the main file's mode. Best effort, like the config's chmod: a
+// read-only filesystem or a foreign owner only warns.
+func PrepareFile(path string) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, privateFileMode)
+	if err != nil {
+		logger.Warn().Msgf("Unable to create database file %q privately: %v", path, err)
+	} else {
+		_ = f.Close()
+	}
+
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(p, privateFileMode); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logger.Warn().Msgf("Unable to tighten permissions on %q to 0600: %v", p, err)
+		}
+	}
 }
 
 // sqliteURIEscape encodes the characters that break a "file:" DSN — '%', '?'

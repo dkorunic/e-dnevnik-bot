@@ -83,33 +83,34 @@ NAME
   e-dnevnik-bot
 
 FLAGS
-  -v, --verbose                verbose/debug log level
-  -0, --fulldebug              log every scraped event (only with verbose mode)
-  -d, --daemon                 enable daemon mode (running as a service)
-  -?, --help                   display help
-  -t, --test                   send a test event (to check if messaging works)
-  -l, --colorlogs              enable colorized console logs
-      --version                display program version
-      --readinglist            send reading list alerts
-      --exams BOOL             send exam alerts (default: true)
-      --nationalexams BOOL     send national exam alerts (default: true)
-      --digest BOOL            send weekly exam digest (also needs [digest] enabled) (default: true)
-  -j, --jitter BOOL            enable slight (up to 10%) jitter for tick intervals (default: true)
-  -f, --conffile STRING        configuration file (in TOML) (default: .e-dnevnik.toml)
-  -b, --database STRING        alert database file (default: .e-dnevnik.db)
-  -g, --calendartoken STRING   Google Calendar token file (default: calendar_token.json)
-  -c, --cpuprofile STRING      CPU profile output file
-  -m, --memprofile STRING      memory profile output file
-  -i, --interval DURATION      interval between polls when in daemon mode (default: 1h0m0s)
-  -p, --relevance DURATION     maximum relevance period for grade and exam events (0 = unlimited) (default: 720h0m0s)
-  -r, --retries UINT           number of retry attempts on error (default: 3)
+  -v, --verbose                  verbose/debug log level
+  -0, --fulldebug                log every scraped event (only with verbose mode)
+  -d, --daemon                   enable daemon mode (running as a service)
+  -?, --help                     display help
+  -t, --test                     send a test event (to check if messaging works)
+  -l, --colorlogs                enable colorized console logs
+      --version                  display program version
+      --readinglist              send reading list alerts
+      --exams BOOL               send exam alerts (default: true)
+      --nationalexams BOOL       send national exam alerts (default: true)
+      --digest BOOL              send weekly exam digest (also needs [digest] enabled) (default: true)
+  -j, --jitter BOOL              enable slight (up to 10%) jitter for tick intervals (default: true)
+  -f, --conffile STRING          configuration file (in TOML) (default: .e-dnevnik.toml)
+  -b, --database STRING          alert database file (default: .e-dnevnik.db)
+  -g, --calendartoken STRING     Google Calendar token file (default: calendar_token.json)
+  -c, --cpuprofile STRING        CPU profile output file
+  -m, --memprofile STRING        memory profile output file
+  -i, --interval DURATION        interval between polls when in daemon mode (default: 1h0m0s)
+  -p, --relevance DURATION       maximum relevance period for grade and exam events (0 = unlimited) (default: 720h0m0s)
+  -r, --retries UINT             number of retry attempts on error (default: 3)
+  -q, --quiethours HH:MM-HH:MM   local time window with no polls in daemon mode, or off (default: 23:00-06:00)
 ```
 
 By default, the bot runs from the current working directory and loads its [TOML](https://github.com/toml-lang/toml) configuration from `.e-dnevnik.toml`, or from the file specified with the `-f` flag.
 
 Other flags:
 
-- `-b`: path to the alert database file used to track seen alerts (default: `.e-dnevnik.db`); note that the `.sqlite` extension is appended automatically, so the actual file on disk will be `.e-dnevnik.db.sqlite`,
+- `-b`: path to the alert database file used to track seen alerts (default: `.e-dnevnik.db`); note that the `.sqlite` extension is appended automatically, so the actual file on disk will be `.e-dnevnik.db.sqlite`. It and the WhatsApp session store are created and kept at `0600`, so only the bot's user can read them,
 - `-d`: enables daemon/service mode, where the bot runs continuously and wakes up at regular intervals (specified with `-i`); disabled by default,
 - `-f`: path to the configuration file containing usernames, passwords, and messaging service settings (in [TOML](https://github.com/toml-lang/toml) format),
 - `-i`: interval between polls in daemon/service mode (minimum 1h, default 1h),
@@ -121,6 +122,7 @@ Other flags:
 - `-p`: maximum relevance period for grade and exam events (default `720h`, about 30 days; `0` = unlimited). An event dated further back is recorded as seen and never alerted, so a grade a teacher enters backdated by more than this period produces no alert,
 - `--version`: displays the program version,
 - `-j`: enables a ±10% random jitter on the poll interval,
+- `-q`: daily window in which daemon mode skips its polls (default `23:00-06:00`; `off` polls around the clock). It uses the bot's local time zone, which in Docker is UTC unless you set `TZ`. The end is exclusive: a poll that would fall inside the window waits for its end instead, plus up to 10% of the poll interval with `-j`, so events from the night are alerted then. The first poll after startup always runs, so a bad password shows up straight away. A window leaving less than one poll interval a day logs a warning and polls once a day. Single runs and `-t` ignore it,
 - `--readinglist`: enables processing and alerting on reading list events,
 - `--exams=false`, `--nationalexams=false`: turn off exam and national exam alerts on every messenger, calendars included. Suppressed events are still recorded as seen, so turning a flag back on does not replay them. Exams still appear in the weekly digest,
 - `--digest=false`: turns off the weekly exam digest, same as `enabled = false` in `[digest]`.
@@ -191,7 +193,7 @@ Steps required:
 ```toml
 [mail]
 server = "smtp.gmail.com"
-port = "587"
+port = "587" # 465 uses TLS from the first byte; any other port uses STARTTLS
 username = "user.name@gmail.com"
 password = "legacy_app_password"
 from = "user.name@gmail.com"
@@ -278,7 +280,7 @@ hour = 18
 Once a week, each user gets one short message listing every exam in the coming week (Monday to Sunday), sent to all chat messengers (Telegram, Discord, Slack, mail, WhatsApp). Calendar backends ignore it, because they already hold each exam as its own entry.
 
 1. The digest is **on by default**, even with no `[digest]` section, as long as at least one chat messenger is enabled (with only calendars it is switched off, since they would discard it). To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is an hour from 0 to 23 (default `18`) in the bot's local time zone. In Docker, that is UTC unless you set `TZ` (see below).
-2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll is missed or fails to scrape a user, a later poll still sends it. A late digest lists only exams from that day onward.
+2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll is missed, skipped during quiet hours (`-q`) or fails to scrape a user, a later poll still sends it. A late digest lists only exams from that day onward.
 3. Each user gets at most one digest per week. The bot stores the week it last handled in its database. A week with no exams sends nothing.
 4. Exams already announced individually are listed again. The digest is a summary, not a new-event alert.
 5. On first start, or after upgrading mid-week, the bot sends the current week's digest straight away, listing exams from that day onward.

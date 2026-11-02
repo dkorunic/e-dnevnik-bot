@@ -176,8 +176,9 @@ func splitRow(ctx context.Context, eDB rowStore, queueKey, origKey []byte, survi
 }
 
 // migrateLegacyQueue splits a pre-redesign aggregate row into per-message rows,
-// deleting the aggregate only once every message is re-stored — a crash
-// mid-migration duplicates rather than loses.
+// deleting the aggregate only once every message is re-stored. Fixed row keys
+// make a repeat after a crash or failed delete overwrite rather than duplicate;
+// only a row already delivered and dequeued in between comes back.
 //
 // Reports whether the legacy row is gone, absent, undecodable or migrated alike,
 // so the caller can latch the probe.
@@ -213,8 +214,8 @@ func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte)
 
 	logger.Info().Msgf("Migrating %v messages from legacy queue %v to per-message rows", len(legacy), string(queueKey))
 
-	for _, m := range legacy {
-		if err := StoreFailedMsgs(ctx, eDB, queueKey, m); err != nil {
+	for i, m := range legacy {
+		if err := storeRow(ctx, eDB, legacyRowKey(queueKey, i), m); err != nil {
 			logger.Error().Msgf("%v: %v", ErrQueueing, err)
 
 			// Keep the aggregate so nothing is lost; retry next fetch.
@@ -224,8 +225,8 @@ func migrateLegacyQueue(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte)
 
 	if err := eDB.Delete(ctx, queueKey); err != nil {
 		// Already migrated, and the leftover aggregate is invisible to the
-		// prefix scan. Re-migrating would duplicate, so this still counts
-		// as done.
+		// prefix scan, so this counts as done. The next process finds it again
+		// and overwrites the same rows.
 		logger.Error().Msgf("%v: %v", ErrQueueing, err)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/avast/retry-go/v5"
@@ -91,7 +92,7 @@ func (c *cycleSender) send(ctx context.Context, eDB *sqlitedb.Edb, queueName []b
 	if process() {
 		c.tripped = true
 
-		logger.Warn().Msgf("Messenger %v: a failure affecting every message (credentials, configuration or quota); queueing the rest of this cycle unsent",
+		logger.Warn().Msgf("Messenger %v: a failure affecting every message (credentials, configuration, quota or an unreachable server); queueing the rest of this cycle unsent",
 			string(queueName))
 	}
 }
@@ -148,11 +149,36 @@ func takeCtx(ctx context.Context, rl ratelimit.Limiter) bool {
 
 // storeQueued queues g for the next cycle. The write survives ctx cancel (see
 // queue.StoreFailedMsgs); a failure is only logged — with one durable store
-// there is no fallback.
+// there is no fallback — and counted, so resendQueued keeps the row it came from.
 func storeQueued(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, g msgtypes.Message) {
 	if err := queue.StoreFailedMsgs(ctx, eDB, queueName, g); err != nil {
 		logger.Error().Msgf("%v: %v", queue.ErrQueueing, err)
+
+		storeFailuresMu.Lock()
+		storeFailures[storeFailureKey{eDB, string(queueName)}]++
+		storeFailuresMu.Unlock()
 	}
+}
+
+// storeFailureKey is per database so a failure cannot leak into a later cycle's
+// handle, and per queue because each queue has a single reader, so a change in
+// the count during process can only be that process's own.
+type storeFailureKey struct {
+	eDB   *sqlitedb.Edb
+	queue string
+}
+
+var (
+	storeFailuresMu sync.Mutex
+	storeFailures   = map[storeFailureKey]uint64{} // grows only on failed writes
+)
+
+// storeFailureCount returns how many writes to queueName have failed so far.
+func storeFailureCount(eDB *sqlitedb.Edb, queueName []byte) uint64 {
+	storeFailuresMu.Lock()
+	defer storeFailuresMu.Unlock()
+
+	return storeFailures[storeFailureKey{eDB, string(queueName)}]
 }
 
 // rewriteConfig applies mutate to confFile as it is on disk now and saves the
@@ -288,6 +314,29 @@ func mergeSkipRecipients(existing, extras []string) []string {
 	return out
 }
 
+// queuedExpired reports whether g announces something already over: an exam sat,
+// or a digest whose week has ended. A row can wait out a long outage, and chat
+// messengers would otherwise deliver these as news. Dates, not instants, as in
+// examEventOf. An undated row stays: nothing says it is over.
+func queuedExpired(g msgtypes.Message, now time.Time) bool {
+	if g.Timestamp.IsZero() {
+		return false
+	}
+
+	today := now.UTC().Format(time.DateOnly)
+
+	switch g.Code {
+	case msgtypes.Exam:
+		return g.Timestamp.Format(time.DateOnly) < today
+	case msgtypes.ExamDigest:
+		// Timestamp is the week's Monday.
+		return g.Timestamp.AddDate(0, 0, 6).Format(time.DateOnly) < today
+	case msgtypes.Grade, msgtypes.Reading, msgtypes.FinalGrade, msgtypes.NationalExam:
+	}
+
+	return false
+}
+
 // resendQueued replays queueName through process, dropping each row only once
 // its outcome is durable.
 //
@@ -305,7 +354,24 @@ func resendQueued(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, proc
 			break
 		}
 
+		if queuedExpired(q.Msg, time.Now()) {
+			logger.Info().Msgf("Dropping queued message for %v/%v from queue %v: its date has passed",
+				q.Msg.Username, q.Msg.Subject, string(queueName))
+
+			queue.Dequeue(ctx, eDB, q.Key)
+
+			continue
+		}
+
+		failures := storeFailureCount(eDB, queueName)
+
 		process(q.Msg)
+
+		// A requeue that did not land leaves this row the only copy. Recipients
+		// reached just now may see a duplicate, which beats a lost alert.
+		if storeFailureCount(eDB, queueName) != failures {
+			continue
+		}
 
 		// process re-queued its failures as new rows; drop the original.
 		queue.Dequeue(ctx, eDB, q.Key)

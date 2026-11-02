@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -65,6 +66,19 @@ func rowKey(queueKey []byte) []byte {
 	return key
 }
 
+// legacyRowKey is the key of a legacy aggregate's i-th message: fixed, so a
+// repeated migration overwrites its own rows. Time zero sorts them ahead of
+// anything queued since.
+func legacyRowKey(queueKey []byte, i int) []byte {
+	key := make([]byte, 0, len(queueKey)+17)
+	key = append(key, queueKey...)
+	key = append(key, rowKeySep)
+	key = binary.BigEndian.AppendUint64(key, 0)
+	key = binary.BigEndian.AppendUint64(key, uint64(i)) //nolint:gosec // a slice index is never negative
+
+	return key
+}
+
 // detachedCtx passes a live ctx through so shutdown keeps propagating, and
 // replaces a cancelled one with a detached context bounded by storeTimeout, so
 // the write runs without stalling shutdown.
@@ -84,6 +98,11 @@ func detachedCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 // after SIGTERM, and dropping it there loses the alert for good. Detaching here
 // rather than at each call site means no send path can forget to.
 func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
+	return storeRow(ctx, eDB, rowKey(key), g)
+}
+
+// storeRow writes g under the exact row key, stamped as StoreFailedMsgs describes.
+func storeRow(ctx context.Context, eDB rowStore, key []byte, g msgtypes.Message) error {
 	ctx, cancel := detachedCtx(ctx)
 	defer cancel()
 
@@ -97,7 +116,54 @@ func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgty
 		return err
 	}
 
-	return eDB.Put(ctx, rowKey(key), val)
+	return eDB.Put(ctx, key, val)
+}
+
+// OutboxKey names the queue of messages handed to the messengers this cycle.
+// Dedup never re-fires a flagged event, so without it a process killed between
+// the flag and delivery loses the alert. A finished cycle has delivered or queued
+// everything and clears it; rows found at the start of a cycle are a kill's
+// leftovers. FetchFailedMsgs reads it like any other queue.
+var OutboxKey = []byte("outbox")
+
+// OutboxRow returns the row holding g in the outbox, for writing in one
+// transaction with its flag.
+func OutboxRow(g msgtypes.Message) ([]byte, []byte, error) {
+	if g.QueuedAt.IsZero() {
+		g.QueuedAt = time.Now()
+	}
+
+	val, err := codec.EncodeMsgs([]msgtypes.Message{g})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return rowKey(OutboxKey), val, nil
+}
+
+// StoreOutbox puts g in the outbox, for what has no flag to share a transaction
+// with.
+func StoreOutbox(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message) error {
+	return StoreFailedMsgs(ctx, eDB, OutboxKey, g)
+}
+
+// ClearOutbox empties the outbox, surviving a cancelled ctx: the shutdown path
+// finishes its cycle too, and a row left behind alerts everyone again. Failing
+// only costs that.
+func ClearOutbox(ctx context.Context, eDB *sqlitedb.Edb) {
+	dctx, cancel := detachedCtx(ctx)
+	defer cancel()
+
+	rows, err := eDB.ScanPrefix(dctx, append(slices.Clone(OutboxKey), rowKeySep))
+	if err != nil {
+		logger.Error().Msgf("%v: %v", ErrQueueing, err)
+
+		return
+	}
+
+	for _, r := range rows {
+		Dequeue(dctx, eDB, r.Key)
+	}
 }
 
 // Dequeue removes a processed row. Call it only once the outcome is durable —

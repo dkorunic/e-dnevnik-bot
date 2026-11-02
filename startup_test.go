@@ -311,6 +311,7 @@ func TestFatalIfErrorsExitsWhenLatched(t *testing.T) {
 
 // parsedFlags is the subset of parseFlags' results the clamp tests inspect.
 type parsedFlags struct {
+	QuietHours      string        `json:"quiet_hours"`
 	TickInterval    time.Duration `json:"tick_interval"`
 	RelevancePeriod time.Duration `json:"relevance_period"`
 	Retries         uint          `json:"retries"`
@@ -335,6 +336,7 @@ func TestParseFlagsClamps(t *testing.T) {
 		clampFlags()
 
 		out, err := json.Marshal(parsedFlags{
+			QuietHours:      quietHours.String(),
 			TickInterval:    *tickInterval,
 			RelevancePeriod: *relevancePeriod,
 			Retries:         *retries,
@@ -355,6 +357,39 @@ func TestParseFlagsClamps(t *testing.T) {
 		args  string
 		check func(*testing.T, parsedFlags)
 	}{
+		{
+			name: "quiet hours default to the night",
+			args: "-v",
+			check: func(t *testing.T, got parsedFlags) {
+				t.Helper()
+
+				if got.QuietHours != "23:00-06:00" {
+					t.Errorf("quietHours = %q, want 23:00-06:00", got.QuietHours)
+				}
+			},
+		},
+		{
+			name: "quiet hours can be moved",
+			args: "--quiethours=22:30-07:15",
+			check: func(t *testing.T, got parsedFlags) {
+				t.Helper()
+
+				if got.QuietHours != "22:30-07:15" {
+					t.Errorf("quietHours = %q, want 22:30-07:15", got.QuietHours)
+				}
+			},
+		},
+		{
+			name: "off turns quiet hours off",
+			args: "--quiethours=off",
+			check: func(t *testing.T, got parsedFlags) {
+				t.Helper()
+
+				if got.QuietHours != "off" {
+					t.Errorf("quietHours = %q, want off", got.QuietHours)
+				}
+			},
+		},
 		{
 			name: "sub-hour poll interval is raised to the floor",
 			args: "-i 1s",

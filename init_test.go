@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 )
 
@@ -121,4 +122,41 @@ func TestMarkWhatsAppPatchDone(t *testing.T) {
 			t.Fatalf("after %v (%d of %d): complete = %v", name, i+1, last+1, got)
 		}
 	}
+}
+
+// Each QR rotation emits a "code" event, but a phone link needs one code: a
+// fresh request every 20 seconds replaces the code the user is typing.
+func TestWhatsAppPairByPhoneRequestsOneCode(t *testing.T) {
+	ch := make(chan whatsmeow.QRChannelItem, 4)
+	for range 3 {
+		ch <- whatsmeow.QRChannelItem{Event: whatsmeow.QRChannelEventCode}
+	}
+
+	close(ch)
+
+	calls := 0
+
+	whatsAppPairByPhone(t.Context(), ch, func() (string, error) {
+		calls++
+
+		return "ABCD-EFGH", nil
+	})
+
+	if calls != 1 {
+		t.Errorf("PairPhone called %d times, want 1", calls)
+	}
+}
+
+// A request cut short by shutdown is no pairing failure; logger.Fatal here
+// would kill the test binary.
+func TestWhatsAppPairByPhoneToleratesCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	ch := make(chan whatsmeow.QRChannelItem, 1)
+	ch <- whatsmeow.QRChannelItem{Event: whatsmeow.QRChannelEventCode}
+
+	close(ch)
+
+	whatsAppPairByPhone(ctx, ch, func() (string, error) { return "", ctx.Err() })
 }

@@ -56,6 +56,11 @@ var (
 	ErrOAuthTokenMissing    = errors.New("no usable OAuth token file")
 )
 
+// httpTimeout bounds every Google request, refreshes included: oauth2 defaults to
+// http.DefaultClient and the context only ends on shutdown, so a server that never
+// answers would stall the poll loop for good.
+var httpTimeout = 30 * time.Second
+
 // browserOpen is a test seam; production uses browser.OpenURL.
 var browserOpen = browser.OpenURL
 
@@ -124,6 +129,8 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 // Poll cycles pass false: the flow binds the callback port and waits out
 // AuthTimeout for a consent nobody watching a daemon will give.
 func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, interactive bool) (*http.Client, error) {
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Timeout: httpTimeout})
+
 	tok, err := tokenFromFile(tokenPath)
 	saveToFile := false
 
@@ -335,9 +342,18 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	logger.Info().Msgf("Opening local Web server through system browser: %v", authURL)
 
-	if err := browserOpen(authURL); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrOAuthBrowser, err)
-	}
+	// Not awaited: browser.OpenURL waits for the command to exit, and a terminal
+	// browser stays in the foreground, which would hold off both AuthTimeout and
+	// SIGTERM below. Not fatal: over SSH the URL above, with the port forwarded,
+	// is the way in.
+	openBrowser := browserOpen
+
+	go func() {
+		if err := openBrowser(authURL); err != nil {
+			logger.Warn().Msgf("%v (%v); open %v in a browser, forwarding port %v if this host has none",
+				ErrOAuthBrowser, err, authURL, listener.Addr().(*net.TCPAddr).Port) //nolint:forcetypeassert // tcp listener
+		}
+	}()
 
 	var cb authCallback
 
@@ -431,7 +447,8 @@ func saveToken(tokenPath string, token *oauth2.Token) error {
 	return nil
 }
 
-// LoggingMiddleware logs one line per request.
+// LoggingMiddleware logs one line per request. The path, not the URI: the
+// callback's query carries the auth code and state.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
@@ -444,7 +461,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 
-		logger.Debug().Msgf("OAuth HTTP server request: method: %v, uri: %v, status: %v, client ip: %v, duration: %v",
-			r.Method, r.URL.RequestURI(), ww.Status(), clientIP, reqDuration)
+		logger.Debug().Msgf("OAuth HTTP server request: method: %v, path: %v, status: %v, client ip: %v, duration: %v",
+			r.Method, r.URL.Path, ww.Status(), clientIP, reqDuration)
 	})
 }
