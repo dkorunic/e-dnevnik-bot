@@ -58,13 +58,16 @@ func resetWhatsAppGroupCache(t *testing.T) {
 	whatsAppGroupsMu.Lock()
 	origResolved, origAt, origComplete := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppGroupsComplete
 	origIDs, origWarned, origPersisted := whatsAppResolvedUserIDs, whatsAppGroupsWarned, whatsAppGroupsPersisted
+	origPartial := whatsAppGroupsPartial
 	whatsAppGroupsResolved, whatsAppGroupsComplete, whatsAppResolvedUserIDs, whatsAppGroupsWarned = false, false, nil, ""
+	whatsAppGroupsPartial = false
 	whatsAppGroupsMu.Unlock()
 
 	t.Cleanup(func() {
 		whatsAppGroupsMu.Lock()
 		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppGroupsComplete = origResolved, origAt, origComplete
 		whatsAppResolvedUserIDs, whatsAppGroupsWarned, whatsAppGroupsPersisted = origIDs, origWarned, origPersisted
+		whatsAppGroupsPartial = origPartial
 		whatsAppGroupsMu.Unlock()
 	})
 }
@@ -226,5 +229,76 @@ func TestWhatsAppUnresolvedGroupsQueueMessage(t *testing.T) {
 				t.Errorf("SkipRecipients = %v, want %v: reached recipients must not get it twice", failed[0].Msg.SkipRecipients, want)
 			}
 		})
+	}
+}
+
+// TestWhatsAppPartialMatchQueuesForMissingGroups: a group the lookup could not
+// place misses the alert like any other unresolved one, and the matched names
+// reaching their groups does not change that. The message is queued for it,
+// whatever a later lookup says, until it matches.
+// Not parallel: writes the package-level group-resolution cache.
+func TestWhatsAppPartialMatchQueuesForMissingGroups(t *testing.T) {
+	resetWhatsAppGroupCache(t)
+
+	const (
+		static = "111@s.whatsapp.net"
+		found  = "9990001@g.us"
+		late   = "9990002@g.us"
+	)
+
+	groups := []string{"Razred 5.a", "Razred 5.b"}
+	groupA := &types.GroupInfo{JID: types.JID{User: "9990001", Server: types.GroupServer}, Name: "Razred 5.a"}
+	groupB := &types.GroupInfo{JID: types.JID{User: "9990002", Server: types.GroupServer}, Name: "Razred 5.b"}
+
+	lookup := func(lister *stubGroupLister) ([]string, bool) {
+		return whatsAppEffectiveUserIDs(context.Background(), lister, []string{static}, groups)
+	}
+
+	got, pending := lookup(&stubGroupLister{groups: []*types.GroupInfo{groupA}})
+	if !pending {
+		t.Fatalf("partial match = %v, not pending; the missing group's alert would be lost", got)
+	}
+
+	eDB, err := sqlitedb.New(context.Background(), filepath.Join(t.TempDir(), "wa-partial.db.sqlite"))
+	if err != nil {
+		t.Fatalf("sqlitedb.New() failed: %v", err)
+	}
+
+	defer eDB.Close() //nolint:errcheck
+
+	g := msgtypes.Message{Username: "u", Subject: "wa-partial", Descriptions: []string{"D"}, Fields: []string{"A"}}
+
+	cli := &stubWhatsAppSender{}
+	processWhatsApp(context.Background(), cli, eDB, g, got, pending, ratelimit.New(1000), 1)
+
+	if want := []string{static, found}; !slices.Equal(cli.sent, want) {
+		t.Errorf("sent to %v, want %v", cli.sent, want)
+	}
+
+	failed := queue.FetchFailedMsgs(context.Background(), eDB, WhatsAppQueueName)
+	if len(failed) != 1 {
+		t.Fatalf("FetchFailedMsgs = %+v, want the message queued for the missing group", failed)
+	}
+
+	// The cached fallbacks serve the same partial list, so they stay pending.
+	if _, pending := lookup(&stubGroupLister{err: errors.New("usync timeout")}); !pending {
+		t.Error("a failed lookup over a partial cache is not pending")
+	}
+
+	if _, pending := lookup(&stubGroupLister{}); !pending {
+		t.Error("an empty list over a partial cache is not pending")
+	}
+
+	// The group turns up: the queued row reaches it and nobody else twice.
+	got, pending = lookup(&stubGroupLister{groups: []*types.GroupInfo{groupA, groupB}})
+	if pending {
+		t.Errorf("full match = %v, still pending", got)
+	}
+
+	cli = &stubWhatsAppSender{}
+	processWhatsApp(context.Background(), cli, eDB, failed[0].Msg, got, pending, ratelimit.New(1000), 1)
+
+	if want := []string{late}; !slices.Equal(cli.sent, want) {
+		t.Errorf("resend went to %v, want only %v", cli.sent, want)
 	}
 }

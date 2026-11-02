@@ -96,6 +96,7 @@ var (
 	whatsAppGroupsMu         sync.Mutex // protects every whatsAppGroups* below and whatsAppResolvedUserIDs
 	whatsAppGroupsResolved   bool       // true once groups have been successfully resolved
 	whatsAppGroupsComplete   bool       // the cached resolution matched every configured name
+	whatsAppGroupsPartial    bool       // it left configured names unmatched; a reconnect clears Complete, not this
 	whatsAppGroupsResolvedAt time.Time  // when the cached resolution was made; re-resolve after whatsAppGroupsCacheTTL
 	whatsAppResolvedUserIDs  []string   // resolved JIDs cached across poll cycles
 	whatsAppGroupsWarned     string     // key of the last unmatched-names warning; "" once every name matches
@@ -403,19 +404,17 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		// the last good cache meanwhile. No stale limit here, unlike a zero
 		// match: a failed lookup says nothing about membership.
 		//
-		// With no cache to serve, the groups are pending: the caller queues
-		// each message for them rather than count the static recipients as
-		// complete delivery.
+		// With no cache to serve, or one missing some names, the groups are
+		// pending: the caller queues each message for them rather than count
+		// the static recipients as complete delivery.
 		whatsAppGroupsMu.Lock()
-		resolvedBefore := whatsAppGroupsResolved
+		resolvedBefore, partial := whatsAppGroupsResolved, whatsAppGroupsPartial
 		if resolvedBefore {
 			userIDs = whatsAppResolvedUserIDs
 		}
 		whatsAppGroupsMu.Unlock()
 
-		if !resolvedBefore {
-			return userIDs, true
-		}
+		return userIDs, !resolvedBefore || partial
 	case len(matched) > 0:
 		userIDs = resolved
 
@@ -426,6 +425,7 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		whatsAppGroupsMu.Lock()
 		whatsAppGroupsResolved = true
 		whatsAppGroupsComplete = len(unmatched) == 0
+		whatsAppGroupsPartial = len(unmatched) > 0
 		whatsAppGroupsResolvedAt = time.Now()
 		whatsAppResolvedUserIDs = userIDs
 
@@ -444,7 +444,7 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		whatsAppGroupsMu.Unlock()
 
 		if warn {
-			logger.Warn().Msgf("WhatsApp groups not found: %v; delivering to the other configured groups. Verify the bot is a member and the names match exactly",
+			logger.Warn().Msgf("WhatsApp groups not found: %v; delivering to the other configured groups and queueing their alerts for these. Verify the bot is a member and the names match exactly",
 				unmatched)
 		}
 
@@ -452,6 +452,11 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		if confFile, ok := ctx.Value(ConfFileKey).(string); persist && ok {
 			whatsAppPersistResolvedGroups(confFile, resolved[userIDSize:], matched)
 		}
+
+		// The unmatched names miss these alerts until they match, and those
+		// alerts are already flagged. After a config rewrite they are all that
+		// is left in groups, so a restart reaches the same answer below.
+		return userIDs, len(unmatched) > 0
 	default:
 		// Nothing matched. A list that comes back empty right after a
 		// reconnect looks the same as a typo, so a recent resolution is
@@ -466,6 +471,7 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 
 		dropped := false
 		pending := !whatsAppGroupsResolved || time.Since(whatsAppGroupsResolvedAt) >= whatsAppGroupsStaleLimit
+		partial := whatsAppGroupsPartial
 
 		if !pending {
 			userIDs = whatsAppResolvedUserIDs
@@ -490,12 +496,8 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 				groups, whatsAppGroupsStaleLimit)
 		}
 
-		if pending {
-			return userIDs, true
-		}
+		return userIDs, pending || partial
 	}
-
-	return userIDs, false
 }
 
 // whatsAppGroupsLatchWarning reports whether a warning about names, of the

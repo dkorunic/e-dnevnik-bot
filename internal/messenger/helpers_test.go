@@ -502,7 +502,8 @@ func setGroupCache(t *testing.T, ids []string, at time.Time) {
 	whatsAppGroupsMu.Lock()
 	origResolved, origAt, origIDs := whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs
 	origComplete, origWarned, origPersisted := whatsAppGroupsComplete, whatsAppGroupsWarned, whatsAppGroupsPersisted
-	whatsAppGroupsResolved, whatsAppGroupsComplete = ids != nil, ids != nil
+	origPartial := whatsAppGroupsPartial
+	whatsAppGroupsResolved, whatsAppGroupsComplete, whatsAppGroupsPartial = ids != nil, ids != nil, false
 	whatsAppGroupsWarned, whatsAppGroupsPersisted = "", nil
 	whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs = at, ids
 	whatsAppGroupsMu.Unlock()
@@ -511,6 +512,7 @@ func setGroupCache(t *testing.T, ids []string, at time.Time) {
 		whatsAppGroupsMu.Lock()
 		whatsAppGroupsResolved, whatsAppGroupsResolvedAt, whatsAppResolvedUserIDs = origResolved, origAt, origIDs
 		whatsAppGroupsComplete, whatsAppGroupsWarned, whatsAppGroupsPersisted = origComplete, origWarned, origPersisted
+		whatsAppGroupsPartial = origPartial
 		whatsAppGroupsMu.Unlock()
 	})
 }
