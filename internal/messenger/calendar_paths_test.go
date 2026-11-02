@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -189,22 +188,52 @@ func TestProcessCalendarConflictIsIdempotentSuccess(t *testing.T) {
 	}
 }
 
-// TestProcessCalendarPermanentErrorIsDropped: a 400/404 will fail identically
+// TestProcessCalendarPermanentErrorIsDropped: a 400 will fail identically
 // forever, so it is poison-dropped rather than requeued. (403 is lost write
-// access, account-wide: a config error, queued.) Requeueing would retry
-// it every cycle until MaxQueueAge, with a loud error each time.
+// access and 404 a lost calendar, both account-wide: config errors, queued.)
+// Requeueing would retry it every cycle until MaxQueueAge, with a loud error
+// each time.
 func TestProcessCalendarPermanentErrorIsDropped(t *testing.T) {
 	t.Parallel()
 
-	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound} {
-		eDB := calendarTestDB(t)
-		svc, _ := calendarStub(t, status, `{"error":{"code":`+strconv.Itoa(status)+`,"message":"nope"}}`)
+	eDB := calendarTestDB(t)
+	svc, _ := calendarStub(t, http.StatusBadRequest, `{"error":{"code":400,"message":"nope"}}`)
 
-		processCalendar(t.Context(), eDB, futureExam(), ratelimit.NewUnlimited(), svc, "primary", 1)
+	processCalendar(t.Context(), eDB, futureExam(), ratelimit.NewUnlimited(), svc, "primary", 1)
 
-		if got := queue.FetchFailedMsgs(t.Context(), eDB, CalendarQueueName); len(got) != 0 {
-			t.Errorf("status %d requeued %+v; a permanent failure must be dropped, not retried forever", status, got)
-		}
+	if got := queue.FetchFailedMsgs(t.Context(), eDB, CalendarQueueName); len(got) != 0 {
+		t.Errorf("requeued %+v; a permanent failure must be dropped, not retried forever", got)
+	}
+}
+
+// TestProcessCalendarMissingCalendarIsQueued: the calendar ID is cached across
+// cycles, so a calendar deleted mid-run answers 404 to every insert. That says
+// nothing about the exam, which is already dedup-flagged: it must be queued, the
+// cycle stopped, and the ID resolved afresh next cycle.
+// Not parallel: writes the package-level calendar ID.
+func TestProcessCalendarMissingCalendarIsQueued(t *testing.T) {
+	origSrv, origID := calendarSrv, calendarID
+	calendarID = "deleted"
+
+	t.Cleanup(func() { calendarSrv, calendarID = origSrv, origID })
+
+	eDB := calendarTestDB(t)
+	svc, inserts := calendarStub(t, http.StatusNotFound, `{"error":{"code":404,"message":"Not Found"}}`)
+
+	if !processCalendar(t.Context(), eDB, futureExam(), ratelimit.NewUnlimited(), svc, "deleted", 3) {
+		t.Error("processCalendar() = false, want the cycle stopped: every other exam would hit the same missing calendar")
+	}
+
+	if got := inserts.Load(); got != 1 {
+		t.Errorf("server saw %d inserts, want 1: retrying cannot bring a calendar back", got)
+	}
+
+	if got := queue.FetchFailedMsgs(t.Context(), eDB, CalendarQueueName); len(got) != 1 {
+		t.Errorf("FetchFailedMsgs = %+v, want the exam queued, not dropped", got)
+	}
+
+	if calendarID != "" {
+		t.Errorf("calendarID = %q, want it forgotten so the next cycle resolves the name again", calendarID)
 	}
 }
 

@@ -131,12 +131,17 @@ func startProfiling() func() {
 }
 
 // signalContext returns the context whose end stops the bot: a signal, or
-// messenger.RequestShutdown.
+// messenger.RequestShutdown, which also fails the run. Every caller of that is
+// reporting something unrecoverable, and monitoring and Restart=on-failure read
+// the exit status.
 func signalContext() (context.Context, context.CancelFunc) {
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	ctx, cancel := context.WithCancel(sigCtx)
 
-	messenger.SetShutdown(cancel)
+	messenger.SetShutdown(func() {
+		exitWithError.Store(true)
+		cancel()
+	})
 
 	return ctx, func() {
 		cancel()
@@ -398,9 +403,12 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 	if err != nil {
 		// Without the dedup store nothing can tell a new event from a seen one,
 		// so skip the cycle rather than run blind. versionCheck is already in
-		// flight and still has to be awaited.
-		logger.Error().Msgf("Unable to open application database, skipping this cycle: %v", err)
-		exitWithError.Store(true)
+		// flight and still has to be awaited. A shutdown cutting the open short
+		// is no failure.
+		if ctx.Err() == nil {
+			logger.Error().Msgf("Unable to open application database, skipping this cycle: %v", err)
+			exitWithError.Store(true)
+		}
 
 		wgVersion.Wait()
 
@@ -438,7 +446,7 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 	// Everything is delivered or queued by now.
 	queue.ClearOutbox(ctx, eDB)
 
-	closeDB(eDB)
+	closeCycleDB(eDB)
 }
 
 // startSystemdWatchdog heartbeats until ctx is cancelled, when one is

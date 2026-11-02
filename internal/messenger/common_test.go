@@ -237,7 +237,7 @@ func TestMarkPermanentWrapping(t *testing.T) {
 		{"whatsapp", whatsmeow.ErrUnknownServer, markWhatsAppPermanent},
 		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}}, markDiscordPermanent},
 		{"slack", slack.StatusCodeError{Code: http.StatusNotFound}, markSlackPermanent},
-		{"calendar", &googleapi.Error{Code: http.StatusNotFound}, markCalendarPermanent},
+		{"calendar", &googleapi.Error{Code: http.StatusBadRequest}, markCalendarPermanent},
 		{"caldav", &caldavStatusError{code: http.StatusBadRequest}, markCalDAVPermanent},
 	}
 
@@ -257,7 +257,7 @@ func TestMarkPermanentWrapping(t *testing.T) {
 }
 
 // TestMarkCalDAVPermanentClasses: other 4xx will never succeed; 408, 423, 429
-// and 5xx may. Redirects and 401/403/404 are config errors: not permanent
+// and 5xx may. Redirects and 401/403/404/405/409 are config errors: not permanent
 // (queued), yet they must still stop retry-go.
 func TestMarkCalDAVPermanentClasses(t *testing.T) {
 	t.Parallel()
@@ -269,6 +269,8 @@ func TestMarkCalDAVPermanentClasses(t *testing.T) {
 		http.StatusUnauthorized:        false,
 		http.StatusForbidden:           false,
 		http.StatusNotFound:            false,
+		http.StatusMethodNotAllowed:    false,
+		http.StatusConflict:            false,
 		http.StatusRequestTimeout:      false,
 		http.StatusTooManyRequests:     false,
 		http.StatusLocked:              false,
@@ -281,7 +283,7 @@ func TestMarkCalDAVPermanentClasses(t *testing.T) {
 		}
 	}
 
-	for _, code := range []int{http.StatusFound, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
+	for _, code := range []int{http.StatusFound, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusConflict} {
 		if retry.IsRecoverable(markCalDAVPermanent(&caldavStatusError{code: code})) {
 			t.Errorf("status %d is recoverable; retrying cannot fix a config error", code)
 		}

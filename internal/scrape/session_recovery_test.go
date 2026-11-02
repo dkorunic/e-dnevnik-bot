@@ -6,6 +6,7 @@ package scrape
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/internal/fetch"
@@ -193,4 +194,29 @@ func TestMarkPermanentStopsOnAuthMarkerDrift(t *testing.T) {
 	if !isUnrecoverable(err) {
 		t.Error("markPermanent left auth-marker drift retryable; retrying cannot resolve it")
 	}
+}
+
+// TestScrapeRetrierWaitsWithJitter: the wait is the delay plus up to
+// scrapeRetryMaxJitter. BackOffDelay alone ignores MaxJitter, so every user's
+// retries landed on the portal in lockstep.
+func TestScrapeRetrierWaitsWithJitter(t *testing.T) {
+	t.Parallel()
+
+	const delay = time.Millisecond
+
+	// A jittered wait stays under this by chance once in 25 tries, so ten in a
+	// row means there is no jitter.
+	const jittered = 20 * time.Millisecond
+
+	for range 10 {
+		start := time.Now()
+
+		_ = scrapeRetrier(t.Context(), 2, delay).Do(func() error { return errors.New("portal hiccup") })
+
+		if elapsed := time.Since(start); elapsed >= jittered {
+			return
+		}
+	}
+
+	t.Errorf("no retry waited %v or longer; the wait carries no jitter", jittered)
 }

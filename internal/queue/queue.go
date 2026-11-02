@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"maps"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -119,8 +120,17 @@ type storeFailureKey struct {
 
 var (
 	storeFailuresMu sync.Mutex
-	storeFailures   = map[storeFailureKey]uint64{} // grows only on failed writes
+	storeFailures   = map[storeFailureKey]uint64{}
 )
+
+// ForgetStoreFailures drops eDB's counts, which pin its handle: a new one opens
+// every poll cycle. Call it once nothing reads them any more.
+func ForgetStoreFailures(eDB *sqlitedb.Edb) {
+	storeFailuresMu.Lock()
+	defer storeFailuresMu.Unlock()
+
+	maps.DeleteFunc(storeFailures, func(k storeFailureKey, _ uint64) bool { return k.eDB == eDB })
+}
 
 // StoreFailureCount returns how many writes to queue key have failed so far.
 func StoreFailureCount(eDB *sqlitedb.Edb, key []byte) uint64 {

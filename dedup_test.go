@@ -7,6 +7,7 @@ import (
 	"context"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -447,5 +448,82 @@ func TestMsgDedupMigratesPreSeedMarkerDatabase(t *testing.T) {
 		userGrade("a@skole.hr", "Matematika"), userGrade("a@skole.hr", "Fizika"))
 	if len(got) != 1 || got[0].Subject != "Fizika" {
 		t.Fatalf("first cycle after upgrade forwarded %+v, want the new Fizika grade", got)
+	}
+}
+
+// lateCancelCtx is an already cancelled context whose Err reads nil the first
+// live times: a shutdown landing just after a guard checked for one.
+type lateCancelCtx struct {
+	context.Context
+
+	checks atomic.Int32
+	live   int32
+}
+
+func (c *lateCancelCtx) Err() error {
+	if c.checks.Add(1) <= c.live {
+		return nil
+	}
+
+	return c.Context.Err()
+}
+
+func newLateCancelCtx(live int32) *lateCancelCtx {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	return &lateCancelCtx{Context: ctx, live: live}
+}
+
+// TestMsgDedupShutdownDuringFlagIsNotAFailure: most of dedup's time is in the
+// database, so SIGTERM usually lands past the loop's guard and fails the flag
+// write. A clean stop must still exit zero, and the event stays unflagged.
+// Not parallel: mutates package-level flag pointers and uses the latch.
+func TestMsgDedupShutdownDuringFlagIsNotAFailure(t *testing.T) {
+	resetExitLatch(t)
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	eDB := openExistingDB(t, filepath.Join(t.TempDir(), "late-cancel.db"))
+	defer eDB.Close() //nolint:errcheck
+
+	if got := runDedup(t, newLateCancelCtx(1), eDB, grade("Matematika")); len(got) != 0 {
+		t.Fatalf("forwarded %d alerts on a cancelled context, want 0", len(got))
+	}
+
+	if exitWithError.Load() {
+		t.Error("a shutdown during the flag write latched the run as failed")
+	}
+
+	if got := runDedup(t, t.Context(), eDB, grade("Matematika")); len(got) != 1 {
+		t.Errorf("forwarded %d alerts on the following live run, want 1", len(got))
+	}
+}
+
+// TestMsgDedupShutdownDuringSeedLoadIsNotAFailure: a fresh database reports that
+// it could not record first-run state, which a cancelled read is not.
+// Not parallel: mutates package-level flag pointers and uses the latch.
+func TestMsgDedupShutdownDuringSeedLoadIsNotAFailure(t *testing.T) {
+	resetExitLatch(t)
+
+	eDB, err := sqlitedb.New(t.Context(), filepath.Join(t.TempDir(), "fresh.db"))
+	if err != nil {
+		t.Fatalf("sqlitedb.New() = %v", err)
+	}
+	defer eDB.Close() //nolint:errcheck
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	scraped := make(chan msgtypes.Message)
+	close(scraped)
+
+	var wg sync.WaitGroup
+
+	msgDedup(ctx, eDB, &wg, scraped, make(chan msgtypes.Message), nil, &seedRun{failed: &userSet{}, users: []string{"u"}})
+	wg.Wait()
+
+	if exitWithError.Load() {
+		t.Error("a shutdown while loading first-run markers latched the run as failed")
 	}
 }

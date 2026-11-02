@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/avast/retry-go/v5"
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/rs/zerolog"
@@ -33,6 +34,9 @@ func (timeoutErr) Temporary() bool { return true }
 func TestIsUnreachable(t *testing.T) {
 	t.Parallel()
 
+	timeout := &url.Error{Op: "Post", URL: "u", Err: timeoutErr{}}
+	reset := &url.Error{Op: "Post", URL: "u", Err: &net.OpError{Op: "read", Err: errors.New("reset")}}
+
 	tests := []struct {
 		err  error
 		name string
@@ -47,6 +51,12 @@ func TestIsUnreachable(t *testing.T) {
 		{name: "reset mid-request", err: &url.Error{Op: "Post", URL: "u", Err: &net.OpError{Op: "read", Err: errors.New("reset")}}},
 		{name: "shutdown", err: &url.Error{Op: "Post", URL: "u", Err: context.Canceled}},
 		{name: "an API answer", err: errors.New("internal_error")},
+		// The state the next message would meet is the last attempt's. errors.As
+		// on the aggregate answered for whichever attempt came first.
+		{name: "recovered from a timeout, then reset", err: retry.Error{timeout, reset, reset}},
+		{name: "reset, then timing out", err: retry.Error{reset, timeout, timeout}, want: true},
+		{name: "an API answer after a timeout", err: retry.Error{timeout, errors.New("internal_error")}},
+		{name: "shutdown after a timeout", err: retry.Error{timeout, context.Canceled}},
 	}
 
 	for _, tt := range tests {

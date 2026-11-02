@@ -6,13 +6,18 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/config"
+	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
@@ -253,5 +258,54 @@ func TestRunPollCycleSkipsCycleOnUnopenableDB(t *testing.T) {
 
 	if !exitWithError.Load() {
 		t.Error("a cycle skipped for an unopenable database did not flag the run as failed")
+	}
+}
+
+// runPollCycle must leave no failure behind for its closed handle: a failed send
+// and a failed queue write are what the two per-database records hold.
+func TestCloseCycleDBForgetsFailures(t *testing.T) {
+	resetExitLatch(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	cfg := messenger.CalDAVConfig{URL: server.URL, Username: "u", Password: "p", Retries: 1}
+
+	eDB, err := sqlitedb.New(t.Context(), filepath.Join(t.TempDir(), "cycle.db"))
+	if err != nil {
+		t.Fatalf("sqlitedb.New() = %v", err)
+	}
+
+	exam := make(chan msgtypes.Message, 1)
+	exam <- msgtypes.Message{
+		Code: msgtypes.Exam, Username: "u", Subject: "s", Fields: []string{"s"},
+		Timestamp: time.Now().AddDate(0, 0, 7),
+	}
+	close(exam)
+
+	if err := messenger.CalDAV(t.Context(), eDB, exam, cfg); !errors.Is(err, messenger.ErrSendFailed) {
+		t.Fatalf("CalDAV() = %v, want ErrSendFailed from the rejected PUT", err)
+	}
+
+	closeCycleDB(eDB)
+
+	if err := queue.StoreFailedMsgs(t.Context(), eDB, []byte("q"), msgtypes.Message{}); err == nil {
+		t.Fatal("StoreFailedMsgs() on a closed database succeeded")
+	}
+
+	closeCycleDB(eDB)
+
+	if got := queue.StoreFailureCount(eDB, []byte("q")); got != 0 {
+		t.Errorf("StoreFailureCount() = %d after closeCycleDB, want 0", got)
+	}
+
+	// An empty cycle on the same handle reports whatever is still recorded.
+	none := make(chan msgtypes.Message)
+	close(none)
+
+	if err := messenger.CalDAV(t.Context(), eDB, none, cfg); err != nil {
+		t.Errorf("CalDAV() = %v after closeCycleDB, want the send failure forgotten", err)
 	}
 }

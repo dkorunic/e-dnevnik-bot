@@ -139,6 +139,15 @@ func ensureCalendarInit(ctx context.Context, tokFile, name string) (*calendar.Se
 	return calendarSrv, calendarID, nil
 }
 
+// forgetCalendarID makes the next cycle resolve the calendar name again, which
+// finds a recreated calendar, or fails init and queues until there is one.
+func forgetCalendarID() {
+	calendarMu.Lock()
+	defer calendarMu.Unlock()
+
+	calendarID = ""
+}
+
 // CalendarDeferred is the queue-only stub for a Calendar configured but not yet
 // initialisable — a headless daemon before interactive OAuth. Exams are queued
 // for insertion once OAuth completes rather than flagged and lost; anything else
@@ -174,7 +183,8 @@ func calendarHasReason(gaErr *googleapi.Error, reasons []string) bool {
 // Config errors, queued until re-authorised: a revoked or expired grant or a
 // deleted OAuth client (oauth.IsAuthRejected; the transport's error never
 // becomes a googleapi.Error), a 401, an exhausted daily quota, and any other
-// 403 except a rate limit — lost write access to the calendar is account-wide.
+// 403 except a rate limit — lost write access to the calendar is account-wide —
+// and a 404, the only thing an insert can miss being the calendar itself.
 func markCalendarPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -186,7 +196,7 @@ func markCalendarPermanent(err error) error {
 
 	if gaErr, ok := errors.AsType[*googleapi.Error](err); ok {
 		switch {
-		case gaErr.Code == http.StatusUnauthorized:
+		case gaErr.Code == http.StatusUnauthorized, gaErr.Code == http.StatusNotFound:
 			return markConfigErr(err)
 		case gaErr.Code == http.StatusForbidden && calendarHasReason(gaErr, calendarRateReasons):
 			return err
@@ -264,6 +274,11 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 				logger.Debug().Msgf("Google Calendar event already exists (idempotent insert): %v", newEvent.Id)
 
 				return nil
+			}
+
+			// Per attempt, like the 409. The cached ID is what went stale.
+			if gaErr, ok := errors.AsType[*googleapi.Error](err); ok && gaErr.Code == http.StatusNotFound {
+				forgetCalendarID()
 			}
 
 			return markCalendarPermanent(err)

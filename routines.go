@@ -451,9 +451,12 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			seeded, ok = loadSeeded(ctx, eDB, sr)
 			if !ok {
 				// Flag nothing, digest claims included: see loadSeeded. The
-				// drain is what lets the scrapers finish (cf. recoverDedup).
-				logger.Error().Msg("Unable to record first-run state in a new database, skipping this cycle")
-				exitWithError.Store(true)
+				// drain is what lets the scrapers finish (cf. recoverDedup). A
+				// shutdown cutting the read short is no failure.
+				if ctx.Err() == nil {
+					logger.Error().Msg("Unable to record first-run state in a new database, skipping this cycle")
+					exitWithError.Store(true)
+				}
 
 				for range gradesScraped {
 				}
@@ -504,6 +507,13 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				return queue.OutboxRow(g)
 			})
 			if err != nil {
+				// The guard above cannot cover the write itself. Judged by ctx, not
+				// the error, which is the driver's to word: unflagged events
+				// re-scrape next run either way.
+				if ctx.Err() != nil {
+					return
+				}
+
 				// Not Fatal: os.Exit here would bypass in-flight messenger
 				// queue writes and deferred cleanup. RequestShutdown runs the
 				// normal graceful shutdown instead; unforwarded events are

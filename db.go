@@ -7,6 +7,8 @@ import (
 	"context"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
@@ -23,6 +25,18 @@ func openDB(ctx context.Context, file string) (*sqlitedb.Edb, error) {
 	}
 
 	return eDB, nil
+}
+
+// closeCycleDB ends a poll cycle's handle, along with the per-database failure
+// records that would otherwise keep it alive for the life of a daemon. Only once
+// every stage has finished: the messengers and ClearOutbox read those records.
+//
+// Not for -t, whose one handle goes with the process.
+func closeCycleDB(eDB *sqlitedb.Edb) {
+	queue.ForgetStoreFailures(eDB)
+	messenger.ForgetSendFailures(eDB)
+
+	closeDB(eDB)
 }
 
 // dbCloser is a seam: database/sql closes its pool idempotently and never fails

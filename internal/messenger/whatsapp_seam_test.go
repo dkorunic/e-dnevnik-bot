@@ -177,26 +177,31 @@ func TestWhatsAppReconnectKeepsGroupFallback(t *testing.T) {
 }
 
 // TestWhatsAppUnresolvedGroupsQueueMessage: a failed lookup with no cache (the
-// first cycle after a restart) left the groups out of the recipient list, so
-// their alerts were neither sent nor queued — and a groups-only config
-// "delivered" to nobody. The message must be queued for the groups, skipping
-// the static recipients it did reach.
+// first cycle after a restart), or one that matched nothing, left the groups out
+// of the recipient list, so their alerts were neither sent nor queued — and a
+// groups-only config "delivered" to nobody. The message must be queued for the
+// groups, skipping the static recipients it did reach.
 // Not parallel: writes the package-level group-resolution cache.
 func TestWhatsAppUnresolvedGroupsQueueMessage(t *testing.T) {
 	resetWhatsAppGroupCache(t)
 
 	static := "111@s.whatsapp.net"
-	lister := &stubGroupLister{err: errors.New("usync timeout")}
+	failing := &stubGroupLister{err: errors.New("usync timeout")}
+	other := &stubGroupLister{groups: []*types.GroupInfo{{JID: types.JID{User: "9990001", Server: types.GroupServer}, Name: "Some Other Group"}}}
 
 	for _, tt := range []struct {
+		lister  *stubGroupLister
 		name    string
 		userIDs []string
 	}{
-		{name: "with static recipients", userIDs: []string{static}},
-		{name: "groups only"},
+		{name: "lookup failed, with static recipients", lister: failing, userIDs: []string{static}},
+		{name: "lookup failed, groups only", lister: failing},
+		{name: "nothing matched, with static recipients", lister: other, userIDs: []string{static}},
+		{name: "nothing matched, groups only", lister: other},
+		{name: "empty list, groups only", lister: &stubGroupLister{}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, pending := whatsAppEffectiveUserIDs(context.Background(), lister, tt.userIDs, []string{"Razred 5.a"})
+			got, pending := whatsAppEffectiveUserIDs(context.Background(), tt.lister, tt.userIDs, []string{"Razred 5.a"})
 			if !pending {
 				t.Fatalf("whatsAppEffectiveUserIDs() = %v, not pending; the unresolved groups would be skipped silently", got)
 			}

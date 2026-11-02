@@ -392,3 +392,21 @@ func TestDigestLatePollCatchesUp(t *testing.T) {
 		t.Fatalf("late poll sent %+v, want this week's digest", got)
 	}
 }
+
+// TestDigestShutdownDuringClaimIsNotAFailure: the claim is a database write, so
+// SIGTERM can land past sendDigests' guard. A clean stop must still exit zero.
+// Not parallel: uses the latch.
+func TestDigestShutdownDuringClaimIsNotAFailure(t *testing.T) {
+	resetExitLatch(t)
+
+	eDB := openExistingDB(t, filepath.Join(t.TempDir(), "digest-late-cancel.db"))
+	defer eDB.Close() //nolint:errcheck
+
+	dg := &digestRun{now: sundayEvening, users: []string{"u"}, day: time.Sunday, hour: 18}
+
+	sendDigests(newLateCancelCtx(1), eDB, dg, nil, make(chan msgtypes.Message, 1))
+
+	if exitWithError.Load() {
+		t.Error("a shutdown during the digest claim latched the run as failed")
+	}
+}

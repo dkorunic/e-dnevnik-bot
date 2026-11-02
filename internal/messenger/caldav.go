@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -131,11 +132,11 @@ func CalDAV(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, 
 // is released, and dropping would lose the exam. 412 never gets here: putCalDAV
 // reads it as success.
 //
-// A redirect, 401, 403 and 404 stop the retry loop but are queued, not
+// A redirect, 401, 403, 404, 405 and 409 stop the retry loop but are queued, not
 // dropped: CalDAV has no init step, so this PUT is the first credential and URL
 // check, and a rotated app password or mistyped collection would otherwise
 // discard every already dedup-flagged exam until the config is fixed. Google
-// Calendar queues in the same situation because its init fails first.
+// Calendar queues in the same situation.
 func markCalDAVPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -158,11 +159,18 @@ func markCalDAVPermanent(err error) error {
 
 // isCalDAVConfigStatus reports an answer that means the [caldav] credentials or
 // URL are wrong, which a config fix and restart will cure. A redirect names the
-// URL to configure instead; it is never followed (see caldavClient).
+// URL to configure instead; it is never followed (see caldavClient). A URL that
+// names no collection may answer 404, but RFC 4918 9.7.1 has a PUT below a missing
+// one answer 409, and a URL naming something else can answer 405.
 func isCalDAVConfigStatus(code int) bool {
 	isRedirect := code >= 300 && code < 400
 
-	return isRedirect || code == http.StatusUnauthorized || code == http.StatusForbidden || code == http.StatusNotFound
+	return isRedirect || slices.Contains(caldavConfigStatuses, code)
+}
+
+var caldavConfigStatuses = []int{
+	http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound,
+	http.StatusMethodNotAllowed, http.StatusConflict,
 }
 
 // processCalDAV PUTs g as a create-only all-day event, re-queueing on a

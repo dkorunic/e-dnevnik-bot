@@ -600,16 +600,21 @@ func TestWhatsAppEffectiveUserIDsKeepsCacheOnZeroMatch(t *testing.T) {
 
 // TestWhatsAppEffectiveUserIDsDropsStaleCacheOnZeroMatch: past the stale limit
 // the bot has most likely left the groups; serving the cache on would fail
-// every send to them on every cycle.
+// every send to them on every cycle. They stay pending, so an alert is queued
+// for them rather than lost should they match again.
 // Not parallel: writes the package-level group-resolution cache.
 func TestWhatsAppEffectiveUserIDsDropsStaleCacheOnZeroMatch(t *testing.T) {
 	static := []string{"111@s.whatsapp.net"}
 
 	setGroupCache(t, []string{"111@s.whatsapp.net", "9990001@g.us"}, time.Now().Add(-whatsAppGroupsStaleLimit-time.Hour))
 
-	got, _ := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, static, []string{"Razred 5.a"})
+	got, pending := whatsAppEffectiveUserIDs(t.Context(), fakeGroupLister{}, static, []string{"Razred 5.a"})
 	if !reflect.DeepEqual(got, static) {
 		t.Errorf("whatsAppEffectiveUserIDs() = %v, want only the static IDs %v", got, static)
+	}
+
+	if !pending {
+		t.Error("the dropped groups are not pending; their alerts would be neither sent nor queued")
 	}
 }
 

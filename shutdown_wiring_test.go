@@ -17,6 +17,8 @@ import (
 // RequestShutdown has to end the same context the signals do.
 // Not parallel: registers the process-wide shutdown function.
 func TestSignalContextEndsOnRequestShutdown(t *testing.T) {
+	resetExitLatch(t)
+
 	ctx, stop := signalContext()
 	defer stop()
 
@@ -28,6 +30,40 @@ func TestSignalContextEndsOnRequestShutdown(t *testing.T) {
 	case <-ctx.Done():
 	case <-time.After(5 * time.Second):
 		t.Error("RequestShutdown did not end the main context")
+	}
+}
+
+// RequestShutdown answers an unrecoverable condition, such as a WhatsApp logout,
+// so the exit must say so: monitoring and Restart=on-failure read the status.
+// Not parallel: registers the process-wide shutdown function and uses the latch.
+func TestRequestShutdownLatchesFailure(t *testing.T) {
+	resetExitLatch(t)
+
+	_, stop := signalContext()
+	defer stop()
+
+	t.Cleanup(func() { messenger.SetShutdown(nil) })
+
+	messenger.RequestShutdown()
+
+	if !exitWithError.Load() {
+		t.Error("RequestShutdown left the run latched as a success")
+	}
+}
+
+// Ending the context is what a clean stop does too, which must stay a success.
+// Not parallel: registers the process-wide shutdown function and uses the latch.
+func TestSignalContextStopIsNotAFailure(t *testing.T) {
+	resetExitLatch(t)
+
+	_, stop := signalContext()
+
+	t.Cleanup(func() { messenger.SetShutdown(nil) })
+
+	stop()
+
+	if exitWithError.Load() {
+		t.Error("a clean stop latched the run as failed")
 	}
 }
 

@@ -270,9 +270,9 @@ func TestMarkPermanentClassification(t *testing.T) {
 
 		// Calendar.
 		{
-			name:      "calendar 404 is permanent",
+			name:      "calendar 400 is permanent",
 			mark:      markCalendarPermanent,
-			err:       &googleapi.Error{Code: http.StatusNotFound},
+			err:       &googleapi.Error{Code: http.StatusBadRequest},
 			permanent: true,
 		},
 		{
@@ -353,7 +353,7 @@ func TestMarkPermanentSurvivesWrapping(t *testing.T) {
 		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
 		{name: "mail", mark: markMailPermanent, err: smtpReplyError(t, "550 5.7.1 rejected")},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
-		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},
+		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusBadRequest}},
 	}
 
 	for _, tt := range tests {
@@ -391,7 +391,7 @@ func TestPermanenceSurvivesRetryDo(t *testing.T) {
 		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
 		{name: "mail", mark: markMailPermanent, err: smtpReplyError(t, "550 5.7.1 rejected")},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
-		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusNotFound}},
+		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusBadRequest}},
 	}
 
 	const attempts = 5

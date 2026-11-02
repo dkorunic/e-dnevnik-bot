@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"sync"
@@ -132,7 +133,7 @@ type sendFailureKey struct {
 
 var (
 	sendFailuresMu sync.Mutex
-	sendFailures   = map[sendFailureKey]struct{}{} // grows only on failed sends
+	sendFailures   = map[sendFailureKey]struct{}{}
 )
 
 // recordSendFailure notes a send that did not land, for the entry point's return.
@@ -160,11 +161,27 @@ func sendFailureErr(eDB *sqlitedb.Edb, queueName []byte) error {
 	return nil
 }
 
+// ForgetSendFailures drops eDB's entries, which pin its handle: a new one opens
+// every poll cycle. Call it once its messengers have returned.
+func ForgetSendFailures(eDB *sqlitedb.Edb) {
+	sendFailuresMu.Lock()
+	defer sendFailuresMu.Unlock()
+
+	maps.DeleteFunc(sendFailures, func(k sendFailureKey, _ struct{}) bool { return k.eDB == eDB })
+}
+
 // isUnreachable reports a timeout or a failed dial: nothing the server said about
 // this message, so the next one would wait out the same timeouts while every
 // messenger's next poll waits too. A reset mid-request stays per message, and
 // whatsmeow's ErrNotConnected too: it clears on a reconnect, within the retries.
+//
+// Of a retry.Do aggregate only the last attempt counts: it is what the next
+// message would meet, and errors.As would answer for whichever came first.
 func isUnreachable(err error) bool {
+	if agg, ok := errors.AsType[retry.Error](err); ok {
+		err = agg.LastError()
+	}
+
 	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}

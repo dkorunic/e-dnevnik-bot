@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
@@ -103,5 +104,26 @@ func TestPairErrorOnPairedClientKeepsSession(t *testing.T) {
 		t.Fatalf("a PairError on an already-paired client deleted the session database; a healthy install would silently unpair and require a new QR scan\noutput:\n%s", out)
 	default:
 		t.Fatalf("child exited %d, want %d\noutput:\n%s", exitErr.ExitCode(), exitSessionKept, out)
+	}
+}
+
+// A new database handle opens every poll cycle, so an entry nobody forgets pins a
+// closed handle for each failing cycle of a daemon's life.
+func TestForgetSendFailuresDropsOnlyThatDatabase(t *testing.T) {
+	t.Parallel()
+
+	finished, running := &sqlitedb.Edb{}, &sqlitedb.Edb{}
+
+	recordSendFailure(finished, MailQueueName, nil)
+	recordSendFailure(running, MailQueueName, nil)
+
+	ForgetSendFailures(finished)
+
+	if err := sendFailureErr(finished, MailQueueName); err != nil {
+		t.Errorf("sendFailureErr(finished) = %v, want nil once forgotten", err)
+	}
+
+	if err := sendFailureErr(running, MailQueueName); err == nil {
+		t.Error("forgetting one database also forgot another's failures")
 	}
 }

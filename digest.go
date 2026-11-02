@@ -212,6 +212,11 @@ func sendDigests(ctx context.Context, eDB *sqlitedb.Edb, dg *digestRun, exams ma
 
 		claimed, err := claimDigestWeek(ctx, eDB, user, monday)
 		if err != nil {
+			// A shutdown cutting the write short: unclaimed, so next run retries.
+			if ctx.Err() != nil {
+				return
+			}
+
 			logger.Error().Msgf("Unable to record weekly exam digest for %v: %v", user, err)
 			exitWithError.Store(true)
 

@@ -196,7 +196,9 @@ func TestProcessCalDAVStatusHandling(t *testing.T) {
 		{name: "401 bad credentials queued", status: http.StatusUnauthorized, retries: 3, wantPuts: 1, wantQueued: true},
 		{name: "403 forbidden queued", status: http.StatusForbidden, retries: 3, wantPuts: 1, wantQueued: true},
 		{name: "404 wrong collection queued", status: http.StatusNotFound, retries: 3, wantPuts: 1, wantQueued: true},
-		{name: "405 not a collection, dropped", status: http.StatusMethodNotAllowed, retries: 3, wantPuts: 1},
+		{name: "405 not a collection queued", status: http.StatusMethodNotAllowed, retries: 3, wantPuts: 1, wantQueued: true},
+		// RFC 4918 9.7.1: what a PUT below a mistyped collection must answer.
+		{name: "409 missing parent collection queued", status: http.StatusConflict, retries: 3, wantPuts: 1, wantQueued: true},
 		{name: "415 dropped", status: http.StatusUnsupportedMediaType, retries: 3, wantPuts: 1},
 		{name: "408 retried then queued", status: http.StatusRequestTimeout, retries: 2, wantPuts: 2, wantQueued: true},
 		{name: "429 retried then queued", status: http.StatusTooManyRequests, retries: 2, wantPuts: 2, wantQueued: true},

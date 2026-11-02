@@ -130,6 +130,25 @@ func TestRunPollCycleCompletes(t *testing.T) {
 	}
 }
 
+// TestRunPollCycleShutdownDuringOpenIsNotAFailure: main's guard checks for a
+// shutdown just before the cycle, which leaves the open itself exposed.
+// Not parallel: mutates package-level flag pointers.
+func TestRunPollCycleShutdownDuringOpenIsNotAFailure(t *testing.T) {
+	resetExitLatch(t)
+	setDBFile(t, "poll-cancelled.db")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
+		runPollCycle(ctx, config.TomlConfig{})
+	})
+
+	if exitWithError.Load() {
+		t.Error("a shutdown while opening the database latched the run as failed")
+	}
+}
+
 // TestRunPollCycleWithDeferredCalendar runs a cycle with a messenger sink
 // attached, so the fan-out and its teardown are covered rather than the
 // degenerate zero-sink path. With no configured users nothing is scraped, so

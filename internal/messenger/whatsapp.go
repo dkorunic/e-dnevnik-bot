@@ -122,7 +122,7 @@ func SetShutdown(fn func()) {
 // RequestShutdown runs main's normal graceful shutdown, which drains the queue on
 // the way out; logger.Fatal would bypass both. For unrecoverable conditions not
 // worth crashing on: LoggedOut, PairError with a nil device, and a broken dedup
-// database.
+// database. The exit is a failure: main's registered function latches it.
 //
 // A context cancel, not a SIGTERM to self: Windows supports only Kill through
 // Process.Signal, so a signal there did nothing and the bot carried on. Cancelling
@@ -375,8 +375,8 @@ func filterGroupsByName(groups []string, joined []*types.GroupInfo) ([]string, [
 }
 
 // whatsAppEffectiveUserIDs merges resolved group JIDs into the static user IDs,
-// reporting whether configured groups are missing from the result because they
-// could not be resolved at all (see processWhatsApp's groupsPending).
+// reporting whether configured groups are missing from the result because no
+// lookup has placed them (see processWhatsApp's groupsPending).
 // The TTL, rather than a process-lifetime cache, is what lets a lost membership
 // stop consuming sends: a zero-match lookup keeps the last good resolution only
 // until whatsAppGroupsStaleLimit after it was made. Cache state is guarded by
@@ -401,8 +401,7 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 	case err != nil:
 		// An untouched timestamp is what makes the next cycle retry; serve
 		// the last good cache meanwhile. No stale limit here, unlike a zero
-		// match: a failed lookup says nothing about membership, and dropping
-		// the groups would send to none of them and queue nothing.
+		// match: a failed lookup says nothing about membership.
 		//
 		// With no cache to serve, the groups are pending: the caller queues
 		// each message for them rather than count the static recipients as
@@ -456,15 +455,19 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 	default:
 		// Nothing matched. A list that comes back empty right after a
 		// reconnect looks the same as a typo, so a recent resolution is
-		// kept, like a lookup error: dropping it would send this cycle's
-		// alerts to no group and queue nothing. The untouched timestamp
-		// retries next cycle. Past the stale limit the bot has most likely
-		// left the groups, and sending on would only fail every cycle.
+		// kept, like a lookup error. The untouched timestamp retries next
+		// cycle. Past the stale limit the bot has most likely left the
+		// groups, and sending on would only fail every cycle.
+		//
+		// With no resolution to serve the groups are pending, whichever the
+		// cause: these alerts are already flagged, so sending them to no group
+		// and queueing nothing would lose them for good.
 		whatsAppGroupsMu.Lock()
 
 		dropped := false
+		pending := !whatsAppGroupsResolved || time.Since(whatsAppGroupsResolvedAt) >= whatsAppGroupsStaleLimit
 
-		if whatsAppGroupsResolved && time.Since(whatsAppGroupsResolvedAt) < whatsAppGroupsStaleLimit {
+		if !pending {
 			userIDs = whatsAppResolvedUserIDs
 		} else {
 			dropped = whatsAppGroupsResolved
@@ -476,15 +479,19 @@ func whatsAppEffectiveUserIDs(ctx context.Context, cli whatsAppGroupLister, user
 		whatsAppGroupsMu.Unlock()
 
 		if warn {
-			logger.Warn().Msgf("No WhatsApp groups matched the configured names %v; verify the bot is a member and the names match exactly",
+			logger.Warn().Msgf("No WhatsApp groups matched the configured names %v; verify the bot is a member and the names match exactly. Alerts for them are queued meanwhile",
 				groups)
 		}
 
 		// Not latched: it happens once per cached resolution, and it is the
 		// moment group delivery stops.
 		if dropped {
-			logger.Warn().Msgf("WhatsApp groups %v have not matched for over %v; no longer sending to them",
+			logger.Warn().Msgf("WhatsApp groups %v have not matched for over %v; no longer sending to them, their alerts are queued",
 				groups, whatsAppGroupsStaleLimit)
+		}
+
+		if pending {
+			return userIDs, true
 		}
 	}
 

@@ -14,6 +14,10 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
+// First wait between attempts, doubling after each. The default of 100ms would
+// spend every attempt inside a portal hiccup.
+const scrapeRetryDelay = 2 * time.Second
+
 // Caps backoff jitter, smoothing simultaneous reconnect storms.
 const scrapeRetryMaxJitter = 500 * time.Millisecond
 
@@ -107,6 +111,18 @@ func markPermanent(err error) error {
 	return err
 }
 
+// scrapeRetrier is the retry policy for every scrape step. retry-go's default
+// delay type is backoff plus RandomDelay; BackOffDelay alone would ignore
+// MaxJitter.
+func scrapeRetrier(ctx context.Context, attempts uint, delay time.Duration) *retry.Retrier {
+	return retry.New(
+		retry.Attempts(attempts),
+		retry.Context(ctx),
+		retry.Delay(delay),
+		retry.MaxJitter(scrapeRetryMaxJitter),
+	)
+}
+
 // GetGradesAndEvents scrapes one user's subjects, grades and exam events,
 // emitting a message per event.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
@@ -131,14 +147,8 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 
 	recoveries := maxSessionRecoveries
 
-	// One retry policy for every scrape step.
 	withRetry := func(fn func() error) error {
-		return retry.New(
-			retry.Attempts(attempts),
-			retry.Context(budgetCtx),
-			retry.DelayType(retry.BackOffDelay),
-			retry.MaxJitter(scrapeRetryMaxJitter),
-		).Do(func() error {
+		return scrapeRetrier(budgetCtx, attempts, scrapeRetryDelay).Do(func() error {
 			return recoverSession(fn, client.Login, &recoveries, username)
 		})
 	}
