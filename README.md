@@ -465,15 +465,17 @@ jobs:
             --conffile /ednevnik/.e-dnevnik.toml
 
       - name: Delete the config file so it doesn't get committed back :)
+        if: ${{ !cancelled() }}
         run: rm .e-dnevnik.toml
 
       - name: Commit the DB
+        if: ${{ !cancelled() }}
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_author: GitHub Actions <actions@github.com>
 ```
 
-This GitHub Actions workflow runs every 6 hours. On each run it checks out the repository (which includes the database), renders the configuration file from secrets, runs the bot, and commits the updated database back to the repository, providing persistence across runs.
+This GitHub Actions workflow runs every 6 hours. On each run it checks out the repository (which includes the database), renders the configuration file from secrets, runs the bot, and commits the updated database back to the repository, providing persistence across runs. The bot exits non-zero when a scrape or a send fails, so both later steps carry `if: ${{ !cancelled() }}`: the failed run still saves what it recorded and queued, or the next one alerts the same events again. Keep the condition on **both**: on the commit step alone, a failed run would commit `.e-dnevnik.toml` with your passwords.
 
 ## Star History
 

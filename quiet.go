@@ -134,21 +134,25 @@ func nextPollDelay(now time.Time) time.Duration {
 
 	if *jitter {
 		//nolint:gosec,mnd
-		delay += time.Duration(rand.Float64() * float64(min(*tickInterval/10, quietHours.activeSpan())))
+		extra := time.Duration(rand.Float64() * float64(min(*tickInterval/10, quietHours.activeSpan())))
+
+		// activeSpan counts wall minutes, which a DST change can shorten.
+		if !quietHours.contains(now.Add(delay + extra)) {
+			delay += extra
+		}
 	}
 
 	return delay
 }
 
-// untilEnd returns the time from t, which must be inside the window, to its end.
-// Built from the wall clock, so DST moves the instant rather than the time of
-// day.
+// untilEnd returns the time from t, which must be inside the window, to the first
+// minute outside it. Walked rather than computed: an end the clock skips on the
+// spring-forward day has no time.Date of its own, and normalising it moved the
+// end an hour early or a day late. At most a day of steps, once per poll.
 func (q *quietWindow) untilEnd(t time.Time) time.Duration {
-	y, m, d := t.Date()
-
-	end := time.Date(y, m, d, q.end/minutesPerHour, q.end%minutesPerHour, 0, 0, t.Location())
-	if !end.After(t) {
-		end = end.AddDate(0, 0, 1)
+	end := t.Truncate(time.Minute)
+	for q.contains(end) {
+		end = end.Add(time.Minute)
 	}
 
 	return end.Sub(t)

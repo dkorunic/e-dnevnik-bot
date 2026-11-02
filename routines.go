@@ -602,8 +602,9 @@ func recoverDedup(gradesScraped <-chan msgtypes.Message, gradesMsg chan<- msgtyp
 
 // maxLeapYearLookback bounds resolveHRYear's walk. 29 February is the only
 // parseable date some years lack, and it does not recur every four — a non-leap
-// century (1900, 2100) stretches the worst case to seven steps.
-const maxLeapYearLookback = 8
+// century (1900, 2100) stretches the worst case to nine steps: from next year
+// back to 2096, seen early in 2104.
+const maxLeapYearLookback = 9
 
 // hrDateFutureSlackDays is how far ahead of today a "D.M." date may sit and
 // still count as this year. A clock without TZ runs in UTC, up to two hours

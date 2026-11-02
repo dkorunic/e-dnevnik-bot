@@ -789,6 +789,14 @@ func TestResolveHRYear(t *testing.T) {
 			now:  time.Date(2103, 3, 5, 0, 0, 0, 0, time.UTC),
 			want: time.Date(2096, 2, 29, 0, 0, 0, 0, time.UTC),
 		},
+		{
+			// The longest walk: from next year, past this year's leap day still
+			// ahead and the skipped century.
+			name: "leap day ahead in a year after a non-leap century",
+			date: "29.2.",
+			now:  time.Date(2104, 1, 25, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2096, 2, 29, 0, 0, 0, 0, time.UTC),
+		},
 	}
 
 	for _, tt := range tests {
