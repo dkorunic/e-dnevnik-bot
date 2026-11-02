@@ -210,12 +210,15 @@ func fixupRedirectHeaders(cli *surf.Client) {
 // order, ClientHello, HTTP/2 SETTINGS — so they cannot contradict each other.
 //
 // Session() adds the cookie jar SSO needs; owning the client keeps
-// CloseConnections off a shared pool.
+// CloseConnections off a shared pool. SecureTLS() because surf skips certificate
+// checks by default, and this client carries students' passwords. The ClientHello
+// is the same either way, so the fingerprint does not depend on it.
 func newSurfClient(c *Client) (*surf.Client, error) {
 	cli, err := surf.NewClient().
 		Builder().
 		Impersonate().Windows().Chrome().
 		Session().
+		SecureTLS().
 		Timeout(Timeout).
 		With(c.chromeNavigationMW, overrideMWPriority).
 		Build().
