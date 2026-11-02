@@ -38,7 +38,7 @@ func TestTokenFileOperations(t *testing.T) {
 		Expiry:       time.Now().Add(1 * time.Hour).Round(time.Second),
 	}
 
-	if err := saveToken(tmpfile.Name(), expectedToken); err != nil {
+	if err := saveToken(tmpfile.Name(), expectedToken, ""); err != nil {
 		t.Fatalf("saveToken failed: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestTokenFromFileInvalidJSON(t *testing.T) {
 func TestSaveTokenToUnwritablePath(t *testing.T) {
 	t.Parallel()
 
-	err := saveToken("/non/existent/dir/token.json", &oauth2.Token{})
+	err := saveToken("/non/existent/dir/token.json", &oauth2.Token{}, "")
 	if err == nil {
 		t.Error("saveToken() should fail when destination directory does not exist")
 	}
@@ -260,7 +260,7 @@ func TestValidateTokenFile(t *testing.T) {
 	}
 
 	valid := &oauth2.Token{AccessToken: "x", TokenType: "Bearer", RefreshToken: "y"}
-	if err := saveToken(tmpfile.Name(), valid); err != nil {
+	if err := saveToken(tmpfile.Name(), valid, ""); err != nil {
 		t.Fatalf("saveToken failed: %v", err)
 	}
 
@@ -317,7 +317,7 @@ func TestGetClientInvalidGrant(t *testing.T) {
 		RefreshToken: "revoked-refresh",
 		Expiry:       time.Now().Add(-time.Hour),
 	}
-	if err := saveToken(tmpfile.Name(), expired); err != nil {
+	if err := saveToken(tmpfile.Name(), expired, ""); err != nil {
 		t.Fatalf("saveToken failed: %v", err)
 	}
 
@@ -373,7 +373,7 @@ func TestSaveTokenPermissions(t *testing.T) {
 
 	tokenPath := filepath.Join(t.TempDir(), "calendar_token.json")
 
-	if err := saveToken(tokenPath, &oauth2.Token{AccessToken: "secret"}); err != nil {
+	if err := saveToken(tokenPath, &oauth2.Token{AccessToken: "secret"}, ""); err != nil {
 		t.Fatalf("saveToken() failed: %v", err)
 	}
 

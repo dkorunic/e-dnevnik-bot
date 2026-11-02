@@ -73,6 +73,7 @@ type persistingTokenSource struct {
 	src        oauth2.TokenSource
 	last       *oauth2.Token
 	tokenPath  string
+	clientID   string
 	mu         sync.Mutex
 	grantOnce  sync.Once // invalid_grant explained once
 	clientOnce sync.Once // client rejection explained once; separate, so neither hides the other
@@ -115,7 +116,7 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	if changed {
 		p.last = tok
 
-		if serr := saveToken(p.tokenPath, tok); serr != nil {
+		if serr := saveToken(p.tokenPath, tok, p.clientID); serr != nil {
 			logger.Warn().Msgf("Unable to persist refreshed OAuth token: %v", serr)
 		}
 	}
@@ -146,6 +147,12 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, int
 						ErrOAuthGrantRevoked, tokenPath)
 				}
 
+				// Also what a token issued to another client ID gets, after an
+				// upgrade that ships a new one.
+				if IsAuthRejected(err) {
+					return nil, fmt.Errorf("%w: delete %q and re-run the bot interactively to re-authenticate", err, tokenPath)
+				}
+
 				return nil, err
 			}
 
@@ -170,7 +177,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, int
 	}
 
 	if saveToFile {
-		if err = saveToken(tokenPath, tok); err != nil {
+		if err = saveToken(tokenPath, tok, config.ClientID); err != nil {
 			return nil, err
 		}
 	}
@@ -179,6 +186,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, int
 	ts := &persistingTokenSource{
 		src:       config.TokenSource(ctx, tok),
 		tokenPath: tokenPath,
+		clientID:  config.ClientID,
 		last:      tok,
 	}
 
@@ -228,7 +236,9 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	var once sync.Once
 
-	// Bind first, so authURL carries the actual port. Google requires loopback.
+	// Bind first, so authURL carries the actual port. Google requires loopback,
+	// and accepts any port of it for a desktop client, which is what makes the
+	// fallback below work.
 	authListenHost := net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort))
 
 	// ListenConfig: a cancelled ctx aborts the bind.
@@ -271,7 +281,12 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		_ = s.Shutdown(shutdownCtx)
 	}()
 
-	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	// PKCE: the client secret ships in every binary, so it cannot prove who redeems
+	// the code.
+	verifier := oauth2.GenerateVerifier()
+
+	authCodeURL := config.AuthCodeURL(authReqState.String(), oauth2.AccessTypeOffline, oauth2.ApprovalForce,
+		oauth2.S256ChallengeOption(verifier))
 
 	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -379,7 +394,7 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 		return nil, ErrInvalidCallbackState
 	}
 
-	tok, err := config.Exchange(ctx, cb.code)
+	tok, err := config.Exchange(ctx, cb.code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOAuthTokenFetch, err)
 	}
@@ -399,6 +414,25 @@ func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	err = json.NewDecoder(bytes.NewBuffer(b)).Decode(tok)
 
 	return tok, err
+}
+
+// TokenClientID returns the client that tokenPath's token belongs to, or "" for a
+// token saved before clients were recorded. An error means no usable token.
+func TokenClientID(tokenPath string) (string, error) {
+	b, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return "", err
+	}
+
+	var stored struct {
+		ClientID string `json:"client_id"` //nolint:tagliatelle // see storedToken
+	}
+
+	if err := json.NewDecoder(bytes.NewBuffer(b)).Decode(&stored); err != nil {
+		return "", err
+	}
+
+	return stored.ClientID, nil
 }
 
 // ValidateTokenFile reports whether tokenPath decodes. Presence alone is not
@@ -431,11 +465,19 @@ func IsAuthRejected(err error) bool {
 	return errors.As(err, &re) && slices.Contains(authRejectedCodes, re.ErrorCode)
 }
 
-// saveToken atomically writes token as JSON at DefaultPerms.
-func saveToken(tokenPath string, token *oauth2.Token) error {
+// storedToken is the token file: a refresh token works only with the client that
+// issued it, so the file names that client beside the token's own fields.
+type storedToken struct {
+	*oauth2.Token
+
+	ClientID string `json:"client_id,omitempty"` //nolint:tagliatelle // beside oauth2.Token's snake_case fields
+}
+
+// saveToken atomically writes token and its client as JSON at DefaultPerms.
+func saveToken(tokenPath string, token *oauth2.Token, clientID string) error {
 	buf := new(bytes.Buffer)
 
-	err := json.NewEncoder(buf).Encode(token) //nolint:gosec // G117: token cache; 0600 below carries confidentiality
+	err := json.NewEncoder(buf).Encode(storedToken{Token: token, ClientID: clientID})
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrOAuthTokenEncode, err)
 	}

@@ -23,7 +23,7 @@ import (
 // shutdown, so a stalled server would otherwise stall the poll loop for good.
 func TestGetClientHasTimeout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "token.json")
-	if err := saveToken(path, &oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(time.Hour)}); err != nil {
+	if err := saveToken(path, &oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(time.Hour)}, ""); err != nil {
 		t.Fatalf("saveToken() = %v", err)
 	}
 
@@ -52,7 +52,7 @@ func TestGetClientBoundsAStalledRefresh(t *testing.T) {
 	t.Cleanup(func() { httpTimeout = orig })
 
 	path := filepath.Join(t.TempDir(), "token.json")
-	if err := saveToken(path, &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: time.Now().Add(-time.Hour)}); err != nil {
+	if err := saveToken(path, &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: time.Now().Add(-time.Hour)}, ""); err != nil {
 		t.Fatalf("saveToken() = %v", err)
 	}
 

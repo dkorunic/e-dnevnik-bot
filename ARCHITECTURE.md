@@ -306,7 +306,7 @@
 ### Secrets management
 
 - No secrets management system (Vault, etc.) — this is a personal tool, not enterprise software.
-- Google Calendar credentials are embedded at build time via the `internal/oauth/` package assets.
+- Google Calendar credentials are embedded at build time from `internal/messenger/assets/`. New setups use a desktop OAuth client, whose secret Google does not treat as confidential, and consent uses PKCE. Installs authorised before it keep the legacy web client their refresh tokens belong to, chosen by the `client_id` recorded in the token file.
 
 ### Network
 

@@ -35,6 +35,10 @@ const (
 	CalendarCredentials = "assets/calendar_credentials.json" // embedded Google Calendar credentials file
 	CalendarQueue       = "calendar-queue"
 
+	// CalendarLegacyCredentials is the web client that authorised every install
+	// before the desktop one. Those installs' refresh tokens work only with it.
+	CalendarLegacyCredentials = "assets/calendar_credentials_legacy_web.json"
+
 	CalendarExamSep = " - Ispit iz: "
 
 	// CalendarPrimary is both the ID and the accepted alias of the primary
@@ -59,7 +63,7 @@ var (
 	calendarMu  sync.Mutex        // guards calendarSrv and calendarID initialisation
 )
 
-//go:embed assets/calendar_credentials.json
+//go:embed assets/calendar_credentials.json assets/calendar_credentials_legacy_web.json
 var credentialFS embed.FS
 
 // CalendarConfig holds the per-messenger settings for the Google Calendar backend.
@@ -292,20 +296,9 @@ func processCalendar(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message,
 // calendar ID. With interactive set, a tokFile holding no token runs the
 // consent flow; without, it fails (see oauth.GetClient).
 func InitCalendar(ctx context.Context, tokFile, name string, interactive bool) (*calendar.Service, string, error) {
-	b, err := credentialFS.ReadFile(CalendarCredentials)
+	config, err := calendarOAuthConfig(tokFile)
 	if err != nil {
-		logger.Error().Msgf("Unable to read credentials file %s: %v", CalendarCredentials, err)
-
-		return nil, "", ErrCalendarReadingCreds
-	}
-
-	var config *oauth2.Config
-
-	config, err = google.ConfigFromJSON(b, calendar.CalendarReadonlyScope, calendar.CalendarEventsScope)
-	if err != nil {
-		logger.Error().Msgf("Unable to parse credentials file %s: %v", CalendarCredentials, err)
-
-		return nil, "", ErrCalendarParsingCreds
+		return nil, "", err
 	}
 
 	var client *http.Client
@@ -334,6 +327,52 @@ func InitCalendar(ctx context.Context, tokFile, name string, interactive bool) (
 	}
 
 	return srv, calID, nil
+}
+
+// calendarOAuthConfig returns the client for tokFile. A refresh token works only
+// with the client that issued it, so a token with no client recorded predates the
+// desktop client and keeps the legacy one, which is why upgrading needs no new
+// consent. No usable token means consent, and consent always uses the desktop one.
+func calendarOAuthConfig(tokFile string) (*oauth2.Config, error) {
+	desktop, err := loadCalendarConfig(CalendarCredentials)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := oauth.TokenClientID(tokFile)
+	if err != nil {
+		return desktop, nil //nolint:nilerr // absent or unreadable: GetClient decides, with the desktop client
+	}
+
+	legacy, err := loadCalendarConfig(CalendarLegacyCredentials)
+	if err != nil {
+		return nil, err
+	}
+
+	if id == "" || id == legacy.ClientID {
+		return legacy, nil
+	}
+
+	return desktop, nil
+}
+
+// loadCalendarConfig parses an embedded credentials file.
+func loadCalendarConfig(path string) (*oauth2.Config, error) {
+	b, err := credentialFS.ReadFile(path)
+	if err != nil {
+		logger.Error().Msgf("Unable to read credentials file %s: %v", path, err)
+
+		return nil, ErrCalendarReadingCreds
+	}
+
+	config, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope, calendar.CalendarEventsScope)
+	if err != nil {
+		logger.Error().Msgf("Unable to parse credentials file %s: %v", path, err)
+
+		return nil, ErrCalendarParsingCreds
+	}
+
+	return config, nil
 }
 
 // getCalendarID gets a Google calendar ID out of a symbolic calendar name.
