@@ -16,6 +16,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.uber.org/ratelimit"
 )
@@ -300,5 +301,146 @@ func TestWhatsAppPartialMatchQueuesForMissingGroups(t *testing.T) {
 
 	if want := []string{late}; !slices.Equal(cli.sent, want) {
 		t.Errorf("resend went to %v, want only %v", cli.sent, want)
+	}
+}
+
+// stubConnWaiter records the wait and answers as scripted, or blocks on block.
+type stubConnWaiter struct {
+	block   chan struct{}
+	timeout time.Duration
+	calls   int
+	result  bool
+}
+
+func (s *stubConnWaiter) WaitForConnection(timeout time.Duration) bool {
+	s.calls++
+	s.timeout = timeout
+
+	if s.block != nil {
+		<-s.block
+	}
+
+	return s.result
+}
+
+// A login that does not arrive only warns: sends queue on failure, so the wait
+// must neither fail the cycle nor outlast its bound.
+func TestAwaitWhatsAppLoginPassesItsBound(t *testing.T) {
+	t.Parallel()
+
+	for _, result := range []bool{true, false} {
+		w := &stubConnWaiter{result: result}
+
+		awaitWhatsAppLogin(t.Context(), w, time.Minute)
+
+		if w.calls != 1 || w.timeout != time.Minute {
+			t.Errorf("result %v: WaitForConnection called %d times with %v, want once with %v", result, w.calls, w.timeout, time.Minute)
+		}
+	}
+}
+
+// WaitForConnection knows nothing of ctx, and a stop must not wait out its bound:
+// a container's stop timeout can be shorter.
+func TestAwaitWhatsAppLoginYieldsToShutdown(t *testing.T) {
+	t.Parallel()
+
+	block := make(chan struct{})
+	defer close(block)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		awaitWhatsAppLogin(ctx, &stubConnWaiter{block: block}, time.Hour)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Error("awaitWhatsAppLogin() ignored a cancelled context")
+	}
+}
+
+// whatsmeow wakes WaitForConnection only after dispatching Connected, which
+// whatsAppEventHandler needs whatsAppCliMu to handle. Waiting under the lock would
+// stall every startup for the whole timeout, and then report failure.
+// Not parallel: writes the package-level client globals and the seam.
+func TestWhatsAppWaitsForLoginOutsideTheClientLock(t *testing.T) {
+	container, err := sqlstore.New(t.Context(), "sqlite", "file:wa-login?mode=memory&cache=shared&_pragma=foreign_keys(1)", nil)
+	if err != nil {
+		t.Fatalf("sqlstore.New() failed: %v", err)
+	}
+
+	if err := container.Upgrade(t.Context()); err != nil {
+		t.Fatalf("Upgrade() failed: %v", err)
+	}
+
+	device, err := container.GetFirstDevice(t.Context())
+	if err != nil {
+		t.Fatalf("GetFirstDevice() failed: %v", err)
+	}
+
+	whatsAppCliMu.Lock()
+	origCli, origStore, origWait := whatsAppCli, whatsAppStore, whatsAppAwaitLogin
+	whatsAppCli, whatsAppStore = whatsmeow.NewClient(device, nil), container
+	cli := whatsAppCli
+	whatsAppCliMu.Unlock()
+
+	t.Cleanup(func() {
+		whatsAppCliMu.Lock()
+		whatsAppCli, whatsAppStore, whatsAppAwaitLogin = origCli, origStore, origWait
+		whatsAppCliMu.Unlock()
+	})
+
+	calls := 0
+	whatsAppAwaitLogin = func(_ context.Context, _ whatsAppConnWaiter, timeout time.Duration) {
+		calls++
+
+		if timeout != whatsAppLoginTimeout {
+			t.Errorf("waited with %v, want %v", timeout, whatsAppLoginTimeout)
+		}
+
+		if !whatsAppCliMu.TryLock() {
+			t.Error("waited for login holding whatsAppCliMu, which the Connected event needs")
+
+			return
+		}
+
+		whatsAppCliMu.Unlock()
+	}
+
+	run := func() {
+		eDB, err := sqlitedb.New(t.Context(), filepath.Join(t.TempDir(), "wa-login.db"))
+		if err != nil {
+			t.Fatalf("sqlitedb.New() failed: %v", err)
+		}
+
+		defer eDB.Close() //nolint:errcheck
+
+		ch := make(chan msgtypes.Message)
+		close(ch)
+
+		if err := WhatsApp(t.Context(), eDB, ch, WhatsAppConfig{UserIDs: []string{"111@s.whatsapp.net"}, Retries: 1}); err != nil {
+			t.Errorf("WhatsApp() = %v", err)
+		}
+	}
+
+	// Unpaired: no login can arrive, so nothing is worth waiting for.
+	run()
+
+	if calls != 0 {
+		t.Errorf("waited %d times on an unpaired device, want 0", calls)
+	}
+
+	cli.Store.ID = &types.JID{User: "111", Server: types.DefaultUserServer}
+
+	run()
+
+	if calls != 1 {
+		t.Errorf("waited %d times on a paired device, want 1", calls)
 	}
 }

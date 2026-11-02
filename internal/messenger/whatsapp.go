@@ -60,6 +60,9 @@ const (
 	// to ride out an empty list after a reconnect, short enough that a group
 	// the bot has left stops receiving sends.
 	whatsAppGroupsStaleLimit = 2 * whatsAppGroupsCacheTTL
+
+	// Bounds the wait for login at the start of a cycle.
+	whatsAppLoginTimeout = 30 * time.Second
 )
 
 // SendPresenceBounded updates presence best-effort under its own timeout, so a
@@ -196,6 +199,11 @@ func WhatsApp(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message
 	cli := whatsAppCli
 	whatsAppCliMu.Unlock()
 
+	// An unpaired device never logs in, and fails its sends at once anyway.
+	if cli.Store.ID != nil {
+		whatsAppAwaitLogin(ctx, cli, whatsAppLoginTimeout)
+	}
+
 	logger.Debug().Msgf("Started WhatsApp messenger (%v, protocol %v)", WhatsAppVersion,
 		store.GetWAVersion().String())
 
@@ -325,6 +333,35 @@ func processWhatsApp(ctx context.Context, cli whatsAppSender, eDB *sqlitedb.Edb,
 
 	return run.finish(ctx, eDB, WhatsAppQueueName, g)
 }
+
+// whatsAppConnWaiter is the slice of *whatsmeow.Client that login waiting uses.
+type whatsAppConnWaiter interface {
+	WaitForConnection(timeout time.Duration) bool
+}
+
+// awaitWhatsAppLogin gives Connect's login time to finish, since it returns before
+// the server has accepted the session and an early group lookup or send can only
+// fail. A wait that runs out just warns: sends queue on failure.
+//
+// Never under whatsAppCliMu. whatsmeow wakes WaitForConnection only after
+// dispatching Connected, which whatsAppEventHandler needs that lock to handle.
+func awaitWhatsAppLogin(ctx context.Context, cli whatsAppConnWaiter, timeout time.Duration) {
+	done := make(chan bool, 1)
+
+	// Not ctx-aware, so a stop must not wait on it; it ends by its own timeout.
+	go func() { done <- cli.WaitForConnection(timeout) }()
+
+	select {
+	case ok := <-done:
+		if !ok {
+			logger.Warn().Msgf("WhatsApp not logged in after %v; sends may fail and be queued", timeout)
+		}
+	case <-ctx.Done():
+	}
+}
+
+// whatsAppAwaitLogin is a test seam: reaching the call otherwise needs a socket.
+var whatsAppAwaitLogin = awaitWhatsAppLogin
 
 // awaitWhatsAppPairingDone blocks until interactive pairing releases
 // WhatsAppPairingMu. Separate so its deliberately empty critical section does
