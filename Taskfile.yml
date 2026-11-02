@@ -35,6 +35,12 @@ tasks:
     desc: Update all Go dependencies to latest and tidy go.mod
     cmds:
       - go get -u
+      # go get -u overshoots: modernc.org/sqlite is only validated against the
+      # exact modernc.org/libc in its own go.mod (its doc.go), so go back to that.
+      - |
+        sqlite=$(go list -m modernc.org/sqlite | awk '{print $1"@"$2}')
+        libc=$(go mod graph | awk -v s="$sqlite" '$1 == s && $2 ~ /^modernc.org\/libc@/ {print $2; exit}')
+        go get "$libc"
       - go mod tidy
 
   update-major:

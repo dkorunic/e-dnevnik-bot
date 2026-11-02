@@ -31,11 +31,11 @@ require (
 	github.com/slack-go/slack v0.33.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.1
-	go.mau.fi/whatsmeow v0.0.0-20261030195514-56e5ad0581ce
+	go.mau.fi/whatsmeow v0.0.0-20261031222104-5d4657a5c29e
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/oauth2 v0.37.0
 	google.golang.org/api v0.310.0
-	modernc.org/sqlite v1.61.0
+	modernc.org/sqlite v1.61.1
 )
 
 require (
@@ -64,7 +64,7 @@ require (
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20261030104850-e60ce7d9a607 // indirect
+	github.com/petermattis/goid v0.0.0-20261031113815-c1739d51dded // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.64.1 // indirect
 	github.com/refraction-networking/utls v1.8.3-0.20260623165621-880e27d8b0e5 // indirect
@@ -90,7 +90,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect
 	google.golang.org/grpc v1.85.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	modernc.org/libc v1.79.1 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
