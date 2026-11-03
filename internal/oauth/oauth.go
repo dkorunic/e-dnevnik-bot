@@ -5,6 +5,7 @@ package oauth
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"embed"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -365,8 +367,8 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	go func() {
 		if err := openBrowser(authURL); err != nil {
-			logger.Warn().Msgf("%v (%v); open %v in a browser, forwarding port %v if this host has none",
-				ErrOAuthBrowser, err, authURL, listener.Addr().(*net.TCPAddr).Port) //nolint:forcetypeassert // tcp listener
+			logger.Warn().Msgf("%v (%v); on a machine with a browser, run \"%s\", then open %v within %v",
+				ErrOAuthBrowser, err, sshTunnelCommand(listener.Addr().String()), authURL, AuthTimeout)
 		}
 	}()
 
@@ -402,7 +404,37 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	return tok, nil
 }
 
-// tokenFromFile decodes the token at tokenPath.
+// sshTunnelCommand returns the command that forwards addr, the callback's listen
+// address, from the user's own machine. A session's SSH_CONNECTION names this host
+// as the user reached it; sudo usually strips it, leaving the hostname. Best effort
+// behind NAT or a jump host, where the user knows the address and this host does not.
+func sshTunnelCommand(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		port = strconv.Itoa(AuthListenPort)
+	}
+
+	host, _ := os.Hostname()
+	opts := ""
+
+	// Format: client address, client port, server address, server port.
+	if f := strings.Fields(os.Getenv("SSH_CONNECTION")); len(f) == 4 {
+		host = f[2]
+
+		if f[3] != "22" {
+			opts = "-p " + f[3] + " "
+		}
+	}
+
+	host = cmp.Or(host, "<server>")
+
+	if u := cmp.Or(os.Getenv("SUDO_USER"), os.Getenv("USER")); u != "" {
+		host = u + "@" + host
+	}
+
+	return "ssh " + opts + "-L " + port + ":" + addr + " " + host
+}
+
 func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	b, err := os.ReadFile(tokenPath)
 	if err != nil {

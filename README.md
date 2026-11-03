@@ -245,7 +245,7 @@ name = "Djeca ispiti"
 Steps required:
 
 1. Set up the Google Calendar API by following the [Go Quickstart guide](https://developers.google.com/calendar/api/quickstart/go#set_up_your_environment) to create a project, enable the Calendar API, and download `credentials.json` to the working directory.
-2. On the **first run**, the bot must be launched interactively in a terminal — it will open a browser for OAuth2 authorization and store the resulting token in `calendar_token.json` (configurable with `-g`). Subsequent runs use the cached token automatically. Upgrading keeps an existing token working, with no new authorization. If Google ever rejects it, exams are queued and the log says to delete `calendar_token.json` and run the bot interactively once.
+2. On the **first run**, the bot must be launched interactively in a terminal — it will open a browser for OAuth2 authorization and store the resulting token in `calendar_token.json` (configurable with `-g`). On a server without a browser, run it in an SSH session: the log prints the `ssh -L` command to run on your own machine and the URL to open there, within 5 minutes. Subsequent runs use the cached token automatically. Upgrading keeps an existing token working, with no new authorization. If Google ever rejects it, exams are queued and the log says to delete `calendar_token.json` and run the bot interactively once.
 3. The `name` field specifies the target Google Calendar by name (e.g. a calendar you created called `Djeca ispiti`). Only exam events are added as calendar entries.
 
 #### CalDAV configuration
