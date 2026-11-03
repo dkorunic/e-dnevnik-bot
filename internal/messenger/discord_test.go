@@ -704,15 +704,32 @@ func TestDiscordStaleChannelSurvivesRetryDo(t *testing.T) {
 	}
 }
 
-// TestMarkDiscordBodylessNotFoundIsTransient: a 404 without Discord's JSON
-// body came from an edge or proxy and says nothing about the channel. It must
-// be retried, not fall through to the generic 404-is-permanent rule and drop
-// the recipient's alert.
-func TestMarkDiscordBodylessNotFoundIsTransient(t *testing.T) {
+// TestMarkDiscordBodylessClientErrorIsTransient: a 4xx without Discord's JSON
+// body came from an edge or proxy (a Cloudflare 403 block page, a 404) and says
+// nothing about the recipient. It must be retried, not fall through to the
+// generic 4xx-is-permanent rule and drop the recipient's alert.
+func TestMarkDiscordBodylessClientErrorIsTransient(t *testing.T) {
 	t.Parallel()
 
-	got := markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}})
-	if !retry.IsRecoverable(got) || isPermanentSendErr(got) {
-		t.Errorf("body-less 404: recoverable=%v permanent=%v, want true/false", retry.IsRecoverable(got), isPermanentSendErr(got))
+	for _, status := range []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound} {
+		got := markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: status}})
+		if !retry.IsRecoverable(got) || isPermanentSendErr(got) {
+			t.Errorf("body-less %d: recoverable=%v permanent=%v, want true/false", status, retry.IsRecoverable(got), isPermanentSendErr(got))
+		}
+
+		// discordgo fills Message from any JSON, such as a proxy's {"error":"blocked"}.
+		got = markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: status}, Message: &discordgo.APIErrorMessage{}})
+		if !retry.IsRecoverable(got) || isPermanentSendErr(got) {
+			t.Errorf("foreign JSON %d: recoverable=%v permanent=%v, want true/false", status, retry.IsRecoverable(got), isPermanentSendErr(got))
+		}
+	}
+
+	// Discord's own generic 403 has code 0 too, and carries a message.
+	got := markDiscordPermanent(&discordgo.RESTError{
+		Response: &http.Response{StatusCode: http.StatusForbidden},
+		Message:  &discordgo.APIErrorMessage{Message: "403: Forbidden"},
+	})
+	if !isPermanentSendErr(got) {
+		t.Errorf("Discord's generic 403: %v, want permanent", got)
 	}
 }

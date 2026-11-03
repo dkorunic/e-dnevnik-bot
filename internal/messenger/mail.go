@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/textproto"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -192,23 +193,11 @@ func isMailAuthErr(err error) bool {
 	return tpErr.Code == 530 || tpErr.Code == 534 || tpErr.Code == 535
 }
 
+// mailRetryDelay is a test seam: the wait between attempts of one batch.
+var mailRetryDelay = MailMinDelay
+
 // mailNoAuthText is go-mail v0.8's error for a server without SMTP AUTH.
 const mailNoAuthText = "server does not support SMTP AUTH"
-
-// markMailPermanent stops retry-go on a SendError isPermanentMailSendErr
-// condemns. Anything else keeps its retry budget.
-func markMailPermanent(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	if sendErr, ok := errors.AsType[*mail.SendError](err); ok && isPermanentMailSendErr(sendErr) {
-		// Inner sentinel survives retry.Do's marker stripping.
-		return retry.Unrecoverable(permanentError{err})
-	}
-
-	return err
-}
 
 // mailConnError marks an attempt that reached no message: the server could not
 // be reached or spoke no SMTP. It keeps its retries, but one that outlives them
@@ -219,8 +208,19 @@ type mailConnError struct{ err error }
 func (e mailConnError) Error() string { return e.err.Error() }
 func (e mailConnError) Unwrap() error { return e.err }
 
-// isPermanentMailSendErr reports whether se can never succeed on retry: a 5xx
-// reply, or a message go-mail itself cannot address or encode.
+// mailRecipientStatuses are the enhanced statuses (RFC 3463) that name the
+// recipient's address; every 5.2.x names their mailbox. 5.1.7 and 5.1.8 are absent
+// because they are about the sender's address.
+var mailRecipientStatuses = []string{"5.1.1", "5.1.2", "5.1.3", "5.1.6", "5.1.10"}
+
+// isPermanentMailSendErr reports whether se can never succeed for this recipient:
+// a 5xx reply to RCPT TO whose enhanced status names them, or a message go-mail
+// itself cannot address or encode.
+//
+// A 5xx to RCPT TO proves nothing alone: Postfix delays sender and policy
+// rejections to that command by default, so without such a status it must not
+// drop the alert (see isMailAccountRejected, and sendMailBatch for the rest). A
+// server sending no enhanced statuses therefore queues until MaxQueueAge.
 //
 // IsTemp alone cannot decide it. go-mail judges temp by a leading '4' in the
 // error text, so a transport failure — EOF, a reset, a timeout, a connection
@@ -236,7 +236,41 @@ func isPermanentMailSendErr(se *mail.SendError) bool {
 		return true
 	}
 
-	return se.ErrorCode() >= 500
+	status := se.EnhancedStatusCode()
+
+	return se.Reason == mail.ErrSMTPRcptTo && se.ErrorCode() >= 500 &&
+		(strings.HasPrefix(status, "5.2.") || slices.Contains(mailRecipientStatuses, status))
+}
+
+// isMailRejected reports a server's 5xx reply, as opposed to a transport failure,
+// which IsTemp reads as permanent but which carries no code.
+func isMailRejected(se *mail.SendError) bool {
+	return !se.IsTemp() && se.ErrorCode() >= 500
+}
+
+// isMailAccountRejected reports a rejection that holds for every recipient, so a
+// config error rather than one recipient's failure: a 5xx to MAIL FROM (an
+// unverified sender, an exhausted quota, a blocked account), or a login the server
+// wants, whichever command it answers. A 5.7.x to RCPT TO is absent because it can
+// be one recipient's policy, which must not hold up everybody else's mail.
+//
+// A 503 is absent too: go-mail sends no RSET after a failed DATA, so a strict server
+// answers the next message's MAIL FROM with one. That is the connection's state.
+func isMailAccountRejected(se *mail.SendError) bool {
+	if !isMailRejected(se) {
+		return false
+	}
+
+	code := se.ErrorCode()
+
+	switch se.Reason { //nolint:exhaustive // the rest cannot be told apart
+	case mail.ErrSMTPMailFrom:
+		return code != 503
+	case mail.ErrSMTPRcptTo:
+		return code == 530 || code == 534 || code == 535
+	default:
+		return false
+	}
 }
 
 // processMail delivers g as a multipart/alternative batch, one message per
@@ -309,8 +343,14 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		// Mail's token can be minutes away; shutdown must not wait it out.
 		run.interrupt()
 	default:
-		delivered, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, retries)
+		delivered, dead, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, retries)
 		run.delivered(delivered...)
+
+		if len(dead) > 0 {
+			run.poison(dead...)
+
+			logger.Error().Msgf("%v: permanently dropping %d recipient(s) the server rejected", ErrMailSendingMessages, len(dead))
+		}
 
 		switch {
 		case err == nil:
@@ -325,7 +365,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		default:
 			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
-			if _, unreachable := errors.AsType[mailConnError](err); unreachable {
+			if _, unreachable := errors.AsType[mailConnError](lastAttempt(err)); unreachable {
 				err = markConfigErr(err)
 			}
 
@@ -357,16 +397,17 @@ func undeliveredRecipients(rcpt, delivered []string) []string {
 // sendMailBatch delivers msgs, parallel to rcpt, over one SMTP connection per
 // attempt. Only the undelivered subset is retried — Msg.IsDelivered identifies
 // it — so a partial failure never re-sends to anyone already served. Retries
-// short-circuit once every remaining failure is permanent.
-func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries uint) ([]string, error) {
-	var successful []string
+// short-circuit once every remaining failure is permanent. It returns who was
+// served, and who to drop when other failures keep the error from being permanent.
+func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries uint) ([]string, []string, error) {
+	var successful, dead []string
 
 	pendingMsgs, pendingRcpt := msgs, rcpt
 
 	err := retry.New(
 		retry.Attempts(retries),
 		retry.Context(ctx),
-		retry.Delay(MailMinDelay),
+		retry.Delay(mailRetryDelay),
 	).Do(
 		func() error {
 			sendErr := mailCli.DialAndSendWithContext(ctx, pendingMsgs...)
@@ -399,38 +440,50 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 			}
 
 			// Connection-level failure: nothing was attempted, so classify
-			// the aggregate error directly.
-			attempted := false
-
-			for _, m := range pendingMsgs {
-				if m.HasSendError() {
-					attempted = true
-
-					break
-				}
-			}
-
-			if !attempted {
-				// A rejected login already queues (it is no SendError, so
-				// markMailPermanent reads it as transient); it only needs to
-				// stop retrying credentials that cannot start working.
+			// the aggregate error directly. Read from this attempt's error, as
+			// go-mail never clears Msg.SendError: a message that failed on an
+			// earlier attempt would hide a rejected login here.
+			if se, ok := errors.AsType[*mail.SendError](sendErr); !ok || se.Reason == mail.ErrConnCheck {
+				// A rejected login already queues; it only needs to stop
+				// retrying credentials that cannot start working.
 				if isMailAuthErr(sendErr) {
 					return markConfigErr(sendErr)
-				}
-
-				if marked := markMailPermanent(sendErr); isPermanentSendErr(marked) {
-					return marked
 				}
 
 				return mailConnError{sendErr}
 			}
 
 			// Retrying helps only if one remaining failure is transient.
-			for _, m := range pendingMsgs {
+			unknownReach := false
+
+			var rejected []string
+
+			for i, m := range pendingMsgs {
 				msgErr, ok := errors.AsType[*mail.SendError](m.SendError())
-				if !ok || !isPermanentMailSendErr(msgErr) {
+
+				switch {
+				case !ok:
+					return sendErr
+				case isMailAccountRejected(msgErr):
+					return markConfigErr(sendErr)
+				case isPermanentMailSendErr(msgErr):
+					rejected = append(rejected, pendingRcpt[i])
+				case isMailRejected(msgErr):
+					unknownReach = true
+				default:
 					return sendErr
 				}
+			}
+
+			// Say a 5xx to DATA: this message's content, or the account. Queued,
+			// and the cycle goes on. Accepted cost: content rejected for good
+			// (spam, say) comes back every cycle until MaxQueueAge, since quota
+			// and account blocks can arrive the same way and losing those alerts
+			// is worse.
+			if unknownReach {
+				dead = rejected
+
+				return retry.Unrecoverable(sendErr)
 			}
 
 			// Inner sentinel survives retry.Do's marker stripping.
@@ -438,5 +491,5 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 		},
 	)
 
-	return successful, err
+	return successful, dead, err
 }

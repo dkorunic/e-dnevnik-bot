@@ -135,7 +135,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, int
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Timeout: httpTimeout})
 
 	tok, err := tokenFromFile(tokenPath)
-	saveToFile := false
+	saved := true
 
 	//nolint:nestif
 	if err == nil {
@@ -158,10 +158,16 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, int
 				return nil, err
 			}
 
-			// Unpersisted, startup bricks once the old token expires.
+			// Unpersisted, startup bricks once the old token expires. Only warned
+			// about, as in persistingTokenSource: this one is usable regardless.
 			if newTok.AccessToken != tok.AccessToken || newTok.RefreshToken != tok.RefreshToken {
-				saveToFile = true
 				tok = newTok
+
+				if serr := saveToken(tokenPath, tok, config.ClientID); serr != nil {
+					logger.Warn().Msgf("Unable to persist refreshed OAuth token: %v", serr)
+
+					saved = false
+				}
 			}
 		}
 	} else {
@@ -175,10 +181,7 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, int
 			return nil, err
 		}
 
-		saveToFile = true
-	}
-
-	if saveToFile {
+		// Unlike a refresh, a consent lost here has to be given again.
 		if err = saveToken(tokenPath, tok, config.ClientID); err != nil {
 			return nil, err
 		}
@@ -190,6 +193,12 @@ func GetClient(ctx context.Context, config *oauth2.Config, tokenPath string, int
 		tokenPath: tokenPath,
 		clientID:  config.ClientID,
 		last:      tok,
+	}
+
+	// Unseen, so the next use saves it: it may be the only copy of a rotated
+	// refresh token.
+	if !saved {
+		ts.last = nil
 	}
 
 	return oauth2.NewClient(ctx, ts), nil
@@ -359,16 +368,29 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 
 	logger.Info().Msgf("Opening local Web server through system browser: %v", authURL)
 
+	hint := callbackAccessHint(listener.Addr().String(), authURL)
+
+	// Over SSH, a browser that opens may be on the far end's screen (macOS open
+	// exits 0 on the console session), so its success proves nothing.
+	overSSH := os.Getenv("SSH_CONNECTION") != ""
+	if overSSH {
+		logger.Warn().Msgf("Connected over SSH: %v", hint)
+	}
+
 	// Not awaited: browser.OpenURL waits for the command to exit, and a terminal
 	// browser stays in the foreground, which would hold off both AuthTimeout and
-	// SIGTERM below. Not fatal: over SSH the URL above, with the port forwarded,
-	// is the way in.
+	// SIGTERM below. Not fatal: the hint is the way in.
 	openBrowser := browserOpen
 
 	go func() {
-		if err := openBrowser(authURL); err != nil {
-			logger.Warn().Msgf("%v (%v); on a machine with a browser, run \"%s\", then open %v within %v",
-				ErrOAuthBrowser, err, sshTunnelCommand(listener.Addr().String()), authURL, AuthTimeout)
+		err := openBrowser(authURL)
+
+		switch {
+		case err == nil:
+		case overSSH:
+			logger.Warn().Msgf("%v (%v)", ErrOAuthBrowser, err)
+		default:
+			logger.Warn().Msgf("%v (%v); %v", ErrOAuthBrowser, err, hint)
 		}
 	}()
 
@@ -414,6 +436,11 @@ func sshTunnelCommand(addr string) string {
 		port = strconv.Itoa(AuthListenPort)
 	}
 
+	// Nothing visible from inside names the host the user reached.
+	if inContainer() {
+		return "ssh -L " + port + ":" + addr + " <docker-host>"
+	}
+
 	host, _ := os.Hostname()
 	opts := ""
 
@@ -435,6 +462,34 @@ func sshTunnelCommand(addr string) string {
 	return "ssh " + opts + "-L " + port + ":" + addr + " " + host
 }
 
+// containerMarkers are files a container runtime leaves in the root filesystem.
+var containerMarkers = []string{"/.dockerenv", "/run/.containerenv"}
+
+// inContainer reports whether this process runs in a container.
+func inContainer() bool {
+	for _, m := range containerMarkers {
+		if _, err := os.Stat(m); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+// callbackAccessHint tells the user how to reach the callback from elsewhere. The
+// callback listens on loopback, which in a container is not the host's, and which
+// publishing a port cannot reach either.
+func callbackAccessHint(addr, authURL string) string {
+	hint := fmt.Sprintf("on a machine with a browser, run %q, then open %v within %v", sshTunnelCommand(addr), authURL, AuthTimeout)
+	if inContainer() {
+		return "the callback cannot be reached from outside this container unless it already uses --network host; " + hint +
+			"; with no SSH access, authorize on a desktop and copy the token file here (see the README)"
+	}
+
+	return hint
+}
+
+// tokenFromFile decodes the token at tokenPath.
 func tokenFromFile(tokenPath string) (*oauth2.Token, error) {
 	b, err := os.ReadFile(tokenPath)
 	if err != nil {

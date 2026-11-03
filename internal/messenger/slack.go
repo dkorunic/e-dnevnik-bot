@@ -135,10 +135,10 @@ var slackAuthErrors = []string{
 
 // markSlackPermanent classifies an error by how far it reaches:
 //   - transient (network, 5xx, slackTransientErrors): retried;
-//   - one channel (permanent 4xx StatusCodeError, slackChannelErrors):
-//     poison-dropped;
-//   - every channel (slackAuthErrors): a config error, queued, stops the cycle;
-//   - anything else: retrying is pointless, but its reach is unknown, so that
+//   - one channel (slackChannelErrors): poison-dropped;
+//   - every channel (slackAuthErrors, HTTP 401/403): a config error, queued, stops
+//     the cycle;
+//   - anything else, other HTTP 4xx included: retrying is pointless, but its reach is unknown, so that
 //     recipient alone is requeued and the loop moves on. Treating an unknown
 //     per-channel code as token-wide would block every channel for 30 days;
 //     treating it as permanent would drop the alert.
@@ -157,9 +157,10 @@ func markSlackPermanent(err error) error {
 			return markConfigErr(err)
 		}
 
+		// Channel errors arrive in a 200 too, so this 4xx says nothing about the
+		// channel: unknown reach, like the default below.
 		if isPermanentHTTPStatus(sce.Code) {
-			// Inner sentinel survives retry.Do's marker stripping.
-			return retry.Unrecoverable(permanentError{err})
+			return retry.Unrecoverable(err)
 		}
 	}
 

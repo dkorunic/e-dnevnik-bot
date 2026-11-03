@@ -235,8 +235,8 @@ func TestMarkPermanentWrapping(t *testing.T) {
 	}{
 		{"telegram", bot.ErrorForbidden, markTelegramPermanent},
 		{"whatsapp", whatsmeow.ErrUnknownServer, markWhatsAppPermanent},
-		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}}, markDiscordPermanent},
-		{"slack", slack.StatusCodeError{Code: http.StatusNotFound}, markSlackPermanent},
+		{"discord", &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeCannotSendMessagesToThisUser}}, markDiscordPermanent},
+		{"slack", slack.SlackErrorResponse{Err: "channel_not_found"}, markSlackPermanent},
 		{"calendar", &googleapi.Error{Code: http.StatusBadRequest}, markCalendarPermanent},
 		{"caldav", &caldavStatusError{code: http.StatusBadRequest}, markCalDAVPermanent},
 	}
@@ -447,7 +447,7 @@ func TestAuthFailuresStopRetryingButQueue(t *testing.T) {
 	}
 
 	// Discord 403 is per user (DMs closed) and stays a poison-drop.
-	if !isPermanentSendErr(markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}})) {
+	if !isPermanentSendErr(markDiscordPermanent(&discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeCannotSendMessagesToThisUser}})) {
 		t.Error("discord 403 is no longer permanent; a user with closed DMs would retry every cycle")
 	}
 

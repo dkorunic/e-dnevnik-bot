@@ -15,7 +15,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/go-telegram/bot"
 	"github.com/slack-go/slack"
-	"github.com/wneessen/go-mail"
 	"go.mau.fi/whatsmeow"
 	"google.golang.org/api/googleapi"
 )
@@ -64,7 +63,6 @@ var markFuncs = map[string]func(error) error{
 	"discord":  markDiscordPermanent,
 	"telegram": markTelegramPermanent,
 	"slack":    markSlackPermanent,
-	"mail":     markMailPermanent,
 	"whatsapp": markWhatsAppPermanent,
 	"calendar": markCalendarPermanent,
 }
@@ -193,10 +191,12 @@ func TestMarkPermanentClassification(t *testing.T) {
 			permanent: false,
 		},
 		{
-			name:      "slack 404 is permanent",
+			// Slack reports channel errors in a 200, so this says nothing
+			// about the channel.
+			name:      "slack HTTP 404 is not permanent",
 			mark:      markSlackPermanent,
 			err:       slack.StatusCodeError{Code: http.StatusNotFound},
-			permanent: true,
+			permanent: false,
 		},
 		{
 			name: "slack API error response is permanent",
@@ -218,20 +218,6 @@ func TestMarkPermanentClassification(t *testing.T) {
 			name:      "slack server-side API error is transient",
 			mark:      markSlackPermanent,
 			err:       slack.SlackErrorResponse{Err: "internal_error"},
-			permanent: false,
-		},
-
-		// Mail: only a real 5xx reply is permanent (see isPermanentMailSendErr).
-		{
-			name:      "mail permanent SMTP failure is permanent",
-			mark:      markMailPermanent,
-			err:       smtpReplyError(t, "550 5.7.1 rejected"),
-			permanent: true,
-		},
-		{
-			name:      "mail non-SMTP error is transient",
-			mark:      markMailPermanent,
-			err:       errors.New("dial tcp: connection refused"),
 			permanent: false,
 		},
 
@@ -347,11 +333,10 @@ func TestMarkPermanentSurvivesWrapping(t *testing.T) {
 		{
 			name: "discord",
 			mark: markDiscordPermanent,
-			err:  &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}},
+			err:  &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeCannotSendMessagesToThisUser}},
 		},
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
-		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
-		{name: "mail", mark: markMailPermanent, err: smtpReplyError(t, "550 5.7.1 rejected")},
+		{name: "slack", mark: markSlackPermanent, err: slack.SlackErrorResponse{Err: "channel_not_found"}},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
 		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusBadRequest}},
 	}
@@ -385,11 +370,10 @@ func TestPermanenceSurvivesRetryDo(t *testing.T) {
 		{
 			name: "discord",
 			mark: markDiscordPermanent,
-			err:  &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}},
+			err:  &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeCannotSendMessagesToThisUser}},
 		},
 		{name: "telegram", mark: markTelegramPermanent, err: bot.ErrorForbidden},
-		{name: "slack", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusNotFound}},
-		{name: "mail", mark: markMailPermanent, err: smtpReplyError(t, "550 5.7.1 rejected")},
+		{name: "slack", mark: markSlackPermanent, err: slack.SlackErrorResponse{Err: "channel_not_found"}},
 		{name: "whatsapp", mark: markWhatsAppPermanent, err: whatsmeow.ErrUnknownServer},
 		{name: "calendar", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusBadRequest}},
 	}
@@ -442,11 +426,8 @@ func TestTransientErrorsExhaustRetries(t *testing.T) {
 		},
 		{name: "telegram rate limit", mark: markTelegramPermanent, err: bot.ErrorTooManyRequests},
 		{name: "slack 503", mark: markSlackPermanent, err: slack.StatusCodeError{Code: http.StatusServiceUnavailable}},
-		{name: "mail dial failure", mark: markMailPermanent, err: errors.New("connection refused")},
 		// go-mail reports a connection dropped after dial as non-temp.
-		{name: "mail lost connection", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrConnCheck}},
 		// Nor a transport failure between messages: no server code.
-		{name: "mail dropped mid-session", mark: markMailPermanent, err: &mail.SendError{Reason: mail.ErrSMTPMailFrom}},
 		{name: "whatsapp socket close", mark: markWhatsAppPermanent, err: errors.New("websocket: close 1006")},
 		{name: "calendar 500", mark: markCalendarPermanent, err: &googleapi.Error{Code: http.StatusInternalServerError}},
 	}
@@ -478,5 +459,20 @@ func TestTransientErrorsExhaustRetries(t *testing.T) {
 				t.Errorf("transient error came back classified permanent (%v); it would be poison-dropped instead of requeued", err)
 			}
 		})
+	}
+}
+
+// Slack reports channel errors inside a 200, so an HTTP 4xx comes from an edge or
+// proxy and has unknown reach: retrying is pointless, but neither this channel
+// nor the whole token is to blame, so it is queued for that channel alone.
+func TestMarkSlackHTTPClientErrorIsUnknownReach(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusGone} {
+		got := markSlackPermanent(slack.StatusCodeError{Code: code})
+		if isPermanentSendErr(got) || isConfigSendErr(got) || retry.IsRecoverable(got) {
+			t.Errorf("HTTP %d: permanent=%v config=%v recoverable=%v, want all false",
+				code, isPermanentSendErr(got), isConfigSendErr(got), retry.IsRecoverable(got))
+		}
 	}
 }

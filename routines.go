@@ -388,7 +388,7 @@ func enabledQueues(cfg config.TomlConfig) [][]byte {
 // a row, so those send it again: a duplicate after a hard kill, instead of a loss.
 // A row stays until every queue holds it.
 func recoverOutbox(ctx context.Context, eDB *sqlitedb.Edb, cfg config.TomlConfig) {
-	rows := queue.FetchFailedMsgs(ctx, eDB, queue.OutboxKey)
+	rows := queue.FetchOutbox(ctx, eDB)
 	if len(rows) > 0 {
 		logger.Warn().Msgf("Recovering %d messages from a cycle that did not finish; some may repeat", len(rows))
 	}

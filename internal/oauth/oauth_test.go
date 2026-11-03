@@ -692,3 +692,68 @@ func TestGetClientNonInteractiveMissingToken(t *testing.T) {
 		t.Error("GetClient() started the interactive consent flow without a terminal to answer it")
 	}
 }
+
+// A refreshed token is usable whether or not it reached the disk, so a token file
+// that cannot be rewritten must not stop every Calendar delivery.
+// Not parallel: changes a directory's permissions.
+func TestGetClientSurvivesUnsavableRefresh(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"new-access","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer tokenSrv.Close()
+
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "calendar_token.json")
+
+	expired := &oauth2.Token{AccessToken: "old", TokenType: "Bearer", RefreshToken: "r", Expiry: time.Now().Add(-time.Hour)}
+	if err := saveToken(tokenPath, expired, ""); err != nil {
+		t.Fatalf("saveToken failed: %v", err)
+	}
+
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	cfg := &oauth2.Config{ClientID: "c", ClientSecret: "s", Endpoint: oauth2.Endpoint{TokenURL: tokenSrv.URL}}
+
+	client, err := GetClient(context.Background(), cfg, tokenPath, false)
+	if err != nil {
+		t.Fatalf("GetClient() = %v, want the refreshed token used despite the failed save", err)
+	}
+
+	if client == nil {
+		t.Fatal("GetClient() returned no client")
+	}
+
+	// Once the file can be written again, the next use saves the token: it may be
+	// the only copy of a rotated refresh token.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer apiSrv.Close()
+
+	resp, err := client.Get(apiSrv.URL)
+	if err != nil {
+		t.Fatalf("client.Get() = %v", err)
+	}
+
+	_ = resp.Body.Close()
+
+	saved, err := tokenFromFile(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if saved.AccessToken != "new-access" {
+		t.Errorf("saved access token = %q, want the save retried on next use", saved.AccessToken)
+	}
+}

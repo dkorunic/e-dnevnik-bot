@@ -36,6 +36,28 @@ type Queued struct {
 //
 // A failure logs and returns whatever could be read.
 func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []Queued {
+	rows, err := fetchQueued(ctx, eDB, queueKey)
+	if err != nil {
+		logger.Error().Msgf("Error reading failed messages for queue %s: %v", queueKey, err)
+	}
+
+	return rows
+}
+
+// FetchOutbox is FetchFailedMsgs for the outbox. A failed read counts as a failed
+// queue write: nothing was recovered, so ClearOutbox must keep the rows.
+func FetchOutbox(ctx context.Context, eDB *sqlitedb.Edb) []Queued {
+	rows, err := fetchQueued(ctx, eDB, OutboxKey)
+	if err != nil {
+		logger.Error().Msgf("Error reading the outbox: %v", err)
+		recordStoreFailure(eDB, OutboxKey)
+	}
+
+	return rows
+}
+
+// fetchQueued implements FetchFailedMsgs, reporting a failed read.
+func fetchQueued(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) ([]Queued, error) {
 	queueKeyStr := string(queueKey)
 
 	// Once per process per queue; a failed migration reports not-done and
@@ -52,9 +74,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 
 	rows, err := eDB.ScanPrefix(ctx, prefix)
 	if err != nil {
-		logger.Error().Msgf("Error reading failed messages for queue %v: %v", queueKeyStr, err)
-
-		return nil
+		return nil, err
 	}
 
 	now := time.Now()
@@ -142,7 +162,7 @@ func FetchFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, queueKey []byte) []
 		logger.Info().Msgf("Found %v failed messages in queue %v, trying to resend", len(kept), queueKeyStr)
 	}
 
-	return kept
+	return kept, nil
 }
 
 // splitRow rewrites a multi-message row as one row per message and removes the

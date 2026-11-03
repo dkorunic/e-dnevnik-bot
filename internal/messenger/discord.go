@@ -124,8 +124,8 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 //
 // 401 is a config error: the bot token is bad for every user, so the retry loop
 // stops but the alert is queued, not dropped, until the token is fixed and the
-// bot restarted. 403 stays permanent — it is per user (DMs closed, no shared
-// server).
+// bot restarted. A 403 with Discord's own body stays permanent — it is per user
+// (DMs closed, no shared server).
 func markDiscordPermanent(err error) error {
 	if err == nil {
 		return nil
@@ -144,9 +144,11 @@ func markDiscordPermanent(err error) error {
 			return retry.Unrecoverable(permanentError{discordStaleChannelError{err}})
 		}
 
-		// A 404 without Discord's JSON body came from an edge or proxy: it
-		// says nothing about the channel, so it is retried, not dropped.
-		if rerr.Response.StatusCode == http.StatusNotFound && rerr.Message == nil {
+		// A response without Discord's JSON body came from an edge or proxy (a
+		// 404, a Cloudflare 403 block page): it says nothing about the recipient,
+		// so it is retried, not dropped. discordgo fills Message from any JSON, so
+		// an empty one is no better; code 0 alone is Discord's own generic 403.
+		if rerr.Message == nil || *rerr.Message == (discordgo.APIErrorMessage{}) {
 			return err
 		}
 

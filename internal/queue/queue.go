@@ -102,12 +102,18 @@ func detachedCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 func StoreFailedMsgs(ctx context.Context, eDB *sqlitedb.Edb, key []byte, g msgtypes.Message) error {
 	err := storeRow(ctx, eDB, rowKey(key), g)
 	if err != nil {
-		storeFailuresMu.Lock()
-		storeFailures[storeFailureKey{eDB, string(key)}]++
-		storeFailuresMu.Unlock()
+		recordStoreFailure(eDB, key)
 	}
 
 	return err
+}
+
+// recordStoreFailure counts a failed write to queue key.
+func recordStoreFailure(eDB *sqlitedb.Edb, key []byte) {
+	storeFailuresMu.Lock()
+	defer storeFailuresMu.Unlock()
+
+	storeFailures[storeFailureKey{eDB, string(key)}]++
 }
 
 // storeFailureKey is per database so a failure cannot leak into a later cycle's
@@ -176,7 +182,7 @@ func storeRow(ctx context.Context, eDB rowStore, key []byte, g msgtypes.Message)
 // Dedup never re-fires a flagged event, so without it a process killed between
 // the flag and delivery loses the alert. A finished cycle has delivered or queued
 // everything and clears it; rows found at the start of a cycle are a kill's
-// leftovers. FetchFailedMsgs reads it like any other queue.
+// leftovers, read by FetchOutbox.
 var OutboxKey = []byte("outbox")
 
 // OutboxRow returns the row holding g in the outbox, for writing in one
@@ -204,11 +210,12 @@ func StoreOutbox(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message) err
 // finishes its cycle too, and a row left behind alerts everyone again. Failing
 // only costs that.
 //
-// A failed queue write this cycle keeps the outbox: its row may be the last copy
-// of a flagged event, and a duplicate next cycle beats losing the alert.
+// A failed queue write this cycle, or a failed read of the outbox, keeps it: its
+// row may be the last copy of a flagged event, and a duplicate next cycle beats
+// losing the alert.
 func ClearOutbox(ctx context.Context, eDB *sqlitedb.Edb) {
 	if anyStoreFailure(eDB) {
-		logger.Warn().Msg("A queue write failed this cycle; keeping the outbox, so some alerts may repeat next cycle")
+		logger.Warn().Msg("A queue read or write failed this cycle; keeping the outbox, so some alerts may repeat next cycle")
 
 		return
 	}

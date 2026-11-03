@@ -221,3 +221,47 @@ func TestMsgDedupDoesNotAnnounceUnfinishedFirstRun(t *testing.T) {
 		t.Errorf("log = %q, want no first-run line for a scrape that did not finish", out)
 	}
 }
+
+// A read failure recovers nothing, so clearing the outbox afterwards would delete
+// a kill's survivors unmoved, losing alerts dedup will never fire again. A
+// cancelled context stands in for it: SIGTERM just after the database opens.
+// Not parallel: mutates package-level flag pointers.
+func TestOutboxSurvivesFailedRecovery(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	path := filepath.Join(t.TempDir(), "unread.db.sqlite")
+	eDB := existingDB(t, path)
+
+	if out := runDedup(t, t.Context(), eDB, grade("killed")); len(out) != 1 {
+		t.Fatalf("dedup forwarded %d messages, want 1", len(out))
+	}
+
+	cfg := config.TomlConfig{TelegramEnabled: true}
+
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	recoverOutbox(cancelled, eDB, cfg)
+	queue.ClearOutbox(cancelled, eDB)
+
+	if got := subjectsIn(t, eDB, queue.OutboxKey); len(got) != 1 || got[0] != "killed" {
+		t.Errorf("outbox after a failed recovery = %v, want the event kept", got)
+	}
+
+	// The next cycle's handle has no failure on record, and delivers it.
+	closeCycleDB(eDB)
+
+	next, err := sqlitedb.New(t.Context(), path)
+	if err != nil {
+		t.Fatalf("sqlitedb.New() = %v", err)
+	}
+
+	t.Cleanup(func() { _ = next.Close() })
+
+	recoverOutbox(t.Context(), next, cfg)
+
+	if got := subjectsIn(t, next, messenger.TelegramQueueName); len(got) != 1 || got[0] != "killed" {
+		t.Errorf("queue after the next recovery = %v, want the event", got)
+	}
+}

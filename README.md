@@ -23,6 +23,7 @@
 - [HOWTO](#howto)
   - [Integration with Systemd](#integration-with-systemd)
   - [Running as a Docker container](#running-as-a-docker-container)
+    - [Authorizing Google Calendar on a desktop](#authorizing-google-calendar-on-a-desktop)
   - [Running using Docker Compose](#running-using-docker-compose)
     - [Step 1: Define services in a Compose file](#step-1-define-services-in-a-compose-file)
     - [Step 2: Create persistent directory and download configuration file](#step-2-create-persistent-directory-and-download-configuration-file)
@@ -131,7 +132,7 @@ Other flags:
 
 The configuration file consists of several blocks. The user block can be repeated as many times as needed. The Telegram, Discord, Slack, and e-mail blocks can each appear only once, but all can be enabled or disabled independently. Recipient lists (user IDs, chat IDs, and `to` addresses) are defined as arrays and support any number of entries. Alerts are broadcast to all enabled messaging services simultaneously.
 
-> **File permissions are your responsibility.** The bot does not enforce restrictive permissions on the configuration file, even though it contains AAI/AOSI passwords and messenger tokens. Set `chmod 0600 .e-dnevnik.toml` (or equivalent) yourself, and ensure the file's directory is not world-readable. Containerised deployments should use a dedicated volume that is mounted with appropriate ownership.
+> **Keep the configuration file private.** It contains AAI/AOSI passwords and messenger tokens. The bot tightens it to `0600` each time it loads it, and only warns if it cannot, for example on a read-only mount or a file owned by another user. Make sure the file's directory is not world-readable too. Containerised deployments should use a dedicated volume that is mounted with appropriate ownership.
 >
 > **The bot may rewrite your configuration file.** When the WhatsApp `groups` field contains a name that resolves to a JID (see the [WhatsApp configuration](#whatsapp-configuration) section), and the file is writable by the bot's user, the resolved JID is migrated from `groups` into `userids` and the file is rewritten in place. Comments and key ordering are **not preserved** — the rewrite uses a TOML encoder that emits a canonical form. If you maintain the file under version control or rely on inline comments, either keep the file read-only and manage the JIDs yourself, or expect a single one-time rewrite on first successful resolution.
 
@@ -146,6 +147,9 @@ password = "lozinka"
 ```
 
 As many `[[user]]` blocks as needed can be specified; all users are processed in parallel.
+
+> [!NOTE]
+> **A change in a student's number of active classes repeats alerts once.** With more than one active class, subjects are shown as `Subject / Class`, and that name is part of how the bot recognises an event it has already sent. So when a student gains a second class (a music school enrolment, for example) or a second class ends, events look new: recent grades and exams alert again, readings and national exams alert again however old they are, and upcoming exams appear twice in Google Calendar and CalDAV, where the extra entries can simply be deleted.
 
 #### Telegram configuration
 
@@ -233,7 +237,7 @@ Steps required:
 1. Open the WhatsApp mobile application (iOS, Android, etc.).
 2. A phone number is required for automatic pairing via PIN. If no phone number is configured, pairing falls back to a QR code, which requires an interactive run on a desktop. During the initial sync, keep your Android/iOS WhatsApp application open and active until it finishes, which can take 15-20 minutes. Once the device is paired, the first Ctrl+C or SIGTERM is deferred until the sync finishes (at most about 27 minutes), so a stray interrupt cannot leave contacts and history half-synced. A second one stops waiting and exits; the sync may then be incomplete.
 3. Entries in `userids` are either a personal JID (in the form `+385XXYYYYYYY@s.whatsapp.net`, for direct messages) or a group chat JID (in the form `XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net`). If you do not know a group's JID, you can specify groups by name in the `groups` field; the bot will resolve each name to its JID at startup. If the configuration file is writable by the bot, each resolved JID is added to `userids` and its name removed from `groups`, so subsequent runs skip the name-resolution step. A name that matched no joined group stays in `groups`, is logged once as unmatched, and is retried on every poll until it matches. While a configured name is unmatched, alerts are queued for it (up to the queue's maximum age of 30 days) and the run reports a failure, so a typo costs a delay rather than the alerts. Recipients already reached do not get them twice. Using `userids` directly is preferred for performance reasons.
-4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, keep the whole working directory on a persistent volume (as in the examples below) so that the pairing survives container restarts. Do not bind-mount the database file alone: SQLite keeps `-wal` and `-shm` files next to each database, and losing them on an unclean stop discards recent session writes.
+4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, make the working directory a persistent volume (`--workdir` or `working_dir`, as in the examples below) so that the pairing survives the container being recreated. Do not bind-mount the database file alone: SQLite keeps `-wal` and `-shm` files next to each database, and losing them on an unclean stop discards recent session writes.
 
 #### Google Calendar configuration
 
@@ -245,7 +249,7 @@ name = "Djeca ispiti"
 Steps required:
 
 1. Set up the Google Calendar API by following the [Go Quickstart guide](https://developers.google.com/calendar/api/quickstart/go#set_up_your_environment) to create a project, enable the Calendar API, and download `credentials.json` to the working directory.
-2. On the **first run**, the bot must be launched interactively in a terminal — it will open a browser for OAuth2 authorization and store the resulting token in `calendar_token.json` (configurable with `-g`). On a server without a browser, run it in an SSH session: the log prints the `ssh -L` command to run on your own machine and the URL to open there, within 5 minutes. Subsequent runs use the cached token automatically. Upgrading keeps an existing token working, with no new authorization. If Google ever rejects it, exams are queued and the log says to delete `calendar_token.json` and run the bot interactively once.
+2. On the **first run**, the bot must be launched interactively in a terminal — it will open a browser for OAuth2 authorization and store the resulting token in `calendar_token.json` (configurable with `-g`). On a server without a browser, run it in an SSH session: the log prints the `ssh -L` command to run on your own machine and the URL to open there, within 5 minutes. In Docker, also run it once with `docker run -it --network host`, because the authorization callback listens on the container's own localhost, which neither a tunnel nor `--publish` can reach; replace `<docker-host>` in the printed command with your server's address. With no SSH access, see [Authorizing Google Calendar on a desktop](#authorizing-google-calendar-on-a-desktop). Subsequent runs use the cached token automatically. Upgrading keeps an existing token working, with no new authorization. If Google ever rejects it, exams are queued and the log says to delete `calendar_token.json` and run the bot interactively once.
 3. The `name` field specifies the target Google Calendar by name (e.g. a calendar you created called `Djeca ispiti`). Only exam events are added as calendar entries.
 
 #### CalDAV configuration
@@ -338,6 +342,7 @@ docker pull dkorunic/e-dnevnik-bot
 
 docker run --detach \
     --volume "$(pwd)/ednevnik:/ednevnik" \
+    --workdir /ednevnik \
     --env TZ=Europe/Zagreb \
     --restart unless-stopped \
     dkorunic/e-dnevnik-bot \
@@ -346,6 +351,48 @@ docker run --detach \
     --database /ednevnik/.e-dnevnik.db \
     --conffile /ednevnik/.e-dnevnik.toml
 ```
+
+The bot writes the WhatsApp session (`.e-dnevnik.wa.sqlite`) and the Google Calendar token (`calendar_token.json`) to its working directory. The image sets none, so without `--workdir` (or `working_dir` in Compose) they land in the container's `/` and are lost whenever the container is recreated, for example on an upgrade. Those two features then need pairing or authorizing again.
+
+If your container was started without it and uses either feature, copy the files onto the volume before recreating it. Stop the container first, so that the database is complete, and ignore errors for files you don't have:
+
+```bash
+docker stop <container>
+for f in .e-dnevnik.wa.sqlite .e-dnevnik.wa.sqlite-wal .e-dnevnik.wa.sqlite-shm calendar_token.json; do
+    docker cp "<container>:/$f" ednevnik/
+done
+```
+
+#### Authorizing Google Calendar on a desktop
+
+A detached container has no terminal to authorize in, and a server may have neither a browser nor SSH. The token is an ordinary file that works on any machine, so you can create it on your own computer and copy it over. You need this for the first setup, or when the log says Google rejected the token. The bot renews a working token by itself.
+
+1. Download the bot for your computer from the [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) page, v0.45.0 or newer. The image on the server must be v0.45.0 or newer too, since older ones cannot use a token issued this way.
+
+2. In an empty directory, create a file called `token.toml` with the name of your calendar. The user is a placeholder, because this run never logs in to e-Dnevnik:
+
+   ```toml
+   [[user]]
+   username = "placeholder@skole.hr"
+   password = "placeholder"
+
+   [calendar]
+   name = "Djeca ispiti"
+   ```
+
+3. In a terminal in that directory, run the command below and approve access in the browser that opens, within 5 minutes. `-t` sends only a test message, which calendars ignore, so nothing is added to your calendar:
+
+   ```bash
+   ./e-dnevnik-bot -t -f token.toml
+   ```
+
+   It should leave `calendar_token.json` in the directory. If it logs that it cannot find your calendar, the token is still saved; just check that the name matches on the server.
+
+4. Stop the container, or it may overwrite the file with its old token. Copy `calendar_token.json` into the `ednevnik` directory on the server by whatever means it offers, such as a NAS share or a management UI. Make sure the container's user can read and write it, then start the container again: the file is only checked at startup. Exams queued in the meantime are then added.
+
+5. Delete both files from your computer. The token gives access to your calendars, so treat it like a password.
+
+With no `--workdir` or `working_dir`, the bot looks for the file in the container's `/` instead. Add one of them as shown above, or point to the file with `--calendartoken /ednevnik/calendar_token.json`.
 
 ### Running using Docker Compose
 
@@ -369,6 +416,8 @@ services:
   ednevnik:
     container_name: e-dnevnik
     image: dkorunic/e-dnevnik-bot:latest
+    # Where the WhatsApp session and Google Calendar token are written
+    working_dir: /ednevnik
     command:
       - "--daemon"
       - "--database=/ednevnik/.e-dnevnik.db"

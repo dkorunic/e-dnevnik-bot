@@ -173,6 +173,8 @@ func TestSSHTunnelCommand(t *testing.T) {
 		t.Skipf("no hostname: %v", err)
 	}
 
+	setContainerMarkers(t)
+
 	tests := []struct {
 		name, addr, sshConn, user, sudoUser, want string
 	}{
@@ -220,6 +222,17 @@ func TestSSHTunnelCommand(t *testing.T) {
 	}
 }
 
+// setContainerMarkers replaces the container markers, none by default, so that the
+// tests read the same when they run inside a container.
+func setContainerMarkers(t *testing.T, markers ...string) {
+	t.Helper()
+
+	orig := containerMarkers
+	containerMarkers = markers
+
+	t.Cleanup(func() { containerMarkers = orig })
+}
+
 // lineWriter hands each log line to a test without sharing a buffer across goroutines.
 type lineWriter chan string
 
@@ -229,13 +242,65 @@ func (w lineWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// A failed browser launch must log the tunnel for the port actually bound, which
-// differs from AuthListenPort whenever the fallback ran.
+// The hint names this host from inside the container, where none of that is
+// meaningful, and the tunnel only reaches the callback over the host's network.
+// NOTE: not parallel — swaps containerMarkers, sets the environment.
+func TestSSHTunnelCommandInContainer(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), ".dockerenv")
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	setContainerMarkers(t, marker)
+
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("USER", "root")
+	t.Setenv("SUDO_USER", "")
+
+	if got, want := sshTunnelCommand("127.0.0.1:9080"), "ssh -L 9080:127.0.0.1:9080 <docker-host>"; got != want {
+		t.Errorf("sshTunnelCommand() = %q, want %q", got, want)
+	}
+
+	got := callbackAccessHint("127.0.0.1:9080", "http://127.0.0.1:9080")
+
+	// Conditional: /.dockerenv is there under --network host too, and being told to
+	// restart would cost the user their 5 minutes.
+	for _, want := range []string{"unless it already uses --network host", "README"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("callbackAccessHint() = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+// Over SSH a browser that opens is on the far end's screen (macOS open exits 0 on
+// the console session), so success proves nothing: the hint must appear anyway.
 // NOTE: not parallel — stubs browserOpen, swaps the global logger, sets the environment.
-func TestGetTokenFromWebLogsTunnelForBoundPort(t *testing.T) {
+func TestGetTokenFromWebLogsTunnelOverSSHEvenWhenBrowserOpens(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "198.51.100.7 50000 203.0.113.5 22")
 	t.Setenv("USER", "alice")
 	t.Setenv("SUDO_USER", "")
+
+	assertTunnelLogged(t, nil)
+}
+
+// A failed browser launch must log the tunnel for the port actually bound, which
+// differs from AuthListenPort whenever the fallback ran. No SSH session here: this
+// is the path where only the failure reveals that nobody can see a browser.
+// NOTE: not parallel — stubs browserOpen, swaps the global logger, sets the environment.
+func TestGetTokenFromWebLogsTunnelForBoundPort(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("USER", "alice")
+	t.Setenv("SUDO_USER", "")
+
+	assertTunnelLogged(t, errors.New("no browser"))
+}
+
+// assertTunnelLogged runs the consent flow with browserOpen returning openErr, and
+// fails unless a log line carries the ssh command for the port actually bound.
+func assertTunnelLogged(t *testing.T, openErr error) {
+	t.Helper()
+
+	setContainerMarkers(t)
 
 	// Forces the ephemeral fallback, so a hardcoded AuthListenPort cannot pass.
 	// An error means something else already holds it, which forces the same.
@@ -251,7 +316,7 @@ func TestGetTokenFromWebLogsTunnelForBoundPort(t *testing.T) {
 	browserOpen = func(rootURL string) error {
 		opened <- rootURL
 
-		return errors.New("no browser")
+		return openErr
 	}
 
 	lines := make(lineWriter, 16)
@@ -279,7 +344,7 @@ func TestGetTokenFromWebLogsTunnelForBoundPort(t *testing.T) {
 		t.Fatalf("browser URL %q: %v", rootURL, err)
 	}
 
-	want := "ssh -L " + u.Port() + ":" + u.Host + " alice@203.0.113.5"
+	want := "ssh -L " + u.Port() + ":" + u.Host + " alice@"
 
 	found := false
 

@@ -170,6 +170,16 @@ func ForgetSendFailures(eDB *sqlitedb.Edb) {
 	maps.DeleteFunc(sendFailures, func(k sendFailureKey, _ struct{}) bool { return k.eDB == eDB })
 }
 
+// lastAttempt returns the final attempt's error from retry.Do's aggregate, where
+// errors.As would find the first attempt that matches.
+func lastAttempt(err error) error {
+	if agg, ok := errors.AsType[retry.Error](err); ok {
+		return agg.LastError()
+	}
+
+	return err
+}
+
 // isUnreachable reports a timeout or a failed dial: nothing the server said about
 // this message, so the next one would wait out the same timeouts while every
 // messenger's next poll waits too. A reset mid-request stays per message, and
@@ -178,9 +188,7 @@ func ForgetSendFailures(eDB *sqlitedb.Edb) {
 // Of a retry.Do aggregate only the last attempt counts: it is what the next
 // message would meet, and errors.As would answer for whichever came first.
 func isUnreachable(err error) bool {
-	if agg, ok := errors.AsType[retry.Error](err); ok {
-		err = agg.LastError()
-	}
+	err = lastAttempt(err)
 
 	if err == nil || errors.Is(err, context.Canceled) {
 		return false

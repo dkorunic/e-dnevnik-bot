@@ -103,7 +103,7 @@ func checkCalendar(ctx context.Context, config *config.TomlConfig) {
 		logger.Error().Msgf("Cannot stat Google Calendar token file %q: %v. Deferring Calendar integration.", *calTokFile, err)
 		deferCal()
 	case !interactiveTerminal():
-		logger.Warn().Msgf("Google Calendar token file %q not found; first-run OAuth requires an interactive terminal. Deferring Calendar integration (exams will be queued for delivery once OAuth is completed).", *calTokFile)
+		logger.Warn().Msgf("Google Calendar token file %q not found; first-run OAuth requires an interactive terminal, or authorize on a desktop and copy the file here (see the README). Deferring Calendar integration (exams will be queued for delivery once OAuth is completed).", *calTokFile)
 		deferCal()
 	default:
 		_, _, err := calendarInit(ctx, *calTokFile, config.Calendar.Name, true)

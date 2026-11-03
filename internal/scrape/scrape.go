@@ -24,6 +24,11 @@ const scrapeRetryMaxJitter = 500 * time.Millisecond
 // Caps retries so attempts*fetch.Timeout cannot overflow int64 nanoseconds.
 const scrapeMaxAttempts = 100
 
+// Floors the per-user budget, in requests at their full timeout. A scrape makes
+// far more requests than that, but they rarely all run to the timeout. Well under
+// the 1h minimum poll interval.
+const scrapeMinBudgetRequests = 10
+
 // Caps consecutive re-logins per scrape. A drifted auth marker makes every
 // endpoint report expiry, which uncapped becomes a login POST per attempt per
 // step — straight into the rate limiter markPermanent exists to avoid.
@@ -123,19 +128,26 @@ func scrapeRetrier(ctx context.Context, attempts uint, delay time.Duration) *ret
 	)
 }
 
+// scrapeBudget returns the deadline of one user's whole scrape. It spans every
+// request, so -r alone would give -r 1 the timeout of a single one.
+func scrapeBudget(attempts uint) time.Duration {
+	budget := time.Duration(int64(min(attempts, scrapeMaxAttempts))) * fetch.Timeout
+
+	return max(budget, scrapeMinBudgetRequests*fetch.Timeout)
+}
+
 // GetGradesAndEvents scrapes one user's subjects, grades and exam events,
 // emitting a message per event.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
-	// Already clamped to >= 1 by the caller; cap only the top so
-	// attempts*fetch.Timeout cannot overflow int64 nanoseconds.
+	// Already clamped to >= 1 by the caller.
 	attempts := min(retries, scrapeMaxAttempts)
 
-	r64 := int64(attempts)
-
-	// One deadline for the whole per-user scrape. NOTE: this couples -r to total
-	// pipeline time rather than per-request retries, so a large -r permits a
-	// multi-hour cycle that starves later steps. Keep -r modest.
-	budgetCtx, stop := context.WithTimeout(ctx, time.Duration(r64)*fetch.Timeout)
+	// One deadline for the whole per-user scrape. NOTE: every -r up to
+	// scrapeMinBudgetRequests gets the same 20 minutes, which a stalled portal can
+	// hold the poll cycle for. Above that it couples -r to total pipeline time rather
+	// than per-request retries, so a large -r permits a multi-hour cycle that starves
+	// later steps. Keep -r modest.
+	budgetCtx, stop := context.WithTimeout(ctx, scrapeBudget(attempts))
 	defer stop()
 
 	client, err := fetch.NewClientWithContext(budgetCtx, username, password)
