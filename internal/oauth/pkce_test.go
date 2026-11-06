@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -86,12 +87,15 @@ func TestGetTokenFromWebUsesPKCE(t *testing.T) {
 func TestGetTokenFromWebFallsBackWhenCallbackPortIsBusy(t *testing.T) {
 	var lc net.ListenConfig
 
+	// Already in use (a running bot, say) is the very precondition under test.
 	ln, err := lc.Listen(t.Context(), "tcp", net.JoinHostPort(AuthListenAddr, strconv.Itoa(AuthListenPort)))
-	if err != nil {
+
+	switch {
+	case err == nil:
+		defer ln.Close() //nolint:errcheck
+	case !errors.Is(err, syscall.EADDRINUSE):
 		t.Fatalf("Listen() = %v", err)
 	}
-
-	defer ln.Close() //nolint:errcheck
 
 	origBrowser := browserOpen
 	defer func() { browserOpen = origBrowser }()

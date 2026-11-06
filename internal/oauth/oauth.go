@@ -222,8 +222,6 @@ type authCallback struct {
 // channel closes once; tokChan is buffered, so this send never blocks even after
 // the caller stops listening. ErrServerClosed is the ordinary stop.
 func serveCallback(s *http.Server, listener net.Listener, tokChan chan<- authCallback, once *sync.Once) {
-	logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
-
 	// Serve on pre-bound listener; ListenAndServe would race by re-binding.
 	if err := s.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		once.Do(func() {
@@ -363,6 +361,10 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	r.Get("/favicon.ico", func(w http.ResponseWriter, req *http.Request) {
 		http.ServeFileFS(w, req, contentFS, "assets/favicon.ico")
 	})
+
+	// Logged here, not in serveCallback: getTokenFromWeb does not wait for that
+	// goroutine, so its logging could outlive the call.
+	logger.Debug().Msgf("starting HTTP listener on: %v", s.Addr)
 
 	go serveCallback(&s, listener, tokChan, &once)
 
