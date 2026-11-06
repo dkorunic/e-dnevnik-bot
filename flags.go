@@ -29,7 +29,7 @@ const (
 
 var (
 	debug, debugEvents, daemon, help, emulation, colorLogs, version, jitter, readingList *bool
-	examAlerts, nationalExamAlerts, digestAlerts                                         *bool
+	examAlerts, nationalExamAlerts, digestAlerts, driftCheck                             *bool
 	confFile, dbFile, cpuProfile, memProfile, calTokFile                                 *string
 	tickInterval, relevancePeriod                                                        *time.Duration
 	retries                                                                              *uint
@@ -51,6 +51,7 @@ func parseFlags() {
 	examAlerts = fs.BoolLongDefault("exams", true, "send exam alerts")
 	nationalExamAlerts = fs.BoolLongDefault("nationalexams", true, "send national exam alerts")
 	digestAlerts = fs.BoolLongDefault("digest", true, "send weekly exam digest (also needs [digest] enabled)")
+	driftCheck = fs.BoolLong("driftcheck", "check grades against the portal's own averages and warn when the portal changes")
 	jitter = fs.BoolDefault('j', "jitter", true, "enable slight (up to 10%) jitter for tick intervals")
 
 	confFile = fs.String('f', "conffile", DefaultConfFile, "configuration file (in TOML)")

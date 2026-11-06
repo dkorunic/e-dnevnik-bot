@@ -25,6 +25,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/messenger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/queue"
+	"github.com/dkorunic/e-dnevnik-bot/internal/scrape"
 	"github.com/dustin/go-humanize"
 	"github.com/hako/durafmt"
 	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
@@ -153,6 +154,8 @@ func signalContext() (context.Context, context.CancelFunc) {
 // first-run setup, then does a single run or drives the poll loop.
 func main() {
 	parseFlags()
+
+	scrape.CheckDrift = *driftCheck
 
 	initLog()
 

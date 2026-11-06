@@ -419,7 +419,7 @@ func queuedExpired(g msgtypes.Message, now time.Time) bool {
 	switch g.Code {
 	case msgtypes.Exam:
 		return g.Timestamp.Format(time.DateOnly) < today
-	case msgtypes.ExamDigest:
+	case msgtypes.ExamDigest, msgtypes.PortalDrift:
 		// Timestamp is the week's Monday.
 		return g.Timestamp.AddDate(0, 0, 6).Format(time.DateOnly) < today
 	case msgtypes.Grade, msgtypes.Reading, msgtypes.FinalGrade, msgtypes.NationalExam:

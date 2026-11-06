@@ -178,6 +178,16 @@ func TestMailSubjectFor(t *testing.T) {
 		t.Errorf("subjectFor(Grade) = %q, want fallback %q", got, "default")
 	}
 
+	// The portal-change warning ignores the generic subject, not an override.
+	if got := cfg.subjectFor(msgtypes.PortalDrift); got != MailDriftSubject {
+		t.Errorf("subjectFor(PortalDrift) = %q, want %q", got, MailDriftSubject)
+	}
+
+	cfg.Subjects[msgtypes.PortalDrift] = "portal"
+	if got := cfg.subjectFor(msgtypes.PortalDrift); got != "portal" {
+		t.Errorf("subjectFor(PortalDrift) with override = %q, want %q", got, "portal")
+	}
+
 	// An empty override is unset, not a request for the built-in default.
 	cfg.Subjects[msgtypes.Reading] = ""
 	if got := cfg.subjectFor(msgtypes.Reading); got != "default" {

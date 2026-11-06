@@ -66,6 +66,21 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 	for _, i := range cfg.User {
 		wgScrape.Go(func() {
 			err := scrapeUser(ctx, gradesScraped, i.Username, i.Password, *retries)
+
+			// Complete, so not a failure: sendDriftAlerts decides what it means.
+			if de, ok := errors.AsType[*scrape.DriftError](err); ok {
+				if !*driftCheck {
+					logger.Debug().Msgf("Portal drift for user %v ignored (no --driftcheck): %v", i.Username, de)
+
+					return
+				}
+
+				logger.Warn().Msgf("Portal drift for user %v: %v", i.Username, de)
+				failed.addDrift(i.Username, de.Findings)
+
+				return
+			}
+
 			if err != nil {
 				// A failed scrape must not read as a quiet week.
 				failed.add(i.Username)
@@ -575,6 +590,12 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 		if dg != nil {
 			sendDigestsFn(ctx, eDB, dg, exams, gradesMsg)
 		}
+
+		// Off, it neither reads nor writes state. A row left from before still
+		// counts on re-enabling, so a stale first sighting can confirm at once.
+		if sr != nil && *driftCheck {
+			sendDriftAlerts(ctx, eDB, sr, gradesMsg, time.Now())
+		}
 	})
 }
 
@@ -605,7 +626,7 @@ func suppressedCode(code msgtypes.EventCode) bool {
 		return !*examAlerts
 	case msgtypes.NationalExam:
 		return !*nationalExamAlerts
-	case msgtypes.Grade, msgtypes.FinalGrade, msgtypes.ExamDigest:
+	case msgtypes.Grade, msgtypes.FinalGrade, msgtypes.ExamDigest, msgtypes.PortalDrift:
 	}
 
 	return false

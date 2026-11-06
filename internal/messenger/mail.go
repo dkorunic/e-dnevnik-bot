@@ -30,7 +30,11 @@ const (
 	MailWindow    = 1 * time.Hour
 	MailMinDelay  = MailWindow / MailSendLimit
 	MailSubject   = "Nova ocjena/ispit iz e-Dnevnika"
-	MailQueue     = "mail-queue"
+
+	// MailDriftSubject replaces Subject, not the per-code override, for the
+	// portal-change warning: under "new grade/exam" it would be skimmed past.
+	MailDriftSubject = "Upozorenje: e-Dnevnik bot možda ne prima ocjene"
+	MailQueue        = "mail-queue"
 
 	// MailImplicitTLSPort is the submissions port (RFC 8314), TLS from the first
 	// byte. Every other port gets STARTTLS.
@@ -70,8 +74,13 @@ type MailConfig struct {
 }
 
 // subjectFor resolves the subject: per-code override, then Subject, then
-// MailSubject. Empty counts as unset at every level.
+// MailSubject. Empty counts as unset at every level. The portal-change warning
+// skips Subject (see MailDriftSubject).
 func (cfg MailConfig) subjectFor(code msgtypes.EventCode) string {
+	if code == msgtypes.PortalDrift {
+		return cmp.Or(cfg.Subjects[code], MailDriftSubject)
+	}
+
 	return cmp.Or(cfg.Subjects[code], cfg.Subject, MailSubject)
 }
 

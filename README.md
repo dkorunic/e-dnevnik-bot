@@ -42,6 +42,8 @@ e-Dnevnik bot is a self-hosted alerting system that reads from the official [CAR
 - **National exam results** — national exam outcomes
 - **Reading lists** — required reading entries (opt-in via `--readinglist`)
 
+With `--driftcheck`, the bot watches for portal changes that could make it miss or misread grades. It checks its results against the portal's own subject averages. If the problem shows up twice in a row, it sends a one-off "🛠️ PROMJENA PORTALA" warning (at most once a week) and exits with an error status. This is off by default.
+
 The bot can log in as multiple AAI/AOSI users from the skole.hr domain and check for new information for all of them, either as a one-shot run or as a long-running service that polls at regular intervals (e.g. hourly). All new, previously unseen events will trigger an alert. The bot can deliver alerts through the following messaging systems and services:
 
 - [Discord](https://discord.com/)
@@ -97,6 +99,7 @@ FLAGS
       --exams BOOL               send exam alerts (default: true)
       --nationalexams BOOL       send national exam alerts (default: true)
       --digest BOOL              send weekly exam digest (also needs [digest] enabled) (default: true)
+      --driftcheck               check grades against the portal's own averages and warn when the portal changes
   -j, --jitter BOOL              enable slight (up to 10%) jitter for tick intervals (default: true)
   -f, --conffile STRING          configuration file (in TOML) (default: .e-dnevnik.toml)
   -b, --database STRING          alert database file (default: .e-dnevnik.db)
@@ -128,7 +131,8 @@ Other flags:
 - `-q`: daily window in which daemon mode skips its polls (default `23:00-06:00`; `off` polls around the clock). It uses the bot's local time zone, which in Docker is UTC unless you set `TZ`. The end is exclusive: a poll that would fall inside the window waits for its end instead, plus up to 10% of the poll interval with `-j`, so events from the night are alerted then. The first poll after startup always runs, so a bad password shows up straight away. A window leaving less than one poll interval a day logs a warning and polls once a day. Single runs and `-t` ignore it,
 - `--readinglist`: enables processing and alerting on reading list events,
 - `--exams=false`, `--nationalexams=false`: turn off exam and national exam alerts on every messenger, calendars included. Suppressed events are still recorded as seen, so turning a flag back on does not replay them. Exams still appear in the weekly digest,
-- `--digest=false`: turns off the weekly exam digest, same as `enabled = false` in `[digest]`.
+- `--digest=false`: turns off the weekly exam digest, same as `enabled = false` in `[digest]`,
+- `--driftcheck`: enables portal change detection (see [About](#about)). Without it, the warning, the error exit status and the stored state are all skipped.
 
 ### Configuration
 
@@ -206,8 +210,9 @@ from = "user.name@gmail.com"
 subject = "Nova ocjena iz e-Dnevnika"
 to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
 
-# Optional per-event subjects; missing keys fall back to `subject`.
-# Keys: grade, exam, reading, finalgrade, nationalexam, examdigest.
+# Optional per-event subjects; missing keys fall back to `subject`
+# (portaldrift, the --driftcheck warning, has its own default instead).
+# Keys: grade, exam, reading, finalgrade, nationalexam, examdigest, portaldrift.
 [mail.subjects]
 exam = "Novi ispit u e-Dnevniku"
 examdigest = "Tjedni pregled ispita"
@@ -291,7 +296,7 @@ url = "http://192.168.1.10:8123/api/webhook/e-dnevnik-secret-id"
 
 Every alert is POSTed to each `[[webhook]]`. Repeat the block for each endpoint.
 
-1. `format = "json"` (the default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`. Gotify reads `title` and `message` as they are, and automations can branch on `event` (`grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`). `format = "text"` sends the plain-text alert, which is what ntfy expects on a topic URL.
+1. `format = "json"` (the default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`. Gotify reads `title` and `message` as they are, and automations can branch on `event` (`grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`, `portaldrift`). `format = "text"` sends the plain-text alert, which is what ntfy expects on a topic URL.
 2. `headers` are sent as they are, for tokens (`Authorization = "Bearer …"`, `X-Gotify-Key`) or ntfy options (`Priority`, `Tags`).
 3. Only a `2xx` answer counts as delivered. A `5xx`, `408` or `429` is retried. Any other answer, including a redirect (redirects are not followed), queues the alert for the next poll and leaves other endpoints unaffected. An endpoint that can't be reached is skipped for the rest of that poll and retried on the next.
 4. Plain `http` is allowed (a local Home Assistant is the usual case), but the bot warns at startup: alerts contain your children's grades. The logs show only the scheme and host of each URL, because the path usually holds the secret.

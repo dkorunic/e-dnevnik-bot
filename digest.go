@@ -29,10 +29,41 @@ var digestKeyPrefix = []byte("digest-week\x00")
 // hrWeekday holds Croatian weekday abbreviations, indexed by time.Weekday.
 var hrWeekday = [...]string{"ned", "pon", "uto", "sri", "čet", "pet", "sub"}
 
-// userSet collects users whose scrape failed this cycle; safe for concurrent use.
+// userSet collects users whose scrape failed this cycle, and the portal-drift
+// findings of those whose scrape completed; safe for concurrent use.
 type userSet struct {
-	m  map[string]struct{}
-	mu sync.Mutex
+	m     map[string]struct{}
+	drift map[string][]string
+	mu    sync.Mutex
+}
+
+// addDrift records a completed scrape's drift findings. It does not mark the
+// user failed: the events went out, and the digest and seed marker stand.
+func (s *userSet) addDrift(user string, findings []string) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.drift == nil {
+		s.drift = make(map[string][]string)
+	}
+
+	s.drift[user] = findings
+}
+
+// driftOf returns user's drift findings this cycle, if any.
+func (s *userSet) driftOf(user string) []string {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.drift[user]
 }
 
 func (s *userSet) add(user string) {

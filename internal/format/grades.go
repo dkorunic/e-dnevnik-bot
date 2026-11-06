@@ -30,6 +30,8 @@ func formatSubject(sb *strings.Builder, user, subject string, code msgtypes.Even
 		sb.WriteString(NationalExamPrefix)
 	case msgtypes.ExamDigest:
 		sb.WriteString(ExamDigestPrefix)
+	case msgtypes.PortalDrift:
+		sb.WriteString(PortalDriftPrefix)
 	default:
 	}
 

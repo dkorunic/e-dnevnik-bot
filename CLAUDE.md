@@ -141,6 +141,12 @@ Course pages wrap tables in `div.tab-content` (observed: one, `.active`, with `d
 - **Local time is `TZ`:** `main.go` embeds `time/tzdata` because the Alpine image ships none, and Go would otherwise fall back to UTC without any error.
 - Calendar backends receive the digest through the fan-out but drop it: `examEventOf` and `QueueAccepts` both reject non-`Exam` codes. For the same reason `checkDigestConf` leaves `Digest.Active` false when no chat messenger is enabled, so it must run after the messenger checks in `LoadConfig`.
 
+### Portal drift detection — `internal/scrape/drift.go`, `drift.go`
+
+A selector that stops matching yields an empty scrape (`logEmptyResult`), but a scrape that still finds rows and reads them wrong looks healthy. `checkDrift` cross-checks each scrape against the portal itself: every grade table must lead with `Datum` and carry `Ocjena` (`isStaleEvent` reads `Fields[0]` as the date), and the mean of the scraped grades must equal the course list's `div.list-average-grade`, an independent server-side figure (verified 26/26 on the live portal, 2026-11). Keep `gradeMean` counting the same cells as the portal.
+
+`GetGradesAndEvents` returns a `*DriftError` only after an otherwise complete scrape, and `scrapers` records it with `userSet.addDrift`, **not** as a failure: the events went out, so seeding and the digest must proceed. `sendDriftAlerts` then needs the finding on **two consecutive** completed scrapes (`portal-drift\x00<user>`: a grade added between the two fetches looks like drift for one cycle). A failed scrape keeps the state. Once confirmed, it fails the run every cycle but alerts the messengers at most once a week, as a `PortalDrift` event that bypasses dedup like the digest. If the course list loses its averages the check goes blind; that only warns in the log. It is opt-in: `--driftcheck` (`*driftCheck`, default off) sets `scrape.CheckDrift` and gates both `scrapers` and `sendDriftAlerts`, so off the check neither runs nor records state. Subjects whose name appears twice on either page are skipped, and the tolerance (0.01) allows for the portal truncating rather than rounding.
+
 ### Bounded version check — `routines.go:versionCheck`
 
 `versionCheckTimeout = 30s`. A stalled GitHub Releases endpoint must not hold the goroutine past the poll interval. When modifying `versionCheck`, keep the timeout in place.

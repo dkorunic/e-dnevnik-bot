@@ -31,6 +31,7 @@ func TestMain(m *testing.M) {
 	examAlerts = &on
 	nationalExamAlerts = &on
 	digestAlerts = &on
+	driftCheck = &on
 
 	rp := time.Duration(0)
 	relevancePeriod = &rp

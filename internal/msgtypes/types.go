@@ -16,7 +16,8 @@ const (
 	Reading
 	FinalGrade
 	NationalExam
-	ExamDigest // weekly summary of next week's exams; bypasses dedup
+	ExamDigest  // weekly summary of next week's exams; bypasses dedup
+	PortalDrift // portal pages no longer parse as expected; bypasses dedup
 )
 
 // EventCodeNames maps the config-facing name of each EventCode to its value.
@@ -27,6 +28,7 @@ var EventCodeNames = map[string]EventCode{
 	"finalgrade":   FinalGrade,
 	"nationalexam": NationalExam,
 	"examdigest":   ExamDigest,
+	"portaldrift":  PortalDrift,
 }
 
 // Message is the pipeline's canonical event.

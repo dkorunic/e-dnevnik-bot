@@ -137,7 +137,8 @@ func scrapeBudget(attempts uint) time.Duration {
 }
 
 // GetGradesAndEvents scrapes one user's subjects, grades and exam events,
-// emitting a message per event.
+// emitting a message per event. A scrape that completed but failed the portal
+// cross-checks returns a *DriftError: its events are already sent.
 func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, username, password string, retries uint) error {
 	// Already clamped to >= 1 by the caller.
 	attempts := min(retries, scrapeMaxAttempts)
@@ -190,6 +191,9 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 	}
 
 	multiClass := len(classes) > 1
+
+	// Reported only after a scrape that otherwise succeeded.
+	var drift []string
 
 	if multiClass {
 		logger.Debug().Msgf("Found multiple active classes for user %v: %+v", username, classes)
@@ -247,6 +251,16 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
+		if CheckDrift {
+			for _, f := range checkDrift(username, rawGrades, rawCourses) {
+				if multiClass {
+					f += " / " + cName
+				}
+
+				drift = append(drift, f)
+			}
+		}
+
 		for _, s := range subjects {
 			// Scoped to the iteration: hoisted, it keeps the previous
 			// subject's page alive, so one missed error check would emit a
@@ -268,6 +282,10 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 				return err
 			}
 		}
+	}
+
+	if len(drift) > 0 {
+		return &DriftError{Findings: drift}
 	}
 
 	return nil
