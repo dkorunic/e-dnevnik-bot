@@ -35,6 +35,7 @@ type Message struct {
 	QueuedAt       time.Time // time the message first entered the failed-message queue; zero value for non-queued/legacy entries
 	Username       string    // username (SSO/SAML)
 	Subject        string    // subject
+	Average        string    // grade subject's mean at scrape time; display only, never dedup identity
 	Descriptions   []string  // descriptions for fields
 	Fields         []string  // fields with actual grades/exams and remarks
 	SkipRecipients []string  // recipients already notified; skip on retry to prevent duplicates

@@ -579,3 +579,70 @@ func TestParseGradesIgnoresInactiveSchoolYearTab(t *testing.T) {
 		t.Errorf("Fields = %q, want [\"9.9.\"]", msgs[0].Fields)
 	}
 }
+
+// TestSubjectAverage: Croatian decimal comma, non-numeric cells skipped, and
+// nothing below two grades, where the average would only repeat the grade.
+func TestSubjectAverage(t *testing.T) {
+	t.Parallel()
+
+	desc := []string{"Datum", "Bilješka", "Element vrednovanja", GradeDescription}
+
+	for _, tc := range []struct {
+		name string
+		rows [][]string
+		want string
+	}{
+		{"mean", [][]string{{"1.9.", "", "", "5"}, {"2.9.", "", "", "4"}, {"3.9.", "", "", "4"}}, "4,33"},
+		{"skips note-only and descriptive", [][]string{{"1.9.", "x", "", ""}, {"2.9.", "", "", "5"}, {"3.9.", "", "", "odličan"}, {"4.9.", "", "", "2"}}, "3,50"},
+		{"single grade", [][]string{{"1.9.", "", "", "5"}}, ""},
+		{"out of range", [][]string{{"1.9.", "", "", "0"}, {"2.9.", "", "", "6"}}, ""},
+		{"short row", [][]string{{"1.9."}, {"2.9.", "", "", "3"}, {"3.9.", "", "", "3"}}, "3,00"},
+	} {
+		if got := subjectAverage(desc, tc.rows); got != tc.want {
+			t.Errorf("%s: subjectAverage = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	if got := subjectAverage([]string{"Datum", "Grade"}, [][]string{{"1.9.", "5"}, {"2.9.", "4"}}); got != "" {
+		t.Errorf("no %q column: subjectAverage = %q, want empty", GradeDescription, got)
+	}
+}
+
+// TestParseGradesCarriesSubjectAverage: every row of a subject gets the whole
+// table's average, the earlier rows included.
+func TestParseGradesCarriesSubjectAverage(t *testing.T) {
+	t.Parallel()
+
+	html := strings.Replace(gradesTableWithNotes, `		</div>
+	</div>
+</div>`, `		</div>
+		<div class="row ">
+			<div class="cell"><span>9.9.</span></div>
+			<div class="box">
+				<div class="cell "></div>
+				<div class="cell"><span>usmeno</span></div>
+				<div class="cell"><span>4</span></div>
+			</div>
+		</div>
+	</div>
+</div>`, 1)
+
+	ch := make(chan msgtypes.Message, 4)
+
+	if err := parseGrades(context.Background(), ch, "testuser", []byte(html), false, "ClassA"); err != nil {
+		t.Fatalf("parseGrades failed: %v", err)
+	}
+
+	close(ch)
+
+	msgs := drain(ch)
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+
+	for _, m := range msgs {
+		if m.Average != "4,50" {
+			t.Errorf("row %q: Average = %q, want %q", m.Fields[0], m.Average, "4,50")
+		}
+	}
+}

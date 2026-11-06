@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -496,9 +497,13 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 			forward := false
 
+			// Identity first: the average row is display only (see withAverage).
+			key := g.Fields
+			g = withAverage(g)
+
 			// Seeded regardless of forward (not skipped before the flag), which
 			// prevents a flood when a suppressing flag is first enabled.
-			found, err := eDB.CheckAndFlagOutbox(ctx, g.Username, g.Subject, g.Fields, func() ([]byte, []byte, error) {
+			found, err := eDB.CheckAndFlagOutbox(ctx, g.Username, g.Subject, key, func() ([]byte, []byte, error) {
 				forward = !firstRun(g.Username) && !suppressedCode(g.Code) && !isStaleEvent(g, now)
 				if !forward {
 					return nil, nil, nil
@@ -558,6 +563,24 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			sendDigestsFn(ctx, eDB, dg, exams, gradesMsg)
 		}
 	})
+}
+
+// averageDescription heads the subject-average row of a grade alert.
+const averageDescription = "Prosjek"
+
+// withAverage appends the subject average as a last description/value pair, on
+// fresh slices: the scraper shares one Descriptions slice per subject. Callers
+// take the dedup key first — the average moves with every grade, so hashing it
+// would re-alert the whole subject.
+func withAverage(g msgtypes.Message) msgtypes.Message {
+	if g.Average == "" {
+		return g
+	}
+
+	g.Descriptions = slices.Concat(g.Descriptions, []string{averageDescription})
+	g.Fields = slices.Concat(g.Fields, []string{g.Average})
+
+	return g
 }
 
 // suppressedCode reports whether the CLI flags turn off alerts for code.

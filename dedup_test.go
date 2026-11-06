@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -525,5 +526,40 @@ func TestMsgDedupShutdownDuringSeedLoadIsNotAFailure(t *testing.T) {
 
 	if exitWithError.Load() {
 		t.Error("a shutdown while loading first-run markers latched the run as failed")
+	}
+}
+
+// TestMsgDedupAverageIsNotIdentity: the subject average changes with every new
+// grade, so it must reach the alert but never the dedup key — otherwise one new
+// grade would re-alert every older grade of that subject.
+// Not parallel: mutates package-level flag pointers.
+func TestMsgDedupAverageIsNotIdentity(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	eDB := openExistingDB(t, filepath.Join(t.TempDir(), "average.db"))
+	defer eDB.Close() //nolint:errcheck
+
+	g := grade("Matematika")
+	g.Descriptions = []string{"Datum", "Ocjena"}
+	g.Average = "4,50"
+
+	got := runDedup(t, t.Context(), eDB, g)
+	if len(got) != 1 {
+		t.Fatalf("forwarded %d alerts, want 1", len(got))
+	}
+
+	if want := []string{"Datum", "Ocjena", averageDescription}; !slices.Equal(got[0].Descriptions, want) {
+		t.Errorf("Descriptions = %q, want %q", got[0].Descriptions, want)
+	}
+
+	if want := slices.Concat(g.Fields, []string{"4,50"}); !slices.Equal(got[0].Fields, want) {
+		t.Errorf("Fields = %q, want %q", got[0].Fields, want)
+	}
+
+	g.Average = "3,67"
+
+	if got := runDedup(t, t.Context(), eDB, g); len(got) != 0 {
+		t.Errorf("forwarded %d alerts after only the average moved, want 0", len(got))
 	}
 }

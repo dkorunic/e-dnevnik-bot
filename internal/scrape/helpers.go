@@ -6,6 +6,8 @@ package scrape
 import (
 	"bytes"
 	"context"
+	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -21,6 +23,7 @@ const (
 	DateDescription  = "Datum ispita" // exam date field description
 	EventSummary     = "Predmet"      // exam summary field description (typically a subject name)
 	EventDescription = "Napomena"     // exam remark field description (typically a target of the exam)
+	GradeDescription = "Ocjena"       // numeric grade column header on /grade/all
 )
 
 // Shared and immutable, to avoid an allocation per exam event.
@@ -130,32 +133,40 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 			descriptions := headerDescriptions(table)
 
+			// No fieldless alerts.
+			if len(descriptions) == 0 {
+				return
+			}
+
+			// Collected first: every row carries the whole subject's average.
+			var rows [][]string
+
 			table.FindMatcher(selRowNotHeader).
 				Each(func(_ int, row *goquery.Selection) {
-					if cancelled {
-						return
-					}
-
-					fields, hasValue := cellValues(row)
-
-					// No fieldless alerts.
-					if !hasValue || len(descriptions) == 0 {
-						return
-					}
-
-					select {
-					case ch <- msgtypes.Message{
-						Code:         msgtypes.Grade,
-						Username:     username,
-						Subject:      subject,
-						Descriptions: descriptions,
-						Fields:       fields,
-					}:
-						parsedGrades++
-					case <-ctx.Done():
-						cancelled = true
+					if fields, hasValue := cellValues(row); hasValue {
+						rows = append(rows, fields)
 					}
 				})
+
+			average := subjectAverage(descriptions, rows)
+
+			for _, fields := range rows {
+				select {
+				case ch <- msgtypes.Message{
+					Code:         msgtypes.Grade,
+					Username:     username,
+					Subject:      subject,
+					Descriptions: descriptions,
+					Fields:       fields,
+					Average:      average,
+				}:
+					parsedGrades++
+				case <-ctx.Done():
+					cancelled = true
+
+					return
+				}
+			}
 		})
 
 	if cancelled {
@@ -167,6 +178,53 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 	}
 
 	return nil
+}
+
+// subjectAverage returns the mean of a subject's 1–5 grades in Croatian
+// notation ("4,33"), or "" below two grades, where it would only repeat the
+// grade. Non-numeric cells (a note-only row, a descriptive grade) are skipped.
+//
+// Display only: the average moves with every new grade, so in Fields it would
+// re-alert the whole subject each time.
+func subjectAverage(descriptions []string, rows [][]string) string {
+	mean, n := gradeMean(descriptions, rows)
+	if n < 2 {
+		return ""
+	}
+
+	return strings.Replace(strconv.FormatFloat(mean, 'f', 2, 64), ".", ",", 1)
+}
+
+// gradeMean averages the 1–5 values of the GradeDescription column, reporting
+// how many it counted. The portal's own average counts the same cells, which
+// is what lets checkDrift compare the two.
+func gradeMean(descriptions []string, rows [][]string) (float64, int) {
+	col := slices.Index(descriptions, GradeDescription)
+	if col < 0 {
+		return 0, 0
+	}
+
+	var sum, n int
+
+	for _, r := range rows {
+		if col >= len(r) {
+			continue
+		}
+
+		g, err := strconv.Atoi(r[col])
+		if err != nil || g < 1 || g > 5 {
+			continue
+		}
+
+		sum += g
+		n++
+	}
+
+	if n == 0 {
+		return 0, 0
+	}
+
+	return float64(sum) / float64(n), n
 }
 
 // cleanEventDescription keeps only the text after a colon, when there is one.

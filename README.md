@@ -35,7 +35,7 @@
 
 e-Dnevnik bot is a self-hosted alerting system that reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) portal and regularly polls for new information. Supported event types:
 
-- **Grades** — new subject grades
+- **Grades** — new subject grades, with the subject's current average once it has two or more numeric grades
 - **Exams** — newly scheduled exams
 - **Final grades** — end-of-year closing grades per subject
 - **National exam results** — national exam outcomes
