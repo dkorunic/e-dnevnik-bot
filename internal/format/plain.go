@@ -30,6 +30,16 @@ func PlainMsg(username, subject string, code msgtypes.EventCode, descriptions, g
 	return sb.String()
 }
 
+// PlainBody renders the description/value pairs without the header, for
+// payloads that carry the header separately (a webhook's title).
+func PlainBody(descriptions, grade []string) string {
+	var sb strings.Builder
+
+	formatGrades(&sb, descriptions, grade, noEscape)
+
+	return sb.String()
+}
+
 // PlainSubject renders just the header line.
 func PlainSubject(user, subject string, code msgtypes.EventCode) string {
 	var sb strings.Builder

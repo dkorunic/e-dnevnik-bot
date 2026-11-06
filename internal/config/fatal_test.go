@@ -41,6 +41,34 @@ var fatalCases = []struct {
 	run  func()
 }{
 	{
+		name: "webhook url without a host",
+		run:  func() { checkWebhookConf(&TomlConfig{Webhook: []Webhook{{URL: "ntfy.sh/topic"}}}) },
+	},
+	{
+		name: "webhook url not http",
+		run:  func() { checkWebhookConf(&TomlConfig{Webhook: []Webhook{{URL: "ftp://example.com/x"}}}) },
+	},
+	{
+		// The URL is the recipient ID in SkipRecipients.
+		name: "webhook url listed twice",
+		run: func() {
+			checkWebhookConf(&TomlConfig{Webhook: []Webhook{{URL: "https://ntfy.sh/a"}, {URL: "https://ntfy.sh/a"}}})
+		},
+	},
+	{
+		name: "webhook unknown format",
+		run:  func() { checkWebhookConf(&TomlConfig{Webhook: []Webhook{{URL: "https://ntfy.sh/a", Format: "xml"}}}) },
+	},
+	{
+		// Rejected by the transport at send time, it would requeue every cycle.
+		name: "webhook header with a newline",
+		run: func() {
+			checkWebhookConf(&TomlConfig{Webhook: []Webhook{{
+				URL: "https://ntfy.sh/a", Headers: map[string]string{"Title": "a\nb"},
+			}}})
+		},
+	},
+	{
 		name: "mail server without recipients",
 		run:  func() { checkMailConf(&TomlConfig{Mail: Mail{Server: "smtp.example.com"}}) },
 	},

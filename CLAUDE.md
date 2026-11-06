@@ -18,7 +18,7 @@ All sub-packages live under `internal/` (enforced by the Go toolchain — nothin
 | `internal/sqlitedb` | SQLite KV dedup store. |
 | `internal/codec` | CBOR (`fxamacker/cbor/v2`) encode/decode for `[]Message` queue persistence. |
 | `internal/queue` | Dead-letter queue built on `sqlitedb` + `codec`. |
-| `internal/messenger` | Seven messenger backends (Discord/Telegram/Slack/Mail/Calendar/CalDAV/WhatsApp). |
+| `internal/messenger` | Eight messenger backends (Discord/Telegram/Slack/Mail/Calendar/CalDAV/WhatsApp/Webhook). |
 | `internal/format` | Plain/HTML/Markdown formatters consumed by messengers. |
 | `internal/oauth` | Google Calendar OAuth2 interactive flow (local HTTP server). |
 | `internal/config` | TOML config load + validation. |

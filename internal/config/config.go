@@ -16,6 +16,7 @@ import (
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
 	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/google/renameio/v2/maybe"
+	"golang.org/x/net/http/httpguts"
 )
 
 // LoadConfig decodes the TOML config and enables each messenger whose block
@@ -42,6 +43,7 @@ func LoadConfig(file string) (TomlConfig, error) {
 	checkCalendarConf(&config)
 	checkCalDAVConf(&config)
 	checkWhatsAppConf(&config)
+	checkWebhookConf(&config)
 	checkDigestConf(&config)
 
 	noMessengerEnabled := !config.WhatsAppEnabled &&
@@ -50,7 +52,8 @@ func LoadConfig(file string) (TomlConfig, error) {
 		!config.SlackEnabled &&
 		!config.MailEnabled &&
 		!config.CalendarEnabled &&
-		!config.CalDAVEnabled
+		!config.CalDAVEnabled &&
+		!config.WebhookEnabled
 	if noMessengerEnabled {
 		logger.Fatal().Msg("Configuration error: no messenger enabled")
 	}
@@ -359,4 +362,80 @@ func checkUserConf(config *TomlConfig) {
 
 		seen[key] = struct{}{}
 	}
+}
+
+// Webhook formats; empty means WebhookJSON.
+const (
+	WebhookJSON = "json"
+	WebhookText = "text"
+)
+
+// WebhookLabel names a webhook URL for logs by scheme and host alone: the path
+// and query routinely carry the secret (a Discord or Home Assistant webhook ID,
+// an ntfy topic).
+func WebhookLabel(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "webhook"
+	}
+
+	return u.Scheme + "://" + u.Host
+}
+
+// checkWebhookConf validates every [[webhook]]. Fatal on any invalid entry.
+//
+// Unlike CalDAV, plain http to a LAN host is allowed: a local Home Assistant is
+// the common case. It only warns, since alerts carry children's grades.
+// Duplicate URLs are rejected because a URL is its recipient ID in
+// SkipRecipients.
+func checkWebhookConf(config *TomlConfig) {
+	if len(config.Webhook) == 0 {
+		return
+	}
+
+	seen := make(map[string]struct{}, len(config.Webhook))
+
+	for i, w := range config.Webhook {
+		u, err := url.Parse(w.URL)
+		if err != nil || u.Hostname() == "" {
+			logger.Fatal().Msgf("Configuration error: webhook #%d url is not a valid URL with a host", i+1)
+
+			return
+		}
+
+		label := WebhookLabel(w.URL)
+
+		switch u.Scheme {
+		case "https":
+		case "http":
+			if !isLoopbackHost(u.Hostname()) {
+				logger.Warn().Msgf("Configuration: webhook %v uses plain http; alerts will cross the network unencrypted", label)
+			}
+		default:
+			logger.Fatal().Msgf("Configuration error: webhook %v must use http or https", label)
+		}
+
+		if _, dup := seen[w.URL]; dup {
+			logger.Fatal().Msgf("Configuration error: webhook %v is listed twice", label)
+		}
+
+		seen[w.URL] = struct{}{}
+
+		if w.Format != "" && w.Format != WebhookJSON && w.Format != WebhookText {
+			logger.Fatal().Msgf("Configuration error: webhook %v format %q must be %q or %q",
+				label, w.Format, WebhookJSON, WebhookText)
+		}
+
+		// Caught here, not at send time, where the transport's rejection would
+		// read as a send failure and requeue every cycle.
+		for k, v := range w.Headers {
+			if !httpguts.ValidHeaderFieldName(k) || !httpguts.ValidHeaderFieldValue(v) {
+				logger.Fatal().Msgf("Configuration error: webhook %v header %q is not a valid HTTP header", label, k)
+			}
+		}
+	}
+
+	logger.Info().Msgf("Configuration: webhook messenger enabled (%d endpoints)", len(config.Webhook))
+
+	config.WebhookEnabled = true
 }

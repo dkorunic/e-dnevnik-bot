@@ -67,6 +67,14 @@ type WhatsApp struct {
 	Groups      []string `toml:"groups,omitempty"`
 }
 
+// Webhook is one HTTP endpoint alerts are POSTed to: ntfy, Gotify, Home
+// Assistant, n8n and the like.
+type Webhook struct {
+	Headers map[string]string `toml:"headers,omitempty"` // e.g. an Authorization or X-Gotify-Key header
+	URL     string            `toml:"url,omitempty"`
+	Format  string            `toml:"format,omitempty"` // "json" (default) or "text"
+}
+
 // Digest configures the weekly exam summary; on unless enabled = false.
 type Digest struct {
 	Hour    *int   `toml:"hour,omitempty"`    // 0–23 local; pointer distinguishes 0 from unset
@@ -80,22 +88,24 @@ type Digest struct {
 
 // TomlConfig is the whole configuration file.
 type TomlConfig struct {
-	CalDAV          CalDAV   `toml:"caldav,omitempty"`
-	Calendar        Calendar `toml:"calendar,omitempty"`
-	Mail            Mail     `toml:"mail,omitempty"`
-	WhatsApp        WhatsApp `toml:"whatsapp,omitempty"`
-	Telegram        Telegram `toml:"telegram,omitempty"`
-	Discord         Discord  `toml:"discord,omitempty"`
-	Slack           Slack    `toml:"slack,omitempty"`
-	User            []User   `toml:"user,omitempty"`
-	Digest          Digest   `toml:"digest,omitempty"`
-	TelegramEnabled bool     `toml:"-"` // derived at runtime; never read from or written to TOML
-	DiscordEnabled  bool     `toml:"-"`
-	SlackEnabled    bool     `toml:"-"`
-	MailEnabled     bool     `toml:"-"`
-	CalendarEnabled bool     `toml:"-"`
-	CalDAVEnabled   bool     `toml:"-"`
-	WhatsAppEnabled bool     `toml:"-"`
+	CalDAV          CalDAV    `toml:"caldav,omitempty"`
+	Calendar        Calendar  `toml:"calendar,omitempty"`
+	Mail            Mail      `toml:"mail,omitempty"`
+	WhatsApp        WhatsApp  `toml:"whatsapp,omitempty"`
+	Telegram        Telegram  `toml:"telegram,omitempty"`
+	Discord         Discord   `toml:"discord,omitempty"`
+	Slack           Slack     `toml:"slack,omitempty"`
+	User            []User    `toml:"user,omitempty"`
+	Webhook         []Webhook `toml:"webhook,omitempty"`
+	Digest          Digest    `toml:"digest,omitempty"`
+	TelegramEnabled bool      `toml:"-"` // derived at runtime; never read from or written to TOML
+	DiscordEnabled  bool      `toml:"-"`
+	SlackEnabled    bool      `toml:"-"`
+	MailEnabled     bool      `toml:"-"`
+	CalendarEnabled bool      `toml:"-"`
+	CalDAVEnabled   bool      `toml:"-"`
+	WhatsAppEnabled bool      `toml:"-"`
+	WebhookEnabled  bool      `toml:"-"`
 	// Configured but not yet initialisable — a headless daemon before OAuth.
 	// msgSend runs a queue-only stub so exams survive.
 	CalendarDeferred bool `toml:"-"`

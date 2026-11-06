@@ -20,6 +20,7 @@
     - [WhatsApp configuration](#whatsapp-configuration)
     - [Google Calendar configuration](#google-calendar-configuration)
     - [CalDAV configuration](#caldav-configuration)
+    - [Webhook configuration](#webhook-configuration)
 - [HOWTO](#howto)
   - [Integration with Systemd](#integration-with-systemd)
   - [Running as a Docker container](#running-as-a-docker-container)
@@ -49,6 +50,7 @@ The bot can log in as multiple AAI/AOSI users from the skole.hr domain and check
 - [WhatsApp](https://www.whatsapp.com/)
 - Regular e-mail (e.g. Gmail SMTP, etc.)
 - [Google Calendar](https://calendar.google.com/) (exam events only)
+- Any HTTP webhook — [ntfy](https://ntfy.sh/), [Gotify](https://gotify.net/), [Home Assistant](https://www.home-assistant.io/), n8n, …
 - Any [CalDAV](https://en.wikipedia.org/wiki/CalDAV) calendar — Nextcloud, Radicale, Baïkal, Fastmail, iCloud, … (exam events only)
 
 Each alert can be broadcast through multiple services simultaneously, and each service can have multiple recipients. All authentication credentials remain exclusively on your PC or server.
@@ -272,6 +274,28 @@ An alternative to Google Calendar that needs no Google account and no interactiv
 7. Plain `http` is loopback-only (see point 3): a Docker-network hostname such as `http://radicale:5232/` is rejected even though it never leaves your infrastructure. Use `https`, or run the bot on the same host network as the CalDAV server so it can reach it via `localhost`.
 8. iCloud does not show collection URLs in its web UI; discovering the correct one requires a CalDAV client — the bot does no discovery of its own.
 
+#### Webhook configuration
+
+```toml
+[[webhook]]
+url = "https://ntfy.sh/my-secret-topic"
+format = "text"
+
+[[webhook]]
+url = "https://gotify.example.com/message"
+headers = { "X-Gotify-Key" = "AbCdEf123" }
+
+[[webhook]]
+url = "http://192.168.1.10:8123/api/webhook/e-dnevnik-secret-id"
+```
+
+Every alert is POSTed to each `[[webhook]]`. Repeat the block for each endpoint.
+
+1. `format = "json"` (the default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`. Gotify reads `title` and `message` as they are, and automations can branch on `event` (`grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`). `format = "text"` sends the plain-text alert, which is what ntfy expects on a topic URL.
+2. `headers` are sent as they are, for tokens (`Authorization = "Bearer …"`, `X-Gotify-Key`) or ntfy options (`Priority`, `Tags`).
+3. Only a `2xx` answer counts as delivered. A `5xx`, `408` or `429` is retried. Any other answer, including a redirect (redirects are not followed), queues the alert for the next poll and leaves other endpoints unaffected. An endpoint that can't be reached is skipped for the rest of that poll and retried on the next.
+4. Plain `http` is allowed (a local Home Assistant is the usual case), but the bot warns at startup: alerts contain your children's grades. The logs show only the scheme and host of each URL, because the path usually holds the secret.
+
 #### Weekly exam digest
 
 ```toml
@@ -281,7 +305,7 @@ day = "sunday"
 hour = 18
 ```
 
-Once a week, each user gets one short message listing every exam in the coming week (Monday to Sunday), sent to all chat messengers (Telegram, Discord, Slack, mail, WhatsApp). Calendar backends ignore it, because they already hold each exam as its own entry.
+Once a week, each user gets one short message listing every exam in the coming week (Monday to Sunday), sent to all chat messengers (Telegram, Discord, Slack, mail, WhatsApp, webhooks). Calendar backends ignore it, because they already hold each exam as its own entry.
 
 1. The digest is **on by default**, even with no `[digest]` section, as long as at least one chat messenger is enabled (with only calendars it is switched off, since they would discard it). To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is an hour from 0 to 23 (default `18`) in the bot's local time zone. In Docker, that is UTC unless you set `TZ` (see below).
 2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll is missed, skipped during quiet hours (`-q`) or fails to scrape a user, a later poll still sends it. A late digest lists only exams from that day onward.

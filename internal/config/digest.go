@@ -49,7 +49,7 @@ func checkDigestConf(config *TomlConfig) {
 	// discard the digest; with no chat messenger it would be built, claimed
 	// and logged as sent every week while reaching nobody.
 	if !hasChatMessenger(config) {
-		logger.Info().Msg("Configuration: weekly exam digest disabled, no chat messenger (Telegram, Discord, Slack, mail, WhatsApp) is enabled")
+		logger.Info().Msg("Configuration: weekly exam digest disabled, no chat messenger (Telegram, Discord, Slack, mail, WhatsApp, webhook) is enabled")
 
 		return
 	}
@@ -64,7 +64,7 @@ func checkDigestConf(config *TomlConfig) {
 // calendar backends drop. Needs the messenger checks to have run first.
 func hasChatMessenger(config *TomlConfig) bool {
 	return config.TelegramEnabled || config.DiscordEnabled || config.SlackEnabled ||
-		config.MailEnabled || config.WhatsAppEnabled
+		config.MailEnabled || config.WhatsAppEnabled || config.WebhookEnabled
 }
 
 // parseWeekday matches an English weekday name case-insensitively.

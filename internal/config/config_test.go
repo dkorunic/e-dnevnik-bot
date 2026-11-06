@@ -391,3 +391,24 @@ func TestCheckMailConfSubjects(t *testing.T) {
 		t.Errorf("SubjectByCode[ExamDigest] = %q, want %q", got, "tjedni pregled")
 	}
 }
+
+// TestCheckWebhookConfAccepts: plain http to a LAN host only warns — a local
+// Home Assistant is the common case — and the log label drops the secret path.
+func TestCheckWebhookConfAccepts(t *testing.T) {
+	t.Parallel()
+
+	cfg := TomlConfig{Webhook: []Webhook{
+		{URL: "https://ntfy.sh/tajna-tema", Format: WebhookText, Headers: map[string]string{"Priority": "high"}},
+		{URL: "http://192.168.1.10:8123/api/webhook/tajni-id"},
+	}}
+
+	checkWebhookConf(&cfg)
+
+	if !cfg.WebhookEnabled {
+		t.Error("valid webhooks did not enable the messenger")
+	}
+
+	if got := WebhookLabel(cfg.Webhook[1].URL); got != "http://192.168.1.10:8123" {
+		t.Errorf("WebhookLabel = %q, want scheme and host only", got)
+	}
+}

@@ -45,6 +45,7 @@ var (
 	ErrCalendar     = errors.New("Google Calendar issue")    //nolint:staticcheck
 	ErrCalDAV       = errors.New("CalDAV issue")
 	ErrWhatsApp     = errors.New("WhatsApp issue")
+	ErrWebhook      = errors.New("webhook issue")
 
 	// Parses the portal's "D.M." grade date column. Do not normalise —
 	// values like "15.4." would stop parsing.
@@ -252,6 +253,17 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 			})
 		}
 
+		if cfg.WebhookEnabled {
+			start(messenger.WebhookQueueName, func(ch <-chan msgtypes.Message) {
+				if err := messenger.Webhook(ctx, eDB, ch, messenger.WebhookConfig{
+					Hooks:   cfg.Webhook,
+					Retries: *retries,
+				}); err != nil {
+					flagMessengerError(ctx, ErrWebhook, err)
+				}
+			})
+		}
+
 		// Ends when gradesMsg closes.
 		for g := range gradesMsg {
 			inflight = &g
@@ -375,6 +387,7 @@ func enabledQueues(cfg config.TomlConfig) [][]byte {
 		{messenger.CalendarQueueName, cfg.CalendarEnabled || cfg.CalendarDeferred},
 		{messenger.CalDAVQueueName, cfg.CalDAVEnabled},
 		{messenger.WhatsAppQueueName, cfg.WhatsAppEnabled},
+		{messenger.WebhookQueueName, cfg.WebhookEnabled},
 	} {
 		if q.enabled {
 			names = append(names, q.name)
