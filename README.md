@@ -1,4 +1,4 @@
-[![GitHub license](https://img.shields.io/github/license/dkorunic/e-dnevnik-bot)](https://github.com/dkorunic/e-dnevnik-bot/blob/master/LICENSE)
+[![GitHub license](https://img.shields.io/github/license/dkorunic/e-dnevnik-bot)](https://github.com/dkorunic/e-dnevnik-bot/blob/main/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/dkorunic/e-dnevnik-bot)](https://github.com/dkorunic/e-dnevnik-bot/releases/latest)
 [![goreleaser](https://github.com/dkorunic/e-dnevnik-bot/actions/workflows/goreleaser.yml/badge.svg)](https://github.com/dkorunic/e-dnevnik-bot/actions/workflows/goreleaser.yml)
 
@@ -11,53 +11,41 @@
 - [Requirements](#requirements)
 - [Installation](#installation)
   - [Usage](#usage)
-  - [Configuration](#configuration)
-    - [User configuration](#user-configuration)
-    - [Telegram configuration](#telegram-configuration)
-    - [Discord configuration](#discord-configuration)
-    - [Slack configuration](#slack-configuration)
-    - [Mail/SMTP configuration](#mailsmtp-configuration)
-    - [WhatsApp configuration](#whatsapp-configuration)
-    - [Google Calendar configuration](#google-calendar-configuration)
-    - [CalDAV configuration](#caldav-configuration)
-    - [Webhook configuration](#webhook-configuration)
+  - [Environment variables](#environment-variables)
+  - [Files](#files)
+  - [Alert behaviour](#alert-behaviour)
+- [Configuration](#configuration)
+  - [User](#user-configuration) · [Telegram](#telegram-configuration) · [Discord](#discord-configuration) · [Slack](#slack-configuration) · [Mail/SMTP](#mailsmtp-configuration) · [WhatsApp](#whatsapp-configuration) · [Google Calendar](#google-calendar-configuration) · [CalDAV](#caldav-configuration) · [Webhook](#webhook-configuration) · [Weekly digest](#weekly-exam-digest)
 - [HOWTO](#howto)
-  - [Integration with Systemd](#integration-with-systemd)
-  - [Running as a Docker container](#running-as-a-docker-container)
-    - [Authorizing Google Calendar on a desktop](#authorizing-google-calendar-on-a-desktop)
-  - [Running using Docker Compose](#running-using-docker-compose)
-    - [Step 1: Define services in a Compose file](#step-1-define-services-in-a-compose-file)
-    - [Step 2: Create persistent directory and download configuration file](#step-2-create-persistent-directory-and-download-configuration-file)
-    - [Step 3: How to run and stop docker compose](#step-3-how-to-run-and-stop-docker-compose)
-  - [Running in Github Actions](#running-in-github-actions)
+  - [Systemd](#integration-with-systemd)
+  - [Docker](#running-as-a-docker-container)
+  - [Docker Compose](#running-using-docker-compose)
+  - [Authorizing Google Calendar on a desktop](#authorizing-google-calendar-on-a-desktop)
+  - [GitHub Actions](#running-in-github-actions)
 - [Star History](#star-history)
 
 ## About
 
-e-Dnevnik bot is a self-hosted alerting system that reads from the official [CARNet e-Dnevnik](https://ocjene.skole.hr/) portal and regularly polls for new information. Supported event types:
+e-Dnevnik bot is a self-hosted service that polls the [CARNet e-Dnevnik](https://ocjene.skole.hr/) portal for one or more AAI/AOSI users (skole.hr) and sends an alert for every new event, as a one-shot run or a daemon.
 
-- **Grades** — new subject grades, with the subject's current average once it has two or more numeric grades
-- **Exams** — newly scheduled exams
-- **Final grades** — end-of-year closing grades per subject
-- **National exam results** — national exam outcomes
-- **Reading lists** — required reading entries (opt-in via `--readinglist`)
+| Event | Notes |
+|---|---|
+| Grades | Includes the subject's average once it has two or more numeric grades |
+| Exams | Newly scheduled exams, plus a [weekly digest](#weekly-exam-digest) |
+| Final grades | End-of-year grades per subject |
+| National exams | Results |
+| Reading lists | Opt-in: `--readinglist` |
 
-With `--driftcheck`, the bot watches for portal changes that could make it miss or misread grades. It checks its results against the portal's own subject averages. If the problem shows up twice in a row, it sends a one-off "🛠️ PROMJENA PORTALA" warning (at most once a week) and exits with an error status. This is off by default.
+Alerts go to every enabled backend:
 
-The bot can log in as multiple AAI/AOSI users from the skole.hr domain and check for new information for all of them, either as a one-shot run or as a long-running service that polls at regular intervals (e.g. hourly). All new, previously unseen events will trigger an alert. The bot can deliver alerts through the following messaging systems and services:
+- [Telegram](https://telegram.org/), [Discord](https://discord.com/), [Slack](https://slack.com/), [WhatsApp](https://www.whatsapp.com/), e-mail (SMTP)
+- Any HTTP webhook: [ntfy](https://ntfy.sh/), [Gotify](https://gotify.net/), [Home Assistant](https://www.home-assistant.io/), n8n, …
+- [Google Calendar](https://calendar.google.com/) and any [CalDAV](https://en.wikipedia.org/wiki/CalDAV) calendar (Nextcloud, Radicale, Baïkal, Fastmail, iCloud, …): exams only
 
-- [Discord](https://discord.com/)
-- [Telegram](https://telegram.org/)
-- [Slack](https://slack.com/)
-- [WhatsApp](https://www.whatsapp.com/)
-- Regular e-mail (e.g. Gmail SMTP, etc.)
-- [Google Calendar](https://calendar.google.com/) (exam events only)
-- Any HTTP webhook — [ntfy](https://ntfy.sh/), [Gotify](https://gotify.net/), [Home Assistant](https://www.home-assistant.io/), n8n, …
-- Any [CalDAV](https://en.wikipedia.org/wiki/CalDAV) calendar — Nextcloud, Radicale, Baïkal, Fastmail, iCloud, … (exam events only)
+Credentials stay on the host running the bot.
 
-Each alert can be broadcast through multiple services simultaneously, and each service can have multiple recipients. All authentication credentials remain exclusively on your PC or server.
-
-**Important note (May 2023): e-Dnevnik bot will not be able to fetch data unless it is hosted inside Croatia, as CARNet has implemented a firewall that blocks access from non-Croatian IP addresses.** This affects all popular cloud VM and VPS providers such as Oracle Cloud, Contabo, AWS, Azure, and GitHub Actions. Self-hosting at home or in a local office is strongly recommended.
+> [!IMPORTANT]
+> Since May 2023 CARNet's firewall blocks non-Croatian IP addresses, including popular cloud and VPS providers (Oracle Cloud, Contabo, AWS, Azure) and GitHub-hosted runners. The bot must run on a host in Croatia.
 
 ## Privacy policy
 
@@ -69,17 +57,15 @@ Your Google information is used solely to provide the user-facing calendar integ
 
 ## Requirements
 
-The bot requires:
-
-- A working directory and a small amount of disk space for the database: approximately 1 MiB for ~50 grades,
-- AAI/AOSI credentials belonging to the skole.hr domain for e-Dnevnik,
-- One or more Discord, Telegram, Slack, WhatsApp, e-mail, Google Calendar or CalDAV accounts/targets.
-
-The bot runs on virtually any embedded device and any supported operating system, using approximately 20–25 MB of RSS memory during normal service operation.
+- AAI/AOSI credentials from the skole.hr domain
+- At least one messaging or calendar backend
+- A writable working directory
 
 ## Installation
 
-Download the binary from the [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) page along with the [example configuration file](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example).
+Download a binary from [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) (Linux amd64/arm64/armv6/armv7, macOS universal, Windows amd64) and the [example configuration](https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example), or use the [Docker image](#running-as-a-docker-container).
+
+Building from source needs Go 1.27+ and [Task](https://taskfile.dev/): `task update-tools && task build`.
 
 ### Usage
 
@@ -112,37 +98,57 @@ FLAGS
   -q, --quiethours HH:MM-HH:MM   local time window with no polls in daemon mode, or off (default: 23:00-06:00)
 ```
 
-By default, the bot runs from the current working directory and loads its [TOML](https://github.com/toml-lang/toml) configuration from `.e-dnevnik.toml`, or from the file specified with the `-f` flag.
+| Flag | Behaviour |
+|---|---|
+| `-0` | Implies `-v`. Writes grades and teachers' notes to the log. |
+| `-b` | `.sqlite` is appended to the path: the file on disk is `.e-dnevnik.db.sqlite`. |
+| `-i` | Minimum and default `1h`; lower values are raised to it. |
+| `-j` | ±10% random jitter on the poll interval. |
+| `-p` | An older event is recorded as seen and never alerted, so a grade backdated past this period produces no alert. |
+| `-q` | Daily window in local time, end exclusive; `off` disables it. A poll due inside the window waits for its end. The first poll after startup always runs. One-shot runs and `-t` ignore it. A window leaving less than one interval per day logs a warning and polls once a day. |
+| `-r` | Applies to scraping and delivery. `0` is treated as `1`. |
+| `-t` | Sends a test message through every chat backend using a throwaway database, and exits non-zero if a send fails. Calendars accept only exams, so `-t` does not exercise them. |
+| `--exams=false`, `--nationalexams=false` | Stops those alerts on every backend, calendars included. Events are still recorded as seen, so re-enabling does not replay them. Exams still appear in the digest. |
+| `--digest=false` | Same as `enabled = false` in `[digest]`. |
+| `--driftcheck` | Cross-checks each scrape against the portal's own subject averages and table headers. A finding on two consecutive scrapes exits non-zero and sends a "🛠️ PROMJENA PORTALA" warning, at most once a week per user. Off by default. |
 
-Other flags:
+Exit status is non-zero when a scrape or a send fails.
 
-- `-b`: path to the alert database file used to track seen alerts (default: `.e-dnevnik.db`); note that the `.sqlite` extension is appended automatically, so the actual file on disk will be `.e-dnevnik.db.sqlite`. It and the WhatsApp session store are created and kept at `0600`, so only the bot's user can read them (on Windows that mode restricts nothing, so protect the directory instead),
-- `-d`: enables daemon/service mode, where the bot runs continuously and wakes up at regular intervals (specified with `-i`); disabled by default,
-- `-f`: path to the configuration file containing usernames, passwords, and messaging service settings (in [TOML](https://github.com/toml-lang/toml) format),
-- `-i`: interval between polls in daemon/service mode (minimum 1h, default 1h),
-- `-r`: number of retry attempts on scraping or delivery failures (default: 3),
-- `-t`: sends a test message to all configured messaging services and exits non-zero if any send fails, using a throwaway database so a failed test send is never queued for delivery on a later run; calendar backends (Google Calendar, CalDAV) only ever receive exam events, so they are not exercised by `-t`,
-- `-v`: enables verbose/debug logging for detailed insight into bot operation; disabled by default,
-- `-l`: enables colorized console logging with JSON output disabled,
-- `-g`: path to the Google Calendar API token file for reading and storing the OAuth2 token,
-- `-p`: maximum relevance period for grade and exam events (default `720h`, about 30 days; `0` = unlimited). An event dated further back is recorded as seen and never alerted, so a grade a teacher enters backdated by more than this period produces no alert,
-- `--version`: displays the program version,
-- `-j`: enables a ±10% random jitter on the poll interval,
-- `-q`: daily window in which daemon mode skips its polls (default `23:00-06:00`; `off` polls around the clock). It uses the bot's local time zone, which in Docker is UTC unless you set `TZ`. The end is exclusive: a poll that would fall inside the window waits for its end instead, plus up to 10% of the poll interval with `-j`, so events from the night are alerted then. The first poll after startup always runs, so a bad password shows up straight away. A window leaving less than one poll interval a day logs a warning and polls once a day. Single runs and `-t` ignore it,
-- `--readinglist`: enables processing and alerting on reading list events,
-- `--exams=false`, `--nationalexams=false`: turn off exam and national exam alerts on every messenger, calendars included. Suppressed events are still recorded as seen, so turning a flag back on does not replay them. Exams still appear in the weekly digest,
-- `--digest=false`: turns off the weekly exam digest, same as `enabled = false` in `[digest]`,
-- `--driftcheck`: enables portal change detection (see [About](#about)). Without it, the warning, the error exit status and the stored state are all skipped.
+### Environment variables
 
-### Configuration
+| Variable | Effect |
+|---|---|
+| `TZ` | Local time zone for quiet hours and the digest. Docker defaults to UTC. |
+| `LOG_LEVEL` | Numeric [zerolog](https://github.com/rs/zerolog) level, `-1` (trace) to `7` (disabled). Ignored with `-v`. |
+| `NO_COLOR` | Disables colour with `-l`. |
+| `GITHUB_TOKEN` | Authenticates the new-release check. |
 
-The configuration file consists of several blocks. The user block can be repeated as many times as needed. The Telegram, Discord, Slack, and e-mail blocks can each appear only once, but all can be enabled or disabled independently. Recipient lists (user IDs, chat IDs, and `to` addresses) are defined as arrays and support any number of entries. Alerts are broadcast to all enabled messaging services simultaneously.
+`GOMEMLIMIT` is set automatically to 90% of the cgroup or system memory.
 
-> **Keep the configuration file private.** It contains AAI/AOSI passwords and messenger tokens. The bot tightens it to `0600` each time it loads it, and only warns if it cannot, for example on a read-only mount or a file owned by another user. Make sure the file's directory is not world-readable too. Containerised deployments should use a dedicated volume that is mounted with appropriate ownership.
->
-> **The bot may rewrite your configuration file.** When the WhatsApp `groups` field contains a name that resolves to a JID (see the [WhatsApp configuration](#whatsapp-configuration) section), and the file is writable by the bot's user, the resolved JID is migrated from `groups` into `userids` and the file is rewritten in place. Comments and key ordering are **not preserved** — the rewrite uses a TOML encoder that emits a canonical form. If you maintain the file under version control or rely on inline comments, either keep the file read-only and manage the JIDs yourself, or expect a single one-time rewrite on first successful resolution.
+### Files
 
-> **Credentials are read once, at startup.** The configuration file is parsed when the bot starts, and the values it holds — AAI/AOSI passwords, messenger tokens, SMTP credentials — are used unchanged for the lifetime of the process. There is no reload signal. After rotating a password or a token, restart the bot (`systemctl restart e-dnevnik-bot`, or recreate the container) before expecting the new value to take effect.
+| File | Contents | Created |
+|---|---|---|
+| `.e-dnevnik.toml` | Passwords and tokens | By you; tightened to `0600` on every load (warns if it cannot) |
+| `.e-dnevnik.db.sqlite` | Seen events and delivery queues | `0600` |
+| `.e-dnevnik.wa.sqlite` | WhatsApp session | `0600`, working directory |
+| `calendar_token.json` | Google OAuth2 token | `0600`, working directory (`-g`) |
+
+SQLite keeps `-wal` and `-shm` files next to each database: persist the whole directory, never a single bind-mounted database file. On Windows the `0600` mode restricts nothing, so protect the directory.
+
+The configuration is read once at startup; restart the bot after changing a password or token. The bot rewrites it only to persist a resolved [WhatsApp group](#whatsapp-configuration) or a migrated Telegram chat ID, using a canonical TOML form that **drops comments and key order**. Keep the file read-only to prevent that.
+
+### Alert behaviour
+
+- **First run is silent, per user.** The first successful scrape of a user records events without alerting. Deleting the database re-seeds silently.
+- **Undelivered alerts are queued** per backend and retried on later polls, for up to 30 days. Recipients already reached are not sent a duplicate.
+- **Seen events expire after 9000 hours** (about a year).
+- **A changed event is a new event.** Editing a grade's note, for example, alerts again.
+- **Changing a student's number of active classes repeats alerts once.** With more than one class, subjects are named `Subject / Class`, and that name is part of an event's identity. Recent grades and exams alert again, readings and national exams alert again regardless of age, and upcoming exams appear twice in calendars.
+
+## Configuration
+
+TOML, loaded from `.e-dnevnik.toml` or `-f`. Each backend is optional and independent; `[[user]]` and `[[webhook]]` repeat. Invalid configuration aborts startup.
 
 #### User configuration
 
@@ -152,11 +158,6 @@ username = "ime.prezime@skole.hr"
 password = "lozinka"
 ```
 
-As many `[[user]]` blocks as needed can be specified; all users are processed in parallel.
-
-> [!NOTE]
-> **A change in a student's number of active classes repeats alerts once.** With more than one active class, subjects are shown as `Subject / Class`, and that name is part of how the bot recognises an event it has already sent. So when a student gains a second class (a music school enrolment, for example) or a second class ends, events look new: recent grades and exams alert again, readings and national exams alert again however old they are, and upcoming exams appear twice in Google Calendar and CalDAV, where the extra entries can simply be deleted.
-
 #### Telegram configuration
 
 ```toml
@@ -165,10 +166,8 @@ token = "telegram_bot_token"
 chatids = [ "chat_id", "chat_id2" ]
 ```
 
-Steps required:
-
-1. Create a Telegram bot by following the official [Telegram bot guide](https://core.telegram.org/bots#3-how-do-i-create-a-bot), which involves messaging BotFather and completing a few simple steps.
-2. After creating the bot, message it from each Telegram account you want to receive notifications. Then retrieve the Chat IDs, typically via [https://api.telegram.org/botTOKEN/getUpdates](https://api.telegram.org/botTOKEN/getUpdates), replacing **TOKEN** with the bot token obtained in step 1.
+1. [Create a bot](https://core.telegram.org/bots#3-how-do-i-create-a-bot) with BotFather.
+2. Message the bot from each receiving account, then read the chat IDs from `https://api.telegram.org/bot<TOKEN>/getUpdates`.
 
 #### Discord configuration
 
@@ -178,11 +177,8 @@ token = "discord_bot_token"
 userids = [ "user_id", "user_id2" ]
 ```
 
-Steps required:
-
-1. Create a Discord bot by following the [Discord bot guide](https://discordpy.readthedocs.io/en/stable/discord.html). This involves both creating the bot and inviting it to your server.
-2. The only permission needed is **Send Messages**.
-3. User IDs can be found by [enabling](https://www.remote.tools/remote-work/how-to-find-discord-id) **Developer Mode** in your Discord client and then messaging your bot.
+1. [Create a bot](https://discordpy.readthedocs.io/en/stable/discord.html) and invite it to your server. It needs only **Send Messages**.
+2. Enable **Developer Mode** in your client to [copy user IDs](https://www.remote.tools/remote-work/how-to-find-discord-id).
 
 #### Slack configuration
 
@@ -192,11 +188,8 @@ token = "xoxb-slack_bot_token"
 chatids = [ "chat_id", "chat_id2" ]
 ```
 
-Steps required:
-
-1. Create a Slack bot by following the [official Slack bot guide](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace).
-2. The only OAuth scope required is **chat:write**.
-3. To find a member's Chat ID, click their username in Slack, select **View full profile**, then **Copy member ID**. A channel ID can also be used to send messages to a group channel.
+1. [Create a bot](https://slack.com/help/articles/115005265703-Create-a-bot-for-your-workspace) with the **chat:write** scope.
+2. A chat ID is a member ID (profile → **Copy member ID**) or a channel ID.
 
 #### Mail/SMTP configuration
 
@@ -204,31 +197,21 @@ Steps required:
 [mail]
 server = "smtp.gmail.com"
 port = "587" # 465 uses TLS from the first byte; any other port uses STARTTLS
-username = "user.name@gmail.com" # username and password are required: the bot always logs in
+username = "user.name@gmail.com"
 password = "legacy_app_password"
 from = "user.name@gmail.com"
 subject = "Nova ocjena iz e-Dnevnika"
 to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
 
-# Optional per-event subjects; missing keys fall back to `subject`
-# (portaldrift, the --driftcheck warning, has its own default instead).
+# Optional per-event subjects. Missing keys fall back to `subject`, except
+# portaldrift, which has its own default.
 # Keys: grade, exam, reading, finalgrade, nationalexam, examdigest, portaldrift.
 [mail.subjects]
 exam = "Novi ispit u e-Dnevniku"
 examdigest = "Tjedni pregled ispita"
 ```
 
-> **Upgrading: `from` is now required.** It used to be optional, but an empty
-> `from` is rejected by the SMTP library, and the mail messenger treated that as
-> a per-recipient failure — quietly discarding every alert it was given. The
-> address is now validated at startup, so a `[mail]` block with `server` set and
-> `from` missing **aborts the bot** rather than running with mail silently
-> broken. Because that abort happens before anything starts, the other
-> messengers stop too: add `from` before upgrading.
-
-Steps required:
-
-1. For Gmail, follow the [Gmail Help Center guide](https://support.google.com/a/answer/176600?hl=en) to configure SMTP access. Other SMTP providers follow a similar, self-explanatory setup.
+`from`, `username` and `password` are required. Gmail setup: [SMTP guide](https://support.google.com/a/answer/176600?hl=en).
 
 #### WhatsApp configuration
 
@@ -239,12 +222,9 @@ userids = [ "+385XXYYYYYYY@s.whatsapp.net", "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.ne
 groups = [ "group1", "group2" ]
 ```
 
-Steps required:
-
-1. Open the WhatsApp mobile application (iOS, Android, etc.).
-2. A phone number is required for automatic pairing via PIN. If no phone number is configured, pairing falls back to a QR code, which requires an interactive run on a desktop. During the initial sync, keep your Android/iOS WhatsApp application open and active until it finishes, which can take 15-20 minutes. Once the device is paired, the first Ctrl+C or SIGTERM is deferred until the sync finishes (at most about 27 minutes), so a stray interrupt cannot leave contacts and history half-synced. A second one stops waiting and exits; the sync may then be incomplete.
-3. Entries in `userids` are either a personal JID (in the form `+385XXYYYYYYY@s.whatsapp.net`, for direct messages) or a group chat JID (in the form `XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net`). If you do not know a group's JID, you can specify groups by name in the `groups` field; the bot will resolve each name to its JID at startup. If the configuration file is writable by the bot, each resolved JID is added to `userids` and its name removed from `groups`, so subsequent runs skip the name-resolution step. A name that matched no joined group stays in `groups`, is logged once as unmatched, and is retried on every poll until it matches. While a configured name is unmatched, alerts are queued for it (up to the queue's maximum age of 30 days) and the run reports a failure, so a typo costs a delay rather than the alerts. Recipients already reached do not get them twice. Using `userids` directly is preferred for performance reasons.
-4. The WhatsApp session is stored in `.e-dnevnik.wa.sqlite` in the working directory. When running in Docker, make the working directory a persistent volume (`--workdir` or `working_dir`, as in the examples below) so that the pairing survives the container being recreated. Do not bind-mount the database file alone: SQLite keeps `-wal` and `-shm` files next to each database, and losing them on an unclean stop discards recent session writes.
+1. With `phonenumber` set, the first run pairs by PIN; without it, by a QR code in an interactive terminal.
+2. Keep the WhatsApp mobile app open until the initial sync ends (15–20 minutes). While it runs, the first Ctrl+C or SIGTERM is deferred for at most about 27 minutes; a second one exits and may leave the sync incomplete.
+3. `userids` takes personal and group JIDs. `groups` takes group names, resolved at startup. If the configuration is writable, each resolved JID moves to `userids`. An unmatched name is logged, retried every poll, reported as a failed run, and has its alerts queued. Prefer `userids`.
 
 #### Google Calendar configuration
 
@@ -253,11 +233,15 @@ Steps required:
 name = "Djeca ispiti"
 ```
 
-Steps required:
+`name` is the target calendar. No Google Cloud setup is needed; OAuth client credentials are built into the bot.
 
-1. Set up the Google Calendar API by following the [Go Quickstart guide](https://developers.google.com/calendar/api/quickstart/go#set_up_your_environment) to create a project, enable the Calendar API, and download `credentials.json` to the working directory.
-2. On the **first run**, the bot must be launched interactively in a terminal — it will open a browser for OAuth2 authorization and store the resulting token in `calendar_token.json` (configurable with `-g`). On a server without a browser, run it in an SSH session: the log prints the `ssh -L` command to run on your own machine and the URL to open there, within 5 minutes. In Docker, also run it once with `docker run -it --network host`, because the authorization callback listens on the container's own localhost, which neither a tunnel nor `--publish` can reach; replace `<docker-host>` in the printed command with your server's address. With no SSH access, see [Authorizing Google Calendar on a desktop](#authorizing-google-calendar-on-a-desktop). Subsequent runs use the cached token automatically. Upgrading keeps an existing token working, with no new authorization. If Google ever rejects it, exams are queued and the log says to delete `calendar_token.json` and run the bot interactively once.
-3. The `name` field specifies the target Google Calendar by name (e.g. a calendar you created called `Djeca ispiti`). Only exam events are added as calendar entries.
+The first run must be interactive: it opens a browser for OAuth2 consent (PKCE, 5-minute limit) and stores `calendar_token.json`.
+
+- **Server over SSH:** the log prints the `ssh -L` command to run on your machine and the URL to open.
+- **Docker:** additionally run once with `docker run -it --network host`, because the callback listens on the container's localhost. Replace `<docker-host>` in the printed command with the server's address.
+- **No SSH:** see [Authorizing Google Calendar on a desktop](#authorizing-google-calendar-on-a-desktop).
+
+If Google later rejects the token, exams are queued and the log says to delete the file and run interactively once.
 
 #### CalDAV configuration
 
@@ -268,16 +252,12 @@ username = "pero"
 password = "app-password"
 ```
 
-An alternative to Google Calendar that needs no Google account and no interactive first run.
+Adds exams as all-day events and can run alongside Google Calendar.
 
-1. `url` is the full URL of the calendar *collection*, not the server root. Nextcloud shows it under the calendar's "Copy private link" menu; Radicale uses `http://127.0.0.1:5232/<user>/<calendar>/`; Fastmail lists it under Settings → Calendars → Calendar sharing / CalDAV.
-2. Use an app-specific password where the provider supports one (Nextcloud, Fastmail, iCloud).
-3. The URL must use `https`. Plain `http` is accepted only for `localhost`, `127.0.0.0/8` or `::1`, so a Radicale on the same machine works without TLS.
-4. Redirects are not followed. If the server redirects, the log names the target — put that URL in the config. The exam is queued meanwhile, like a `401`/`403`/`404`/`405`/`409` (see below).
-5. Only exam events are added, as all-day entries. Google Calendar and CalDAV can be enabled together.
-6. Credentials and the URL are only exercised when the first exam arrives — `-t` emulation sends a grade, which calendar backends ignore, so it does not test CalDAV. A `401`/`403`/`404`/`405`/`409` is treated as a configuration error: the exam is queued, not dropped, and delivered once the URL or app password is fixed and the bot restarted (within the queue's maximum age). Verify the URL and app password with a CalDAV client beforehand (e.g. by subscribing to the same URL) rather than finding out on the first real exam.
-7. Plain `http` is loopback-only (see point 3): a Docker-network hostname such as `http://radicale:5232/` is rejected even though it never leaves your infrastructure. Use `https`, or run the bot on the same host network as the CalDAV server so it can reach it via `localhost`.
-8. iCloud does not show collection URLs in its web UI; discovering the correct one requires a CalDAV client — the bot does no discovery of its own.
+- `url` is the calendar *collection*, not the server root; there is no discovery. Nextcloud: "Copy private link". Radicale: `http://127.0.0.1:5232/<user>/<calendar>/`. Fastmail: Settings → Calendars. iCloud does not show it, so find it with a CalDAV client.
+- `https` is required, except to `localhost`, `127.0.0.0/8` or `::1`. A Docker-network hostname over `http` is rejected.
+- Redirects are not followed; the log names the target to use instead.
+- `-t` does not exercise CalDAV, and credentials are first used on a real exam. Verify the URL and password with a CalDAV client. A `401`/`403`/`404`/`405`/`409` or a redirect queues the exam until the configuration is fixed and the bot restarted.
 
 #### Webhook configuration
 
@@ -294,38 +274,35 @@ headers = { "X-Gotify-Key" = "AbCdEf123" }
 url = "http://192.168.1.10:8123/api/webhook/e-dnevnik-secret-id"
 ```
 
-Every alert is POSTed to each `[[webhook]]`. Repeat the block for each endpoint.
+Every alert is POSTed to each endpoint, at most 12 requests per minute.
 
-1. `format = "json"` (the default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`. Gotify reads `title` and `message` as they are, and automations can branch on `event` (`grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`, `portaldrift`). `format = "text"` sends the plain-text alert, which is what ntfy expects on a topic URL.
-2. `headers` are sent as they are, for tokens (`Authorization = "Bearer …"`, `X-Gotify-Key`) or ntfy options (`Priority`, `Tags`).
-3. Only a `2xx` answer counts as delivered. A `5xx`, `408` or `429` is retried. Any other answer, including a redirect (redirects are not followed), queues the alert for the next poll and leaves other endpoints unaffected. An endpoint that can't be reached is skipped for the rest of that poll and retried on the next.
-4. Plain `http` is allowed (a local Home Assistant is the usual case), but the bot warns at startup: alerts contain your children's grades. The logs show only the scheme and host of each URL, because the path usually holds the secret.
+- `format = "json"` (default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`, with `event` one of `grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`, `portaldrift`. `format = "text"` sends the plain-text alert, as ntfy expects.
+- `headers` are sent verbatim.
+- Only `2xx` counts as delivered. `5xx`, `408`, `429` and network errors are retried. Anything else, including a redirect (not followed), queues the alert for the next poll. An unreachable endpoint is skipped for the rest of that poll. Other endpoints are unaffected.
+- Plain `http` to a non-loopback host logs a warning at startup. Logs show only the scheme and host.
 
 #### Weekly exam digest
 
 ```toml
 [digest]
-enabled = true   # set to false to turn the digest off
-day = "sunday"
-hour = 18
+enabled = true
+day = "sunday" # English weekday name
+hour = 18      # 0-23, local time
 ```
 
-Once a week, each user gets one short message listing every exam in the coming week (Monday to Sunday), sent to all chat messengers (Telegram, Discord, Slack, mail, WhatsApp, webhooks). Calendar backends ignore it, because they already hold each exam as its own entry.
+One message per user listing the coming Monday-to-Sunday exams, sent to chat backends and webhooks. On by default, even with no `[digest]` section, when at least one such backend is enabled.
 
-1. The digest is **on by default**, even with no `[digest]` section, as long as at least one chat messenger is enabled (with only calendars it is switched off, since they would discard it). To turn it off, set `enabled = false`. `day` is an English weekday name (default `sunday`). `hour` is an hour from 0 to 23 (default `18`) in the bot's local time zone. In Docker, that is UTC unless you set `TZ` (see below).
-2. It goes out on the first poll at or after `day` at `hour`, so with the default 1h poll interval it arrives within the hour. If that poll is missed, skipped during quiet hours (`-q`) or fails to scrape a user, a later poll still sends it. A late digest lists only exams from that day onward.
-3. Each user gets at most one digest per week. The bot stores the week it last handled in its database. A week with no exams sends nothing.
-4. Exams already announced individually are listed again. The digest is a summary, not a new-event alert.
-5. On first start, or after upgrading mid-week, the bot sends the current week's digest straight away, listing exams from that day onward.
+- Sent on the first poll at or after `day` at `hour`. A later poll catches up after a miss, quiet hours or a failed scrape, listing exams from that day on.
+- At most one per user per week. A week with no exams sends nothing.
+- First start, or an upgrade mid-week, sends the current week's digest immediately.
 
 ## HOWTO
 
 ### Integration with Systemd
 
-For a minimal [systemd](https://systemd.io/) setup running the service as user `ubuntu` inside `/home/ubuntu/e-dnevnik`, save the following file to `/etc/systemd/system/e-dnevnik.service`:
+`/etc/systemd/system/e-dnevnik.service`:
 
-```
-# /etc/systemd/system/e-dnevnik.service
+```ini
 [Unit]
 Description=e-Dnevnik daemon
 After=network-online.target
@@ -335,7 +312,6 @@ Type=notify
 WatchdogSec=30s
 WorkingDirectory=/home/ubuntu/e-dnevnik
 ExecStart=/home/ubuntu/e-dnevnik/e-dnevnik-bot --daemon --verbose
-
 Restart=always
 RestartSec=2
 User=ubuntu
@@ -345,29 +321,20 @@ Group=ubuntu
 WantedBy=multi-user.target
 ```
 
-Then enable the service with the usual commands:
-
 ```shell
 systemctl daemon-reload
 systemctl enable --now e-dnevnik
-systemctl status e-dnevnik
 ```
-
-Note: e-dnevnik-bot supports the systemd [sd_notify](https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html), `Type=notify`, and `WatchdogSec=` features from version **0.13.0** onwards. Earlier versions are only compatible with `Type=simple`.
 
 ### Running as a Docker container
 
-Up-to-date images for Linux amd64/arm64/arm are available on [Docker Hub](https://hub.docker.com/r/dkorunic/e-dnevnik-bot). To set this up, create a persistent directory named `ednevnik` in your working directory, place the configuration file there, and mount it into the container:
+Images for Linux amd64, arm64, armv6 and armv7 are on [Docker Hub](https://hub.docker.com/r/dkorunic/e-dnevnik-bot) and `ghcr.io/dkorunic/e-dnevnik-bot`.
 
 ```shell
-cd some/workdir
 mkdir ednevnik
-
 curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example \
     --output ednevnik/.e-dnevnik.toml
 editor ednevnik/.e-dnevnik.toml
-
-docker pull dkorunic/e-dnevnik-bot
 
 docker run --detach \
     --volume "$(pwd)/ednevnik:/ednevnik" \
@@ -376,14 +343,11 @@ docker run --detach \
     --restart unless-stopped \
     dkorunic/e-dnevnik-bot \
     --daemon \
-    --verbose \
     --database /ednevnik/.e-dnevnik.db \
     --conffile /ednevnik/.e-dnevnik.toml
 ```
 
-The bot writes the WhatsApp session (`.e-dnevnik.wa.sqlite`) and the Google Calendar token (`calendar_token.json`) to its working directory. The image sets none, so without `--workdir` (or `working_dir` in Compose) they land in the container's `/` and are lost whenever the container is recreated, for example on an upgrade. Those two features then need pairing or authorizing again.
-
-If your container was started without it and uses either feature, copy the files onto the volume before recreating it. Stop the container first, so that the database is complete, and ignore errors for files you don't have:
+`--workdir` is required for WhatsApp and Google Calendar. The image sets none, so without it their files land in the container's `/` and are lost when it is recreated. To recover them from a container started that way:
 
 ```bash
 docker stop <container>
@@ -392,13 +356,32 @@ for f in .e-dnevnik.wa.sqlite .e-dnevnik.wa.sqlite-wal .e-dnevnik.wa.sqlite-shm 
 done
 ```
 
-#### Authorizing Google Calendar on a desktop
+### Running using Docker Compose
 
-A detached container has no terminal to authorize in, and a server may have neither a browser nor SSH. The token is an ordinary file that works on any machine, so you can create it on your own computer and copy it over. You need this for the first setup, or when the log says Google rejected the token. The bot renews a working token by itself.
+```yaml
+services:
+  ednevnik:
+    container_name: e-dnevnik
+    image: dkorunic/e-dnevnik-bot:latest
+    working_dir: /ednevnik
+    command:
+      - "--daemon"
+      - "--database=/ednevnik/.e-dnevnik.db"
+      - "--conffile=/ednevnik/.e-dnevnik.toml"
+    environment:
+      - TZ=Europe/Zagreb
+    volumes:
+      - ./ednevnik:/ednevnik
+    restart: unless-stopped
+```
 
-1. Download the bot for your computer from the [releases](https://github.com/dkorunic/e-dnevnik-bot/releases) page, v0.45.0 or newer. The image on the server must be v0.45.0 or newer too, since older ones cannot use a token issued this way.
+Create `ednevnik/.e-dnevnik.toml` as in the Docker section, then run `docker compose up -d`.
 
-2. In an empty directory, create a file called `token.toml` with the name of your calendar. The user is a placeholder, because this run never logs in to e-Dnevnik:
+### Authorizing Google Calendar on a desktop
+
+For a server with neither a browser nor SSH. The token is a portable file. Both the desktop binary and the server image must be v0.45.0 or newer.
+
+1. In an empty directory on your computer, create `token.toml`. The user is a placeholder, because this run does not log in to e-Dnevnik:
 
    ```toml
    [[user]]
@@ -409,152 +392,14 @@ A detached container has no terminal to authorize in, and a server may have neit
    name = "Djeca ispiti"
    ```
 
-3. In a terminal in that directory, run the command below and approve access in the browser that opens, within 5 minutes. `-t` sends only a test message, which calendars ignore, so nothing is added to your calendar:
+2. Run `./e-dnevnik-bot -t -f token.toml` and approve access in the browser within 5 minutes. Nothing is added to the calendar. If it cannot find your calendar, the token is still saved.
+3. Stop the container, or it may overwrite the file. Copy `calendar_token.json` into `ednevnik/` so the container's user can read and write it, then start the container. The file is checked only at startup.
+4. Delete both files from your computer. The token grants access to your calendars.
 
-   ```bash
-   ./e-dnevnik-bot -t -f token.toml
-   ```
+Without `--workdir` or `working_dir`, point to the file with `--calendartoken /ednevnik/calendar_token.json`.
 
-   It should leave `calendar_token.json` in the directory. If it logs that it cannot find your calendar, the token is still saved; just check that the name matches on the server.
+### Running in GitHub Actions
 
-4. Stop the container, or it may overwrite the file with its old token. Copy `calendar_token.json` into the `ednevnik` directory on the server by whatever means it offers, such as a NAS share or a management UI. Make sure the container's user can read and write it, then start the container again: the file is only checked at startup. Exams queued in the meantime are then added.
+GitHub-hosted runners are outside Croatia and [blocked](#about). A self-hosted runner in Croatia can use the [workflow by Luka Kladaric](https://gist.github.com/allixsenos/f12977de767f32450f435ec2f33b93f0), which renders the configuration from secrets and commits the database back to the repository.
 
-5. Delete both files from your computer. The token gives access to your calendars, so treat it like a password.
-
-With no `--workdir` or `working_dir`, the bot looks for the file in the container's `/` instead. Add one of them as shown above, or point to the file with `--calendartoken /ednevnik/calendar_token.json`.
-
-### Running using Docker Compose
-
-To use `docker compose`, first ensure [Docker Compose is installed](https://docs.docker.com/compose/install/).
-
-#### Step 1: Define services in a Compose file
-
-Create a `docker-compose.yml` file in your project directory (e.g. `~/docker-compose/ednevnik`):
-
-```bash
-user@server:~/docker-compose$ mkdir ednevnik
-user@server:~/docker-compose$ cd ednevnik
-user@server:~/docker-compose$ editor docker-compose.yml
-```
-
-Paste the following into `docker-compose.yml`:
-
-```yaml
-# More info at https://github.com/dkorunic/e-dnevnik-bot
-services:
-  ednevnik:
-    container_name: e-dnevnik
-    image: dkorunic/e-dnevnik-bot:latest
-    # Where the WhatsApp session and Google Calendar token are written
-    working_dir: /ednevnik
-    command:
-      - "--daemon"
-      - "--database=/ednevnik/.e-dnevnik.db"
-      - "--conffile=/ednevnik/.e-dnevnik.toml"
-    # Local time zone for the weekly digest and log timestamps
-    environment:
-      - TZ=Europe/Zagreb
-    # Volumes store your data between container upgrades
-    volumes:
-      - ./ednevnik:/ednevnik
-    restart: unless-stopped
-```
-
-#### Step 2: Create persistent directory and download configuration file
-
-Inside the project directory, create a directory called `ednevnik` for persistent storage, then download and edit the configuration file:
-
-```bash
-user@server:~/docker-compose/ednevnik$ mkdir ednevnik
-
-user@server:~/docker-compose/ednevnik$ curl https://raw.githubusercontent.com/dkorunic/e-dnevnik-bot/main/.e-dnevnik.toml.example \
-    --output ednevnik/.e-dnevnik.toml
-
-user@server:~/docker-compose/ednevnik$ editor ednevnik/.e-dnevnik.toml
-```
-
-#### Step 3: How to run and stop docker compose
-
-From the project directory where `docker-compose.yml` is located, start the service with:
-
-```bash
-user@server:~/docker-compose/ednevnik$ docker compose up -d
-```
-
-The `-d` / `--detach` flag runs the containers in the background.
-
-To stop the service, run:
-
-```bash
-user@server:~/docker-compose/ednevnik$ docker compose down
-```
-
-### Running in Github Actions
-
-> **Warning:** CARNet has implemented a firewall that blocks access to e-Dnevnik from non-Croatian IP addresses. GitHub Actions runners use IP addresses outside Croatia, so this integration will **fail to scrape data**. It is kept here for reference only. For reliable operation, self-host the bot on hardware located in Croatia.
-
-This integration was originally created by Luka Kladaric [@allixsenos](https://twitter.com/allixsenos) — thanks, Luka! The original Gist is [here](https://gist.github.com/allixsenos/f12977de767f32450f435ec2f33b93f0); a copy is reproduced below:
-
-```yaml
-name: e-imenik run
-
-# Controls when the action will run.
-on:
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-  # Run on push to any branch for testing
-  push:
-  # Run every 6 hours
-  schedule:
-    - cron: "0 */6 * * *"
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Render the config file
-        run: |
-          cat > .e-dnevnik.toml <<EOF
-          [[user]]
-          username = "$SKOLE_USERNAME"
-          password = "$SKOLE_PASSWORD"
-
-          [telegram]
-          token = "$TELEGRAM_TOKEN"
-          chatids = [ "$TELEGRAM_CHATID" ]
-          EOF
-        env:
-          SKOLE_USERNAME: ${{ secrets.SKOLE_USERNAME }}
-          SKOLE_PASSWORD: ${{ secrets.SKOLE_PASSWORD }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHATID: ${{ secrets.TELEGRAM_CHATID }}
-
-      - name: Run dkorunic/e-dnevnik-bot
-        run: |
-          docker run -t \
-            --volume "$(pwd):/ednevnik" \
-            --user $(id -u):$(id -g) \
-            dkorunic/e-dnevnik-bot \
-            --verbose \
-            --database /ednevnik/.e-dnevnik.db \
-            --conffile /ednevnik/.e-dnevnik.toml
-
-      - name: Delete the config file so it doesn't get committed back :)
-        if: ${{ !cancelled() }}
-        run: rm .e-dnevnik.toml
-
-      - name: Commit the DB
-        if: ${{ !cancelled() }}
-        uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_author: GitHub Actions <actions@github.com>
-```
-
-This GitHub Actions workflow runs every 6 hours. On each run it checks out the repository (which includes the database), renders the configuration file from secrets, runs the bot, and commits the updated database back to the repository, providing persistence across runs. The bot exits non-zero when a scrape or a send fails, so both later steps carry `if: ${{ !cancelled() }}`: the failed run still saves what it recorded and queued, or the next one alerts the same events again. Keep the condition on **both**: on the commit step alone, a failed run would commit `.e-dnevnik.toml` with your passwords.
-
-## Star History
-
-[![Star History Chart](https://star-history.dera.page/svg?repos=dkorunic/e-dnevnik-bot&type=Date)](https://star-history.com/#dkorunic/e-dnevnik-bot&Date)
+The bot exits non-zero on a failed scrape or send. Run the steps that delete the configuration and commit the database with `if: ${{ !cancelled() }}`: on the commit step alone, a failed run would commit your passwords.

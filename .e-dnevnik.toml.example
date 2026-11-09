@@ -45,6 +45,8 @@ chatids = [ "chat_id", "chat_id2" ]
 # Mail/SMTP block
 ##################################################
 # Configuration for Gmail: https://support.google.com/a/answer/176600?hl=en
+# Username, password and from are required. Port 465 uses TLS from the first
+# byte; any other port uses STARTTLS.
 #
 #[mail]
 #server = "smtp.gmail.com"
@@ -54,11 +56,20 @@ chatids = [ "chat_id", "chat_id2" ]
 #from = "user.name@gmail.com"
 #subject = "Nova ocjena iz e-Dnevnika"
 #to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
+#
+# Optional per-event subjects; missing keys fall back to subject, except
+# portaldrift, which has its own default. Keys: grade, exam, reading,
+# finalgrade, nationalexam, examdigest, portaldrift.
+#
+#[mail.subjects]
+#exam = "Novi ispit u e-Dnevniku"
+#examdigest = "Tjedni pregled ispita"
 
 # Google Calendar block
 ##################################################
-# Configuration for Calendar API: https://developers.google.com/calendar/api/quickstart/go#set_up_your_environment
-# First run needs to be done in terminal on a regular Windows/Mac/Linux system
+# Exam events only. No Google Cloud setup is needed. Name is the target
+# calendar. The first run must be interactive, to authorize in a browser; over
+# SSH the log prints the tunnel command to use.
 #
 #[calendar]
 #name = "Djeca ispiti"
@@ -82,7 +93,7 @@ chatids = [ "chat_id", "chat_id2" ]
 # main WhatsApp application. During the sync make sure to leave (and keep)
 # WhatsApp mobile application open and active.  If the phone number is not set,
 # initial linking requires interactive terminal to display QR link code -- after
-# the sync, .e-dnevnik.sqlite can be copied to the final location. Phone number
+# the sync, .e-dnevnik.wa.sqlite can be copied to the final location. Phone number
 # should be in international format with + and country code.
 #
 # Userids are either in the format of +XXXYYYYYYY@s.whatsapp.net (phone number
@@ -98,13 +109,28 @@ chatids = [ "chat_id", "chat_id2" ]
 #userids = [ "+385XXYYYYYYY@s.whatsapp.net", "XXXYYYYYYY-ZZZZZZZZZZ@s.whatsapp.net" ]
 #groups = [ "group1", "group2" ]
 
+# Webhook blocks
+##################################################
+# Every alert is POSTed to each endpoint; repeat the block as needed. format is
+# "json" (default) or "text" (what ntfy expects). headers are sent as they are.
+# Plain http to a non-loopback host logs a warning: alerts contain grades.
+#
+#[[webhook]]
+#url = "https://ntfy.sh/my-secret-topic"
+#format = "text"
+#
+#[[webhook]]
+#url = "https://gotify.example.com/message"
+#headers = { "X-Gotify-Key" = "AbCdEf123" }
+
 # Weekly exam digest block
 ##################################################
-# One message per user listing next week's exams, sent to all chat messengers.
+# One message per user listing next week's exams, sent to all chat messengers
+# and webhooks.
 # On by default, even without this block. Day is an English weekday name, hour
 # is 0-23 in the bot's local time zone (set TZ=Europe/Zagreb in Docker).
 #
 #[digest]
-#enabled = false
+#enabled = true
 #day = "sunday"
 #hour = 18

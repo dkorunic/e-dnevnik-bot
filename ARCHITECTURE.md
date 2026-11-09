@@ -1,369 +1,175 @@
-# Architecture Overview: e-dnevnik-bot
+# Architecture: e-dnevnik-bot
 
-## 1. System Purpose
+A single-process, self-hosted daemon that scrapes the CARNet [e-Dnevnik](https://ocjene.skole.hr) portal for one or more users and fans new events out to messaging and calendar backends. It ships as a static binary (`CGO_ENABLED=0`) or container. State lives in local SQLite (WAL) files.
 
-**e-dnevnik-bot** is a polling and alerting daemon that monitors the Croatian CARNet [e-Dnevnik](https://ocjene.skole.hr) school portal and delivers grade/exam notifications to parents and students via multiple messaging backends.
+This file describes the design. Rules that must not be broken are in [CLAUDE.md](CLAUDE.md); user-facing behaviour is in [README.md](README.md).
 
-**Primary use cases:**
-
-- Notify parents/students immediately when new grades, exams, reading lists, final grades, or national exam results are posted on e-Dnevnik.
-- Support multi-user polling (multiple children with separate accounts).
-- Deliver alerts across Discord, Telegram, Slack, SMTP mail, WhatsApp, Google Calendar, and CalDAV.
-
-**Target users:** Croatian parents and students; self-hosted via binary or container.
-
----
-
-## 2. High-Level Architecture
-
-**Style:** Modular monolith with an event-driven internal pipeline. All components run in a single process using goroutines.
-
-**Deployment model:** Single static binary (CGO_ENABLED=0). Runs as a foreground process or systemd-managed daemon. Persistent state in SQLite WAL-mode files.
-
-**External dependencies:**
-
-- CARNet e-Dnevnik portal (SSO/SAML-authenticated, HTML scraped)
-- Messaging APIs: Discord, Telegram, Slack, WhatsApp (whatsmeow), Google Calendar (OAuth2), SMTP, CalDAV (basic auth, net/http)
-- GitHub Releases API (optional version check)
+## 1. Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           e-dnevnik-bot process                         │
-│                                                                         │
-│  ┌──────────────┐    ┌───────────────────┐    ┌──────────────────────┐ │
-│  │  Scraper     │    │   msgDedup        │    │  msgSend fan-out     │ │
-│  │  goroutines  │───▶│  (single thread)  │───▶│  (non-blocking)      │ │
-│  │  (per user)  │    │  SQLite KV check  │    │  ┌────────────────┐  │ │
-│  └──────────────┘    └───────────────────┘    │  │ Discord        │  │ │
-│                                               │  │ Telegram       │  │ │
-│  fetch/ → scrape/ → gradesScraped chan        │  │ Slack          │  │ │
-│                        │                     │  │ Mail (SMTP)    │  │ │
-│                        ▼                     │  │ Google Cal.    │  │ │
-│                    gradesMsg chan             │  │ WhatsApp       │  │ │
-│                                               │  └────────────────┘  │ │
-│                                               └──────────────────────┘ │
-│                                                                         │
-│  ┌──────────────┐    ┌───────────────────┐                             │
-│  │  SQLite KV   │    │ Persistent queue  │                             │
-│  │  (dedup DB)  │    │ (failed msgs)     │                             │
-│  └──────────────┘    └───────────────────┘                             │
-└─────────────────────────────────────────────────────────────────────────┘
+                        one poll cycle (runPollCycle), on a fresh DB handle
+ ┌──────────────┐ gradesScraped ┌────────────────┐ gradesMsg ┌────────────────────┐
+ │ scrapers     │──────────────▶│ msgDedup       │──────────▶│ msgSend fan-out    │
+ │ 1 per user   │  buffered 500 │ 1 goroutine    │ buffered  │ non-blocking       │
+ │ fetch+scrape │               │ flag + outbox  │ 500       │ 100-slot per sink  │
+ └──────┬───────┘               └───────┬────────┘           └─────────┬──────────┘
+        │                               │                              ▼
+   e-Dnevnik portal                     ▼                  Discord  Telegram  Slack
+   (SAML/SSO, HTML, ICS)        SQLite KV store            Mail  WhatsApp  Webhook
+                                dedup, outbox, queues      Google Calendar  CalDAV
+                                seed/digest/drift state    (calendars: exams only)
 ```
 
----
+External systems: the portal, the eight backends, and the GitHub Releases API (version check).
 
-## 3. Core Components
+## 2. Components
 
-### `main` (entry point, orchestration)
+Root package `main`:
 
-**Responsibility:** Flag parsing, config loading, polling ticker loop, goroutine lifecycle, systemd integration, profiling, graceful shutdown.
-**Key deps:** `peterbourgon/ff/v4`, `iguanesolutions/go-systemd/v6`, `KimMachineGun/automemlimit`
-**Patterns:** Signal-context cancellation, atomic error flag (`sync/atomic.Bool`), jitter-based polling ticker that waits out the quiet-hours window (`-q`, see `quiet.go`; the first poll after startup always runs), GOMEMLIMIT tuning to 90% of container/host memory. Long-running background goroutines (systemd watchdog) are tracked via a dedicated `bgWG sync.WaitGroup` so shutdown waits for them with a bounded `exitDelay` ceiling instead of sleeping unconditionally.
+| File | Role |
+|---|---|
+| `main.go` | Startup, ticker loop, `runPollCycle`, `-t` emulation, systemd, profiling, shutdown |
+| `flags.go` | CLI flags (`peterbourgon/ff/v4`, flags only) as package-level pointers, and their clamps |
+| `routines.go` | `scrapers`, `msgDedup`, `msgSend`, `recoverOutbox`, `versionCheck` |
+| `seed.go` | Per-user first-run markers |
+| `digest.go` | Weekly exam digest; `userSet` of failed and drifted users per cycle |
+| `drift.go` | Two-scrape confirmation and weekly alert for portal drift |
+| `quiet.go` | `-q` window, `nextPollDelay`, `pollRuns` |
+| `init.go` | Interactive WhatsApp pairing and Calendar OAuth setup |
+| `db.go`, `log.go` | Database open/close; log setup |
 
-### `internal/config/`
+`internal/`:
 
-**Responsibility:** TOML config loading and validation. Each messenger section is independently optional; absence of a section disables that messenger.
-**Key deps:** `BurntSushi/toml`, `google/renameio` (atomic file writes)
-**Patterns:** Fail-fast validation on startup; all checks in dedicated `checkXConf()` functions; config saved atomically to prevent corruption.
+| Package | Role | Main dependencies |
+|---|---|---|
+| `msgtypes` | `Message` and `EventCode` (Grade, Exam, Reading, FinalGrade, NationalExam, ExamDigest, PortalDrift) | none |
+| `fetch` | Portal HTTP client: SAML/SSO login, class list, grades, ICS. 120 s per request. Impersonates Chrome 152 | `enetx/surf` |
+| `scrape` | HTML to `Message`; retry; per-user budget of at least 20 min; drift checks (`drift.go`) | `goquery`, `retry-go/v5` |
+| `sqlitedb` | KV store on one `kv(key, value, expires_at)` table; 4 connections; expired-row sweep on open | `modernc.org/sqlite` |
+| `codec` | CBOR encoding of queued messages | `fxamacker/cbor/v2` |
+| `queue` | Per-messenger failed-message queues and the outbox | `sqlitedb`, `codec` |
+| `messenger` | The eight backends and their shared send logic (`common.go`) | one SDK per backend, `go.uber.org/ratelimit` |
+| `format` | One renderer, three escapers: plain, Telegram HTML, Slack mrkdwn | none |
+| `oauth` | Google OAuth2 with PKCE: local callback on `:9080` or a free port, token storage | `x/oauth2`, `go-chi/chi/v5`, `google/uuid`, `renameio` |
+| `config` | TOML load, fail-fast validation (`check*Conf`), atomic `0600` writes | `BurntSushi/toml`, `renameio` |
+| `logger` | Global logger | `rs/zerolog` |
+| `version` | Dependency versions from the binary's build info | none |
 
-### `internal/fetch/`
-
-**Responsibility:** HTTP client for e-Dnevnik: CSRF token extraction, SAML/SSO auth, class/grades/ICS calendar retrieval.
-**Key deps:** `enetx/surf` (Chrome 152 impersonation: user agent, client hints, header order, TLS ClientHello, HTTP/2 SETTINGS) with cookie jar
-**Patterns:** Cookie-jar-managed SSO sessions, 120-second timeout (portal is slow), and a fixed impersonated Chrome identity rather than a rotating User-Agent — the portal sits behind F5 BIG-IP, and a stable, internally consistent browser fingerprint is less anomalous than one that changes every session. See the browser impersonation contract in CLAUDE.md.
-
-### `internal/scrape/`
-
-**Responsibility:** Parses raw HTML from `internal/fetch/` into structured `msgtypes.Message` events.
-**Key deps:** `PuerkitoBio/goquery` (jQuery-like HTML parser), `avast/retry-go/v5`
-**Patterns:** Retry-wrapped fetch+parse; sends events to `gradesScraped` channel; errors fail the user but don't affect other goroutines.
-
-### `internal/msgtypes/`
-
-**Responsibility:** Shared domain types — `Message` struct and `EventCode` enum (Grade/Exam/Reading/FinalGrade/NationalExam/ExamDigest).
-**Key deps:** none
-**Patterns:** Unified event model across all pipeline stages; `SkipRecipients` field enables partial retry on failure; `QueuedAt` tracks when a message first entered the failed-message queue (zero value for non-queued/legacy entries).
-
-### `internal/sqlitedb/`
-
-**Responsibility:** Pure-Go SQLite KV store for deduplication. Keys are SHA-256 hashes of `(username, subject, fields)`. Entries carry a `DefaultEntryTTL` of ~9 000 h (slightly over one year).
-**Key deps:** `modernc.org/sqlite` (no CGO), `minio/sha256-simd` (hardware-accelerated hashing)
-**Patterns:** WAL mode with a small shared connection pool (`MaxOpenConns=4`), prepared statements, TTL-indexed expiry (expired rows are re-inserted via `CheckAndFlagTTL` so stale dedup keys re-fire), background `cleanup` sweep.
-
-### `internal/queue/`
-
-**Responsibility:** Persistent dead-letter queue for failed message deliveries. Built on top of `sqlitedb`.
-**Key deps:** `internal/codec/` for CBOR serialization
-**Patterns:** One SQLite row per queued message (`<queue> || 0x00 || <time+seq>` keys) so enqueue cost is independent of queue depth; fetch is non-destructive — rows are removed via `Dequeue` only after processing, so a crash mid-resend re-delivers (at-least-once) instead of losing messages; each messenger has its own queue key; resend attempted on next poll cycle; legacy aggregate-blob queues are migrated to per-message rows on first fetch, and any multi-message row is split at fetch so every fetched message owns a distinct row key.
-
-### `internal/codec/`
-
-**Responsibility:** CBOR (RFC 8949) serialization of `[]msgtypes.Message` for queue persistence.
-**Key deps:** `github.com/fxamacker/cbor/v2`
-**Patterns:** Empty input short-circuits without allocating.
-
-### `internal/messenger/`
-
-**Responsibility:** Seven independent messenger goroutines, each draining its own buffered channel from `msgSend`'s non-blocking fan-out.
-**Key deps:** `go.uber.org/ratelimit`, per-backend SDK
-**Patterns:** Identical lifecycle across all implementations (init → drain queue → process live → store failures). Each entry point installs a deferred `recoverMessenger` panic guard that requeues the in-flight message and drains its channel to the queue on panic, so a send-path panic degrades one messenger instead of crashing the process (the queued-resend path is exempt — its row survives undequeued). Permanent send errors (unrecoverable per `markNamePermanent`, invalid recipients) are poison-dropped — logged loudly and skipped on retry — rather than requeued until `MaxQueueAge`. Credential failures (bad token, SMTP login, CalDAV 401/403/404) are the exception: they apply to every recipient, so they stop the retry loop but are requeued, and alerts survive until the config is fixed and the bot restarted. When Calendar is configured but cannot yet initialize (headless first run before interactive OAuth), `msgSend` substitutes a queue-only `CalendarDeferred` stub for the live Calendar goroutine: it queues exam events to the Calendar queue so they are delivered once OAuth completes, instead of being dedup-flagged and lost. Rate-limited API calls. Per-platform outbound size caps (`TelegramMaxMessageChars` 4096, `SlackMaxMessageChars` 3000, `WhatsAppMaxMessageChars` 4096, `DiscordMaxEmbedChars` 6000, `MailMaxSubjectChars` 256) truncate client-side to avoid hard API rejections. Failed-delivery persistence is shutdown-tolerant: `queue.StoreFailedMsgs` swaps a cancelled context for a detached one (`context.WithoutCancel` + `storeTimeout = 5s`), so the sqlite queue write still completes when the main context has already been cancelled — preventing message loss on shutdown. `mergeSkipRecipients` deduplicates recipient lists across retries so a repeatedly-partially-failing message does not accumulate unbounded `SkipRecipients` entries. CalDAV writes each exam as a create-only `PUT` (`If-None-Match: *`); a 412 is idempotent success, mirroring Calendar's 409, and redirects are refused because net/http would replay the PUT as a bodiless GET.
-
-| Messenger | Backend Library               | Rate Limit | Format   | Max body/subject   |
-| --------- | ----------------------------- | ---------- | -------- | ------------------ |
-| Discord   | `bwmarrin/discordgo`          | 10/min     | Markdown | 6000 embed chars   |
-| Telegram  | `go-telegram/bot`             | 20/min     | HTML     | 4096 chars         |
-| Slack     | `slack-go/slack`              | 20/min     | Markdown | 3000 chars         |
-| Mail      | `wneessen/go-mail`            | 20/hr      | HTML     | 256 chars subject  |
-| Calendar  | `google/google-api-go-client` | 20/min     | Event    | —                  |
-| CalDAV    | `net/http` + RFC 5545 writer  | 30/min     | Event    | —                  |
-| WhatsApp  | `go.mau.fi/whatsmeow`         | 10/min     | Plain    | 4096 chars         |
-
-### `internal/format/`
-
-**Responsibility:** Three message formatters — `plain`, `html`, `markup` (Markdown) — used by different messenger backends.
-**Key deps:** none
-**Patterns:** Emoji-prefixed headers keyed by `EventCode`; rune-aware string truncation.
-
-### `internal/oauth/`
-
-**Responsibility:** Google Calendar OAuth2 interactive flow: local HTTP server on `:9080`, browser launch, token storage.
-**Key deps:** `golang.org/x/oauth2`, `go-chi/chi/v5`, `google/uuid`, `google/renameio`
-**Patterns:** UUID state parameter (CSRF protection), atomic token file write (0600), auto-refresh on expiry.
-
-### `internal/logger/`
-
-**Responsibility:** `zerolog` wrapper; global logger with configurable level, JSON or colorized console output.
-**Key deps:** `rs/zerolog`, `mattn/go-isatty`
-
-### `internal/version/`
-
-**Responsibility:** Build-time version metadata injected via ldflags.
-
----
-
-## 4. Data Flow
-
-### Core pipeline
+## 3. Poll cycle
 
 ```
-[Polling ticker fires]           ← re-armed past quiet hours by nextPollDelay
-        │
-[recoverOutbox]                  ← a killed cycle's forwarded events go to the queues
-        │
-        ▼
-[Per-user goroutine launched]    ← wgScrape (one per user, parallel)
-  internal/fetch/ → SAML login
-         → get class list
-         → get grades HTML + ICS calendar
-  internal/scrape/ → parse HTML → Message{...}
-         → send to gradesScraped (buffered chan)
-        │
-        ▼
-[wgScrape.Wait() + close(gradesScraped)]
-        │
-        ▼
-[msgDedup goroutine]             ← wgFilter (single goroutine)
-  For each Message:
-    hash = SHA-256(username + subject + fields)
-    CheckAndFlagOutbox(hash): report if already live; else flag it (seed) with TTL,
-        and in the same transaction store an outbox row if it will be forwarded
-    if already seen → discard (duplicate)
-    if firstRun (fresh DB) → discard (seeded above, not forwarded)
-    if --readinglist not set and Code == Reading → discard
-        (flagged above regardless, so first enabling the flag does not flood)
-    if relevance period > 0 and event is stale → discard
-        * Exam: uses Message.Timestamp directly
-        * Grade: parses Fields[0] as "D.M." (formatHRDateOnly),
-          year inferred from current calendar position
-          (future day/month → previous year, else current year);
-          parse failure is fail-open (event passed through)
-    else → send to gradesMsg (buffered chan)
-  Unless [digest] enabled = false, every Exam is also collected per user, before dedup.
-  Once gradesScraped closes, the covered week is the one after the latest
-  day@hour (digest.go:digestWeek). Each user that scraped cleanly and whose
-  week is not yet claimed (KV row "digest-week\x00<user>") gets one
-  ExamDigest on gradesMsg, listing exams from today or Monday, whichever is
-  later. An empty week is claimed but not sent.
-    On ctx.Done: defer close(gradesMsg) unblocks the fan-out loop
-        │
-        ▼
-[wgFilter.Wait() + msgSend non-blocking fan-out]
-        │
-        ├──▶ Discord goroutine
-        ├──▶ Telegram goroutine
-        ├──▶ Slack goroutine
-        ├──▶ Mail goroutine
-        ├──▶ Calendar goroutine
-        ├──▶ CalDAV goroutine
-        └──▶ WhatsApp goroutine
-              Each: drain failed queue → send live msgs → queue failures
-                    wgMsg.Wait()
+ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs)
+  versionCheck                 background, 30 s limit; skipped for local/dirty builds
+  openDB                       on failure: skip the cycle, latch exitWithError
+  recoverOutbox                a killed cycle's rows move to every enabled queue
+  scrapers                     one goroutine per user; failures recorded in userSet
+  msgDedup                     single goroutine, for each event:
+    collect exams for the digest (before dedup)
+    key = SHA-256(username, subject, Fields)     Average is appended after this
+    CheckAndFlagOutbox(key)                      one transaction:
+      forward = not first run for this user
+            and code not suppressed (--readinglist, --exams, --nationalexams)
+            and not older than -p                (undated or unparsable: passes)
+      flag the key with TTL; if forward, also write the outbox row
+    forward only if the key was not already live
+  after scrapers close:
+    markSeeded                 users whose scrape succeeded
+    sendDigests                at most one per user per week; bypasses dedup
+    sendDriftAlerts            with --driftcheck; bypasses dedup
+  msgSend                      dispatch() to each sink; a full buffer spills to its queue
+    each messenger: resend queue, drop expired, send live, requeue failures
+  wait for all stages
+  ClearOutbox                  unless a queue write failed this cycle
 ```
 
-### Persistence and caching strategy
+## 4. Persistence
 
-- **Deduplication DB** (`internal/sqlitedb/`): SHA-256 KV store. All events indexed permanently (~1 year TTL). No read cache; SQLite WAL provides sufficient throughput for single-node polling.
-- **Failed message queue** (`internal/queue/`): One SQLite row per queued message under a per-messenger key prefix, each row a CBOR-encoded single-message list. Rows are deleted only after the message has been processed (delivered or re-queued), so a hard crash re-delivers rather than loses.
-- **WhatsApp session** (`.e-dnevnik.wa.sqlite`): `whatsmeow`-managed multi-device session database.
-- **Calendar OAuth token** (`calendar_token.json`): JSON-encoded `oauth2.Token`, refreshed automatically.
-- No in-memory caches (by design — each poll is a fresh HTTP session with cookie jar).
+`.e-dnevnik.db.sqlite` holds everything in the `kv` table:
 
----
+| Key | Value | Purpose |
+|---|---|---|
+| SHA-256 of `(username, subject, fields)` | marker | Dedup, expires after `DefaultEntryTTL` (9000 h); an older separator-less hash is still honoured |
+| `<name>-queue\x00<time><seq>` | CBOR message | Per-messenger failed-message queue, one row per message, 30-day `MaxQueueAge` |
+| `outbox\x00<time><seq>` | CBOR message | Events flagged but not yet delivered or queued |
+| `seeded\x00<user>`, `seeded-migrated` | marker | Per-user first-run state; one-time migration of older databases |
+| `digest-week\x00<user>` | Monday | Digest already claimed for that week |
+| `portal-drift\x00<user>` | state | Drift confirmation and weekly alert limit |
 
-## 5. Key Technologies
+- Queue rows are read without being removed and deleted only after their outcome is durable, so delivery is at-least-once. Legacy aggregate rows are migrated and multi-message rows split on fetch.
+- `.e-dnevnik.wa.sqlite` is the `whatsmeow` session. `calendar_token.json` is the OAuth2 token, with the issuing `client_id`.
+- There is no in-memory cache between cycles.
 
-| Technology              | Reason                                                                          |
-| ----------------------- | ------------------------------------------------------------------------------- |
-| **Go 1.27+**            | Set by the `go.mod` pin; oldest features used are `sync.WaitGroup.Go` (1.25) and `context.WithoutCancel` (1.21); static binary, no runtime dependencies |
-| `modernc.org/sqlite`    | CGO-free SQLite — enables fully static binary without C toolchain               |
-| `avast/retry-go/v5`     | Declarative retry with context awareness; wraps scraping and messaging          |
-| `go.uber.org/ratelimit` | Token-bucket rate limiting per messenger                                        |
-| `PuerkitoBio/goquery`   | jQuery-style HTML parsing — e-Dnevnik HTML is complex table-based               |
-| `go.mau.fi/whatsmeow`   | Only maintained pure-Go WhatsApp multi-device client                            |
-| `peterbourgon/ff/v4`    | Layered flag+env+file configuration with minimal boilerplate                    |
-| `rs/zerolog`            | Zero-allocation structured JSON logging                                         |
-| `BurntSushi/toml`       | TOML parsing for the config file format                                         |
+## 5. Messengers
 
----
+Each backend is one goroutine draining its own channel: resend the queue, send live messages, requeue failures. The contract is in CLAUDE.md.
 
-## 6. Design Patterns & Principles
+| Backend | Library | Limit | Format | Size cap |
+|---|---|---|---|---|
+| Discord | `bwmarrin/discordgo` | 10/min | Embed | 6000 chars |
+| Telegram | `go-telegram/bot` | 20/min | HTML | 4096 chars |
+| Slack | `slack-go/slack` | 20/min | mrkdwn | 3000 chars |
+| Mail | `wneessen/go-mail` | 20/h, 15 per cycle | HTML + plain | 256-char subject |
+| WhatsApp | `go.mau.fi/whatsmeow` | 10/min | Plain | 4096 chars |
+| Webhook | `net/http` | 12/min | JSON or plain | none |
+| Google Calendar | `google.golang.org/api` | 20/min | All-day event | n/a |
+| CalDAV | `net/http` + `ical.go` | 30/min | All-day event | n/a |
 
-### Architectural patterns
+Send failures fall into these classes:
 
-- **Pipeline with fan-out:** scrape → dedup (single thread for consistency) → non-blocking fan-out → parallel messengers.
-- **Dead-letter queue:** failed deliveries persisted to SQLite; retried on next poll without message loss.
-- **First-run seeding:** new installations silently seed the dedup DB and suppress alerts — critical UX correctness.
+| Class | Example | Handling |
+|---|---|---|
+| Transient | timeout, 429, 5xx | Retried, then queued |
+| Permanent | blocked bot, deleted chat | Dropped for that recipient |
+| Config | bad token or login | Retries stop, queued, rest of the cycle queued unsent |
+| Unreachable | connection refused | Retries spent once, then rest of the cycle queued unsent |
+| Unknown reach | unlisted Slack code, ambiguous mail 5xx | That recipient queued, loop continues |
 
-### Concurrency model
+Webhook endpoints are independent, so none of its failures stop the cycle.
 
-- **Per-user goroutines** for scraping (fully independent HTTP sessions); launched with `wgScrape.Go` (Go 1.25+ API).
-- **Single-threaded dedup** — intentional; ensures consistent first-run detection and avoids SQLite write contention.
-- **Parallel messengers** via a non-blocking fan-out — each messenger goroutine drains its own buffered channel. `msgSend` hands each message to `dispatch()`, which does `select { case ch <- g: default: storeOverflow(...) }`, so a slow or stalled messenger (e.g. mail mid-retry) has its messages spilled to its failed-message queue for next-cycle delivery instead of blocking the others. Replaced `teivah/broadcast`, whose synchronous `Notify` paced every messenger to the slowest.
-- **Two-level WaitGroup in `msgSend`**: `wgInner` tracks the per-messenger goroutines so every messenger channel is closed to unblock their `range` loops *before* the outer wait — closing first and waiting second avoids a deadlock where drainers never exit.
-- **Shutdown-tolerant queue writes**: on ctx cancellation mid-send, messengers re-queue un-delivered messages through `queue.StoreFailedMsgs`, which detaches a cancelled context (`context.WithoutCancel` + `storeTimeout = 5s`) so in-flight work is not silently dropped.
-- **Bounded background goroutines**: the systemd watchdog is tracked in a separate `bgWG` that shutdown waits on with a ceiling of `exitDelay` (10 s).
-- Synchronization via `sync.WaitGroup` and explicit channel close signals (no polling, no sleeps).
+- `SkipRecipients` records who has been handled, so a requeued message does not repeat for them.
+- Calendar events have deterministic IDs and create-only writes: a Google 409 or CalDAV 412 counts as success.
+- `CalendarDeferred` is a queue-only stub used when Calendar has no token yet.
+- A send-path panic is contained by `recoverMessenger`, which requeues the in-flight message and drains the channel.
 
-### Error handling
+## 6. Concurrency and shutdown
 
-- **Fail-fast on startup:** config validation, DB init, and messenger credential checks are all fatal.
-- **Isolated runtime failures:** a scraping failure for one user sets an atomic error flag but does not cancel other users.
-- **Graceful degradation:** messenger failures store messages to queue; partial delivery tracked via `SkipRecipients` (deduplicated across retries via `mergeSkipRecipients`). Failed-message persistence survives context cancellation through a detached shutdown-tolerant context so no message is silently dropped on SIGTERM.
-- **Error flag propagation:** `atomic.Bool exitWithError` — goroutines write it, main reads it at shutdown to set the exit code. It latches for the process lifetime (never reset per cycle), so any failed cycle yields a non-zero exit.
+- Dedup is deliberately a single goroutine. Fan-out never blocks: a slow messenger spills to its queue.
+- `msgSend` closes every sink channel, then waits on `wgInner`.
+- A cycle runs to completion, bounded by the scrape budget and by `stopsCycle` and `MailCycleLimit` for sends.
+- On SIGTERM the context is cancelled. Queue writes detach from it (`context.WithoutCancel`, 5 s). Unflagged events are simply scraped again.
+- The systemd watchdog runs in `bgWG`, awaited for at most `exitDelay` (10 s).
+- `exitWithError` latches for the process lifetime and sets the exit status.
+- Poll jitter is continuous over `[0.9, 1.1)`. The poll interval has a 1 h floor.
 
-### Domain modeling
+## 7. Security
 
-- `msgtypes.Message` is the canonical domain event. It is created in `internal/scrape/`, filtered in `routines.go`, formatted by `internal/format/`, and serialized by `internal/codec/`. No package crosses this boundary except through the `Message` type.
+- **Portal:** TLS verification is forced with `SecureTLS()`, since surf skips it by default. A cookie jar holds the session; nothing is persisted.
+- **Credentials at rest:** plaintext in the TOML file, tightened to `0600` on load. Both SQLite stores and the OAuth token are `0600`.
+- **Google OAuth:** client credentials are embedded from `internal/messenger/assets/`. New setups use a desktop client with PKCE and a UUID state; older installs stay on the legacy web client, selected by the `client_id` in the token file.
+- **CalDAV:** Basic Auth, `https` except to loopback, redirects refused so credentials cannot be replayed.
+- **Webhook:** `http` allowed with a warning for non-loopback hosts; redirects refused; only scheme and host are logged, because the path often holds the secret.
+- **Data handling:** events are named by user, subject and code at Info and above. Grade content is logged only with `-0`.
+- **SQL** uses bound parameters. HTML is only parsed with `goquery`, never executed.
 
----
+## 8. Observability
 
-## 7. Scaling & Performance Considerations
+- `zerolog` JSON, or console with `-l`. Level from `-v` or `LOG_LEVEL`.
+- systemd: `sd_notify` ready, stopping and status, plus a watchdog heartbeat from an independent ticker. The heartbeat shows the process is alive, not that a poll cycle is progressing.
+- `-c` and `-m` write pprof profiles. A cycle uses about 10 ms of CPU, so PGO is not used.
+- A newer release is reported at Info level. There are no metrics or tracing.
 
-**Single-node only.** There is no horizontal scaling model — the design assumes one process per household/installation.
+## 9. Trade-offs
 
-**Vertical considerations:**
-
-- Memory bounded via `automemlimit` (GOMEMLIMIT = 90% of available/cgroup memory). Safe for container deployment.
-- CPU bounded by number of users × scraping latency. With retry defaults, a 10-user config could take several minutes per cycle, which is fine for 1-hour polling intervals.
-
-**Bottlenecks:**
-
-- e-Dnevnik portal latency (120-second HTTP timeout reflects real-world slowness).
-- WhatsApp link reliability — `whatsmeow` reconnects aggressively but the protocol is unofficial.
-- SQLite write throughput is not a concern at this polling scale.
-
-**Async processing:**
-
-- Version check runs in a separate `wgVersion` goroutine — never delays the scrape cycle. Bounded by `versionCheckTimeout = 30s` so a stalled GitHub Releases endpoint cannot hold the goroutine past the poll interval.
-- ±10% jitter on polling interval prevents two instances started simultaneously from hammering the portal together. The factor is drawn from a *continuous* uniform distribution over `[0.9, 1.1)` via `math/rand/v2.Float64()` — not a 21-step discrete one — so concurrent daemons do not alias on a small number of discrete wake times.
-
-**PGO:** Not used. A cycle spends about 10 ms on CPU against seconds of portal I/O, so a profile has nothing to optimise. `go build` defaults to `-pgo=auto`, so a `default.pgo` dropped into the repo root would take effect with no build change.
-
----
-
-## 8. Security Considerations
-
-### Authentication & authorization
-
-- SAML/SSO auth to e-Dnevnik uses a fresh cookie jar per session; no tokens persisted.
-- WhatsApp session key material stored in `.e-dnevnik.wa.sqlite` (local file, user permissions).
-- Google Calendar OAuth2 token stored in `calendar_token.json` (written 0600 via `renameio`).
-- OAuth2 state parameter is a UUID — prevents CSRF on the local callback server.
-- CalDAV sends its username/password as HTTP Basic Auth on every `PUT`; `https` is required except to loopback (`localhost`, `127.0.0.0/8`, `::1`), and redirects are refused outright rather than followed — `net/http` would otherwise replay `Authorization` across a scheme or host downgrade.
-
-### Credential storage
-
-- TOML config file contains plain-text passwords. `LoadConfig` best-effort tightens the file to 0600 on every load (warn-only on failure, e.g. read-only fs); `SaveConfig` writes 0600 atomically via `renameio`.
-- Bot tokens (Discord, Telegram, Slack) stored as plain strings in the TOML config.
-- CalDAV credentials (`url`, `username`, `password`) live in plain text in that same 0600 TOML — no separate token or keychain storage.
-
-### Input validation
-
-- Config validated at startup; invalid tokens/IDs cause fatal exit.
-- HTML parsed via `goquery` (no `innerHTML`/eval risk in a Go context).
-- SQL queries use prepared statements — no string interpolation.
-
-### Secrets management
-
-- No secrets management system (Vault, etc.) — this is a personal tool, not enterprise software.
-- Google Calendar credentials are embedded at build time from `internal/messenger/assets/`. New setups use a desktop OAuth client, whose secret Google does not treat as confidential, and consent uses PKCE. Installs authorised before it keep the legacy web client their refresh tokens belong to, chosen by the `client_id` recorded in the token file.
-
-### Network
-
-- All external calls use HTTPS (OAuth2 endpoints, messaging APIs).
-- 120-second timeout on HTTP client limits exposure to slowloris-style hangs.
-- Random User-Agent per session reduces portal fingerprinting risk.
-
----
-
-## 9. Observability
-
-### Logging
-
-- `rs/zerolog` structured JSON by default; colorized console via `-l` flag.
-- Log level: configurable (`-v` for debug; `LOG_LEVEL` env var).
-- Caller info included in all log entries.
-- WhatsApp and Calendar initialization events logged in detail.
-
-### Systemd integration
-
-- `sd_notify` ready/stopping signals.
-- Watchdog heartbeat sent each poll cycle — allows systemd to restart a hung process.
-- Status string updated with human-readable poll interval.
-
-### Profiling (opt-in)
-
-- CPU profile: `-c <file>` flag → pprof format.
-- Heap profile: `-m <file>` flag → written on process exit after forced GC.
-
-### Metrics
-
-- **None.** No Prometheus/StatsD/OTEL instrumentation. _(Personal tool, not cloud-monitored.)_
-
-### Distributed tracing
-
-- **None.** Single-process, no distributed tracing needed.
-
-### Version checking
-
-- Polls GitHub Releases API on each cycle (parallel, non-blocking).
-- Skips check if binary is a dev/dirty build.
-- Logs a warning if a newer semver tag exists.
-
----
-
-## 10. Risks & Trade-offs
-
-| Area                                      | Risk / Trade-off                                                                                                                                |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plain-text credentials in TOML**        | Bot tokens and passwords readable by any process running as the same user. The file is tightened to 0600 on load/save, but content stays plain text. Acceptable for personal use; problematic in shared environments.     |
-| **Unofficial WhatsApp protocol**          | `whatsmeow` can break on WhatsApp protocol updates, is not officially supported, and temporary bans are a real risk for high-frequency senders. |
-| **No horizontal scaling**                 | Two instances polling the same account simultaneously will cause duplicate alerts (no distributed lock).                                        |
-| **No metrics/alerting on the bot itself** | Failures are logged but not surfaced to an external dashboard. A silently hung bot won't be noticed until grades are missed.                    |
-| **SQLite as shared state**                | WAL mode is robust, but all scrapers must access the same file. Docker volume mounts on NFS/FUSE can cause corruption.                          |
-| **Embedded Google credentials**           | OAuth2 client ID/secret compiled into binary. Binary should be treated as a secret if Google credentials are sensitive.                         |
-| **First-run behavior**                    | If the DB is deleted accidentally, the next run silently re-seeds without sending alerts. Users may think the bot missed events.                |
-| **Retry queue is best-effort**            | A graceful shutdown (SIGTERM/ctx cancel) flushes pending failures via `queue.StoreFailedMsgs` (detached from the cancelled context), and a recovered send-path panic requeues its in-flight message. A hard crash (SIGKILL/OOM) bypasses both, losing any message in-flight (consumed from the channel but not yet queued).         |
-| **TTL-based dedup re-fires on expiry**    | After ~9 000 h (>1 year) an entry can be re-inserted by `CheckAndFlagTTL` and the same historical event will alert again. Long-lived installations will see "echoes" of year-old grades unless the DB is manually cleaned.         |
-| **`D.M.` year inference for Grade relevance** | When today's day/month exactly matches a grade's `Fields[0]` date, the year is assumed to be the current year — so a grade from the same calendar day of the prior school year will slip past the relevance filter. Inherent limitation of the portal's date format. |
-| **Go version pinned to 1.27+**            | Cutting-edge; some CI environments may not have a 1.27 toolchain.                                                                                 |
+| Area | Consequence |
+|---|---|
+| Single node | Two instances on one account duplicate alerts; there is no lock. |
+| Portal scraping | Layout changes can silently break parsing; `--driftcheck` is the opt-in guard. Portal latency dominates cycle time. |
+| Hard kill (SIGKILL, OOM, power) | The outbox prevents loss, but delivered rows may repeat, since nothing records which messengers finished. The digest row is not in its claim's transaction. |
+| Deleted database | The next run silently re-seeds with no alerts. |
+| Dedup TTL | After about a year, an event still on the portal alerts again. |
+| Identity | `Message.Fields` and the subject are the identity. Changing what is scraped, or a student's class count, re-alerts once. Dates have no year, so an identical row a year later can be missed. |
+| `D.M.` dates | A grade from the same calendar day of an earlier year counts as current in the relevance filter. |
+| Plaintext credentials | Readable by any process running as the same user. |
+| Unofficial WhatsApp protocol | `whatsmeow` can break on protocol changes; bans are possible. |
+| Embedded OAuth client | Removing the legacy client breaks older installs at once. |
+| SQLite on NFS/FUSE | WAL locking is unreliable there. |
