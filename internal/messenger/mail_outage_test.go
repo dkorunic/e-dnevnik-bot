@@ -34,7 +34,7 @@ func TestProcessMailUnreachableServerStopsTheCycle(t *testing.T) {
 	eDB := mailTestDB(t)
 
 	tripped := processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), 1)
+		"from@example.com", "subject", ratelimit.New(1000), new(uint(1)))
 	if !tripped {
 		t.Error("processMail() = false, want the cycle stopped on an unreachable server")
 	}

@@ -1168,6 +1168,24 @@ func TestLoginWithoutActiveClassSkipsClassAction(t *testing.T) {
 	}
 }
 
+// TestDoSAMLRequestNoticeOnLoggedInPageIsNotARejection: the marker proves the
+// login worked, so a flash notice beside it (maintenance, an expiring password)
+// must not read as bad credentials, which is permanent and stops the user's alerts.
+func TestDoSAMLRequestNoticeOnLoggedInPageIsNotARejection(t *testing.T) {
+	t.Parallel()
+
+	const page = `<html><body><div class="logged-in-user"></div><div id="page-wrapper"><div class="flash-messages">` +
+		`<div class="alert"><p>Planirano održavanje sustava</p></div></div></div></body></html>`
+
+	c := newStubClient(t.Context(), roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return respondWith(t, http.StatusOK, "text/html; charset=UTF-8", page, LoginURL), nil
+	}))
+
+	if err := c.doSAMLRequest(); err != nil {
+		t.Fatalf("doSAMLRequest() = %v, want nil", err)
+	}
+}
+
 // TestDoSAMLRequestDistinguishesMarkerDriftFromBadCredentials separates the two
 // failures the login page can present. An alert names a credential rejection; a
 // silent page with no marker is ambiguous. Reporting the ambiguous case as

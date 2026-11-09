@@ -690,10 +690,12 @@ const maxLeapYearLookback = 9
 
 // hrDateFutureSlackDays is how far ahead of today a "D.M." date may sit and
 // still count as this year. A clock without TZ runs in UTC, up to two hours
-// behind the portal's Croatian dates, and a teacher may date a grade a day
-// ahead. Without slack such a date resolves to last year, reads as a year old
-// and is suppressed — after dedup has flagged it, so it never alerts.
-const hrDateFutureSlackDays = 2
+// behind the portal's Croatian dates, and a teacher may date a grade ahead or
+// mistype its month by one. Without slack such a date resolves to last year,
+// reads as a year old and is suppressed — after dedup has flagged it, so it
+// never alerts. Accepted cost: a real grade from last year this close to its
+// anniversary passes the relevance filter, should it ever come up as new.
+const hrDateFutureSlackDays = 31
 
 // resolveHRYear dates a "D.M." column to the latest year in which it has
 // already passed, or falls within hrDateFutureSlackDays of today. The walk

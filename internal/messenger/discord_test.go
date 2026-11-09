@@ -16,7 +16,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/avast/retry-go/v5"
 	"github.com/bwmarrin/discordgo"
@@ -701,6 +703,101 @@ func TestDiscordStaleChannelSurvivesRetryDo(t *testing.T) {
 
 	if !isPermanentSendErr(err) {
 		t.Error("Unknown Channel lost its permanent marker")
+	}
+}
+
+// TestProcessDiscordLongRateLimitStopsTheCycle: discordgo would sleep out a 429
+// without looking at the context, holding the poll cycle and shutdown. The alert
+// is queued and nothing further is sent this cycle.
+// NOTE: must not call t.Parallel() — discordCli and discordChannels are package-level globals.
+func TestProcessDiscordLongRateLimitStopsTheCycle(t *testing.T) {
+	var hits atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if hits.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"message":"You are being rate limited.","retry_after":7}`))
+
+			return
+		}
+
+		_, _ = w.Write([]byte(`{"id":"1"}`))
+	}))
+	defer srv.Close()
+
+	s, err := discordgo.New("Bot token")
+	if err != nil {
+		t.Fatalf("discordgo.New() = %v", err)
+	}
+
+	s.Client = discordTestClient(srv.URL)
+	discordCli = s
+	discordChannels = map[string]string{"u1": "c1"}
+
+	eDB, err := sqlitedb.New(t.Context(), t.TempDir()+"/discord.db")
+	if err != nil {
+		t.Fatalf("sqlitedb.New() = %v", err)
+	}
+	defer eDB.Close()
+
+	msg := msgtypes.Message{Username: "pero", Subject: "s", Descriptions: []string{"d"}, Fields: []string{"f"}}
+
+	start := time.Now()
+
+	if !processDiscord(t.Context(), eDB, msg, []string{"u1"}, ratelimit.New(1000), 3) {
+		t.Error("processDiscord() = false, want the cycle stopped")
+	}
+
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("processDiscord() took %v, want no wait for the rate limit", d)
+	}
+
+	if n := hits.Load(); n != 1 {
+		t.Errorf("%d requests, want 1", n)
+	}
+
+	if failed := queue.FetchFailedMsgs(t.Context(), eDB, DiscordQueueName); len(failed) != 1 {
+		t.Errorf("queued %d messages, want 1", len(failed))
+	}
+}
+
+// TestMarkDiscordRateLimit: a wait the retry delay covers stays an ordinary
+// retry; a longer one stops the cycle.
+func TestMarkDiscordRateLimit(t *testing.T) {
+	t.Parallel()
+
+	limited := func(d time.Duration) error {
+		return &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{TooManyRequests: &discordgo.TooManyRequests{RetryAfter: d}}}
+	}
+
+	if got := markDiscordPermanent(limited(DiscordMinDelay)); !retry.IsRecoverable(got) || isConfigSendErr(got) {
+		t.Errorf("short wait: recoverable=%v config=%v, want true/false", retry.IsRecoverable(got), isConfigSendErr(got))
+	}
+
+	if got := markDiscordPermanent(limited(DiscordMinDelay + time.Second)); !isConfigSendErr(got) {
+		t.Errorf("long wait: %v, want a config error", got)
+	}
+}
+
+// TestDiscordInitForgetsRateLimitBuckets: a bucket's reset can be far ahead, and
+// discordgo sleeps it out regardless of the context, so it must not outlive the
+// cycle that learned it.
+// NOTE: must not call t.Parallel() — discordInit() writes package-level globals.
+func TestDiscordInitForgetsRateLimitBuckets(t *testing.T) {
+	if err := discordInit("bucket-token"); err != nil {
+		t.Fatalf("discordInit() = %v", err)
+	}
+
+	first := discordCli.Ratelimiter
+
+	if err := discordInit("bucket-token"); err != nil {
+		t.Fatalf("discordInit() = %v", err)
+	}
+
+	if discordCli.Ratelimiter == first {
+		t.Error("the next cycle kept the previous cycle's rate-limit buckets")
 	}
 }
 

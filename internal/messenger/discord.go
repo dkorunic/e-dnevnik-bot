@@ -126,9 +126,16 @@ func Discord(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 // stops but the alert is queued, not dropped, until the token is fixed and the
 // bot restarted. A 403 with Discord's own body stays permanent — it is per user
 // (DMs closed, no shared server).
+//
+// A 429 asking for longer than the retry delay covers is a config error too: the
+// next request would sleep it out in discordgo's bucket, ignoring the context.
 func markDiscordPermanent(err error) error {
 	if err == nil {
 		return nil
+	}
+
+	if rl, ok := errors.AsType[*discordgo.RateLimitError](err); ok && rl.RetryAfter > DiscordMinDelay {
+		return markConfigErr(err)
 	}
 
 	var rerr *discordgo.RESTError
@@ -285,7 +292,7 @@ func discordChannelFor(ctx context.Context, u string) (string, bool, error) {
 
 	c, err := discordCli.UserChannelCreate(u,
 		discordgo.WithContext(ctx),
-		discordgo.WithRetryOnRatelimit(true),
+		discordgo.WithRetryOnRatelimit(false),
 		discordgo.WithRestRetries(1))
 	if err != nil {
 		return "", false, err
@@ -405,7 +412,7 @@ func sendDiscordEmbed(ctx context.Context, channelID string, msg *discordgo.Mess
 			_, err := discordCli.ChannelMessageSendEmbed(channelID,
 				msg,
 				discordgo.WithContext(ctx),
-				discordgo.WithRetryOnRatelimit(true),
+				discordgo.WithRetryOnRatelimit(false),
 				discordgo.WithRestRetries(1))
 
 			return markDiscordPermanent(err)
@@ -424,6 +431,10 @@ func discordInit(token string) error {
 	// left a half-initialised session that was never retried, discordCli already
 	// being non-nil.
 	if discordCli != nil && !discordCreds.changed(token) {
+		// A new cycle starts with fresh buckets, as discordgo sleeps out a
+		// bucket's reset however far ahead it is, ignoring the context.
+		discordCli.Ratelimiter = discordgo.NewRatelimiter()
+
 		return nil
 	}
 
@@ -436,7 +447,7 @@ func discordInit(token string) error {
 		return err
 	}
 
-	cli.ShouldRetryOnRateLimit = true
+	cli.ShouldRetryOnRateLimit = false // it sleeps out a 429, ignoring the context
 	cli.MaxRestRetries = 1
 
 	// Publish only on success, so a failed init retries next cycle. The channel

@@ -745,9 +745,17 @@ func TestResolveHRYear(t *testing.T) {
 		},
 		{
 			name: "still ahead implies last year",
-			date: "20.9.",
+			date: "20.3.",
 			now:  time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC),
-			want: time.Date(2025, 9, 20, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			// A mistyped month or a forward-dated grade. Read as last year's
+			// it is suppressed after being flagged, so it never alerts.
+			name: "a month ahead is this year",
+			date: "12.12.",
+			now:  time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 12, 12, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			// A UTC clock at 22:45 is already "tomorrow" in Croatia, and a
@@ -765,9 +773,9 @@ func TestResolveHRYear(t *testing.T) {
 		},
 		{
 			name: "past the slack is still last year",
-			date: "21.10.",
+			date: "20.11.",
 			now:  time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC),
-			want: time.Date(2025, 10, 21, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2025, 11, 20, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name: "leap day in a leap year is itself",

@@ -63,7 +63,7 @@ func TestProcessShutdownRequeuesEveryMessenger(t *testing.T) {
 			name:  "mail",
 			queue: MailQueueName,
 			run: func(ctx context.Context, eDB *sqlitedb.Edb, rl ratelimit.Limiter) {
-				processMail(ctx, eDB, g, []string{"a@example.com", "b@example.com"}, "from@example.com", "subject", rl, 1)
+				processMail(ctx, eDB, g, []string{"a@example.com", "b@example.com"}, "from@example.com", "subject", rl, new(uint(1)))
 			},
 		},
 		{
@@ -138,7 +138,7 @@ func TestPoisonedRecipientsRecordedInSkipRecipients(t *testing.T) {
 			run: func(ctx context.Context, eDB *sqlitedb.Edb, rl ratelimit.Limiter) {
 				// The invalid address poisons while the batch is built; the
 				// cancelled context then stops the batch from being sent.
-				processMail(ctx, eDB, g, []string{"not-an-email", "ok@example.com"}, "from@example.com", "subject", rl, 1)
+				processMail(ctx, eDB, g, []string{"not-an-email", "ok@example.com"}, "from@example.com", "subject", rl, new(uint(1)))
 			},
 		},
 	}

@@ -122,19 +122,20 @@ func TestCheckCalendarCorruptTokenDefers(t *testing.T) {
 }
 
 // TestMsgDedupYearInferenceFutureMonth verifies Bug 8A from TESTING-PLAN:
-// a grade whose DD.MM. date has a month GREATER than the current month must be
+// a grade whose DD.MM. date is further ahead than hrDateFutureSlackDays must be
 // assigned last year. Swapping the two AddDate branches would assign it the
 // current year, making it appear to be a future date and passing the filter.
 func TestMsgDedupYearInferenceFutureMonth(t *testing.T) {
 	// Cannot run in parallel — modifies package-level flag pointers.
 	now := time.Now()
 
-	// Skip in December: adding 1 wraps to January, making year ambiguous.
-	if now.Month() == time.December {
-		t.Skip("skipping in December: month-wrap makes year ambiguous")
+	// Skip from October: adding 3 wraps into January, making year ambiguous.
+	if now.Month() >= time.October {
+		t.Skip("skipping from October: month-wrap makes year ambiguous")
 	}
 
-	futureMonth := now.Month() + 1
+	// Three months: the first of even two months on can be inside the slack.
+	futureMonth := now.Month() + 3
 	dateStr := time.Date(0, futureMonth, 1, 0, 0, 0, 0, time.UTC).Format("2.1.")
 
 	// Set relevance period short enough (30 days) to suppress last year's grade.

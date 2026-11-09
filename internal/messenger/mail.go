@@ -116,9 +116,11 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	cs := cycleSender{limit: MailCycleLimit}
 
+	retries := cfg.Retries
+
 	resendQueued(ctx, eDB, MailQueueName, func(m msgtypes.Message) {
 		cs.send(ctx, eDB, MailQueueName, m, func() bool {
-			return processMail(ctx, eDB, m, cfg.To, cfg.From, cfg.subjectFor(m.Code), rl, cfg.Retries)
+			return processMail(ctx, eDB, m, cfg.To, cfg.From, cfg.subjectFor(m.Code), rl, &retries)
 		})
 	})
 
@@ -126,7 +128,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 	for g := range ch {
 		inflight = &g
 		cs.send(ctx, eDB, MailQueueName, g, func() bool {
-			return processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.subjectFor(g.Code), rl, cfg.Retries)
+			return processMail(ctx, eDB, g, cfg.To, cfg.From, cfg.subjectFor(g.Code), rl, &retries)
 		})
 		inflight = nil
 	}
@@ -217,6 +219,15 @@ type mailConnError struct{ err error }
 func (e mailConnError) Error() string { return e.err.Error() }
 func (e mailConnError) Unwrap() error { return e.err }
 
+// mailTempError marks an attempt the server deferred, a 4xx say. One that outlives
+// its retries does not stop the cycle: a single full mailbox at the head of the
+// queue would then hold back every later alert. The rest of the cycle gets one
+// attempt each instead, sparing the minutes of retry delay.
+type mailTempError struct{ err error }
+
+func (e mailTempError) Error() string { return e.err.Error() }
+func (e mailTempError) Unwrap() error { return e.err }
+
 // mailRecipientStatuses are the enhanced statuses (RFC 3463) that name the
 // recipient's address; every 5.2.x names their mailbox. 5.1.7 and 5.1.8 are absent
 // because they are about the sender's address.
@@ -286,7 +297,7 @@ func isMailAccountRejected(se *mail.SendError) bool {
 // recipient, re-queueing on partial or total failure. The rate limiter is taken
 // once per batch rather than per recipient: delivery shares one SMTP
 // connection.
-func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries uint) bool {
+func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries *uint) bool {
 	// Capped client-side: an MTA-rejected oversize would loop in the queue
 	// until MaxQueueAge.
 	htmlContent := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, MailMaxBodyChars)
@@ -352,7 +363,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		// Mail's token can be minutes away; shutdown must not wait it out.
 		run.interrupt()
 	default:
-		delivered, dead, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, retries)
+		delivered, dead, err := sendMailBatch(ctx, pendingMsgs, pendingRcpt, *retries)
 		run.delivered(delivered...)
 
 		if len(dead) > 0 {
@@ -374,8 +385,14 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 		default:
 			logger.Error().Msgf("%v: %v", ErrMailSendingMessages, err)
 
-			if _, unreachable := errors.AsType[mailConnError](lastAttempt(err)); unreachable {
+			last := lastAttempt(err)
+
+			if _, unreachable := errors.AsType[mailConnError](last); unreachable {
 				err = markConfigErr(err)
+			}
+
+			if _, deferred := errors.AsType[mailTempError](last); deferred {
+				*retries = 1
 			}
 
 			run.failed(err)
@@ -417,6 +434,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 		retry.Attempts(retries),
 		retry.Context(ctx),
 		retry.Delay(mailRetryDelay),
+		retry.MaxDelay(2*mailRetryDelay), // backoff doubles without limit, and -r has none
 	).Do(
 		func() error {
 			sendErr := mailCli.DialAndSendWithContext(ctx, pendingMsgs...)
@@ -472,7 +490,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 
 				switch {
 				case !ok:
-					return sendErr
+					return mailTempError{sendErr}
 				case isMailAccountRejected(msgErr):
 					return markConfigErr(sendErr)
 				case isPermanentMailSendErr(msgErr):
@@ -480,7 +498,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 				case isMailRejected(msgErr):
 					unknownReach = true
 				default:
-					return sendErr
+					return mailTempError{sendErr}
 				}
 			}
 

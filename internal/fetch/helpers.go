@@ -205,6 +205,13 @@ func (c *Client) doSAMLRequest() error {
 
 	c.rememberURL(resp)
 
+	// First: beside the marker a flash alert is a notice, not a rejection, and
+	// ErrInvalidLogin would stop this user's alerts for as long as it is shown.
+	// The marker itself, as hasAuthMarker passes anything non-HTML.
+	if bytes.Contains(body, loggedInMarker) {
+		return nil
+	}
+
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return err

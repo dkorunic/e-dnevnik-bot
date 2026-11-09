@@ -22,7 +22,6 @@
   - [Docker Compose](#running-using-docker-compose)
   - [Authorizing Google Calendar on a desktop](#authorizing-google-calendar-on-a-desktop)
   - [GitHub Actions](#running-in-github-actions)
-- [Star History](#star-history)
 
 ## About
 
