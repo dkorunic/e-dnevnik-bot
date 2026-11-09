@@ -82,7 +82,7 @@ type persistingTokenSource struct {
 }
 
 // Token returns a cached or refreshed token, persisting it whenever it differs
-// from the last one seen. A write failure is logged rather than returned: the
+// from the last one saved. A write failure is logged rather than returned: the
 // caller still has a usable token, only reuse across restarts is lost.
 func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 	tok, err := p.src.Token()
@@ -116,10 +116,11 @@ func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
 		p.last.AccessToken != tok.AccessToken ||
 		p.last.RefreshToken != tok.RefreshToken
 	if changed {
-		p.last = tok
-
+		// Only once saved, so a failed write is retried on the next call.
 		if serr := saveToken(p.tokenPath, tok, p.clientID); serr != nil {
 			logger.Warn().Msgf("Unable to persist refreshed OAuth token: %v", serr)
+		} else {
+			p.last = tok
 		}
 	}
 

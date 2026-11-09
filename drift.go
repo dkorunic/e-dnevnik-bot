@@ -24,6 +24,10 @@ const (
 	// driftWeekPrefix marks a confirmed drift already alerted in that week.
 	driftWeekPrefix = "week:"
 
+	// driftCleanPrefix marks a clean scrape since the alert it prefixes, so a
+	// flapping portal cannot alert twice in one week.
+	driftCleanPrefix = "clean:"
+
 	// driftMaxFindings bounds the alert; the log carries the full list.
 	driftMaxFindings = 8
 
@@ -42,18 +46,29 @@ func weekMonday(now time.Time) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, now.Location())
 }
 
-// recordDrift advances user's drift state: a clean scrape forgets it, a first
-// sighting only arms it, and a repeat confirms it. alert is true for the first
-// confirmation in monday's week.
+// recordDrift advances user's drift state: a clean scrape disarms it, keeping
+// only this week's alert on record, a first sighting only arms it, and a repeat
+// confirms it. alert is true for the first confirmation in monday's week.
 func recordDrift(ctx context.Context, eDB *sqlitedb.Edb, user string, drifted bool, monday time.Time) (bool, bool, error) {
 	key := append(slices.Clone(driftKeyPrefix), user...)
 	week := driftWeekPrefix + monday.Format(time.DateOnly)
+	clean := driftCleanPrefix + week
 
 	var confirmed, alert bool
 
 	err := eDB.FetchAndStore(ctx, key, func(old []byte) ([]byte, error) {
 		if !drifted {
+			if s := string(old); s == week || s == clean {
+				return []byte(clean), nil
+			}
+
 			return nil, nil
+		}
+
+		// A first sighting again. The next one confirms, and alerts only if
+		// the restored week is not this one.
+		if alerted, ok := strings.CutPrefix(string(old), driftCleanPrefix); ok {
+			return []byte(alerted), nil
 		}
 
 		switch string(old) {

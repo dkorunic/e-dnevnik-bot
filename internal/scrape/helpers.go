@@ -6,6 +6,7 @@ package scrape
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -181,24 +182,28 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 }
 
 // subjectAverage returns the mean of a subject's 1–5 grades in Croatian
-// notation ("4,33"), or "" below two grades, where it would only repeat the
-// grade. Non-numeric cells (a note-only row, a descriptive grade) are skipped.
+// notation ("4,33"), truncated as the portal does, or "" below two grades, where
+// it would only repeat the grade. Non-numeric cells (a note-only row, a
+// descriptive grade) are skipped.
 //
 // Display only: the average moves with every new grade, so in Fields it would
 // re-alert the whole subject each time.
 func subjectAverage(descriptions []string, rows [][]string) string {
-	mean, n := gradeMean(descriptions, rows)
+	sum, n := gradeSum(descriptions, rows)
 	if n < 2 {
 		return ""
 	}
 
-	return strings.Replace(strconv.FormatFloat(mean, 'f', 2, 64), ".", ",", 1)
+	// Integers: as floats, 4.35*100 truncates to 434.
+	hundredths := sum * 100 / n
+
+	return fmt.Sprintf("%d,%02d", hundredths/100, hundredths%100)
 }
 
-// gradeMean averages the 1–5 values of the GradeDescription column, reporting
-// how many it counted. The portal's own average counts the same cells, which
-// is what lets checkDrift compare the two.
-func gradeMean(descriptions []string, rows [][]string) (float64, int) {
+// gradeSum totals the 1–5 values of the GradeDescription column, reporting how
+// many it counted. The portal's own average counts the same cells, which is
+// what lets checkDrift compare the two.
+func gradeSum(descriptions []string, rows [][]string) (int, int) {
 	col := slices.Index(descriptions, GradeDescription)
 	if col < 0 {
 		return 0, 0
@@ -220,11 +225,7 @@ func gradeMean(descriptions []string, rows [][]string) (float64, int) {
 		n++
 	}
 
-	if n == 0 {
-		return 0, 0
-	}
-
-	return float64(sum) / float64(n), n
+	return sum, n
 }
 
 // cleanEventDescription keeps only the text after a colon, when there is one.

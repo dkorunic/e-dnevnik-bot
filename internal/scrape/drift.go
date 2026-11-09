@@ -104,8 +104,8 @@ func checkDrift(username string, rawGrades, rawCourses []byte) []string {
 			}
 		})
 
-		if mean, n := gradeMean(desc, rows); n > 0 {
-			means[subject] = mean
+		if sum, n := gradeSum(desc, rows); n > 0 {
+			means[subject] = float64(sum) / float64(n)
 		}
 	})
 

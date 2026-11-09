@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -597,6 +598,12 @@ func TestSubjectAverage(t *testing.T) {
 		{"single grade", [][]string{{"1.9.", "", "", "5"}}, ""},
 		{"out of range", [][]string{{"1.9.", "", "", "0"}, {"2.9.", "", "", "6"}}, ""},
 		{"short row", [][]string{{"1.9."}, {"2.9.", "", "", "3"}, {"3.9.", "", "", "3"}}, "3,00"},
+		{"truncates like the portal", [][]string{{"1.9.", "", "", "5"}, {"2.9.", "", "", "5"}, {"3.9.", "", "", "4"}}, "4,66"},
+		// 87/20: multiplying 4.35 by 100 as floats gives 434.99...
+		{"exact value survives truncation", slices.Concat(
+			slices.Repeat([][]string{{"1.9.", "", "", "5"}}, 7),
+			slices.Repeat([][]string{{"2.9.", "", "", "4"}}, 13),
+		), "4,35"},
 	} {
 		if got := subjectAverage(desc, tc.rows); got != tc.want {
 			t.Errorf("%s: subjectAverage = %q, want %q", tc.name, got, tc.want)

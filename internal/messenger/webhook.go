@@ -30,6 +30,11 @@ const (
 	WebhookQueue      = "webhook-queue"
 	WebhookTimeout    = 30 * time.Second
 	webhookDrainLimit = 64 << 10 // response bytes read so the connection can be reused
+
+	// Messages in a row answered 5xx before an endpoint is skipped for the cycle.
+	// Not one: a 500 can be that message's fault, and it is retried first every
+	// cycle, so skipping at once would hold back the queue behind it.
+	webhookDownStrikes = 2
 )
 
 var (
@@ -40,6 +45,9 @@ var (
 	// errWebhookDown stands in for an unreachable endpoint's error, which would
 	// otherwise stop the whole cycle (see stopsCycle): each URL is its own server.
 	errWebhookDown = errors.New("webhook unreachable this cycle")
+
+	// errWebhookServer marks a 5xx, read after retry.Do through lastAttempt.
+	errWebhookServer = fmt.Errorf("%w", ErrWebhookStatus)
 
 	WebhookQueueName = []byte(WebhookQueue)
 
@@ -93,9 +101,10 @@ func Webhook(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 
 	rl := ratelimit.New(WebhookAPILimit, ratelimit.Per(WebhookWindow))
 
-	// Endpoints found unreachable this cycle, skipped (and requeued) for the
-	// rest of it rather than costing every message the full retry delay.
-	down := make(map[string]struct{}, len(cfg.Hooks))
+	// Strikes per endpoint this cycle. At webhookDownStrikes it is skipped (and
+	// requeued) for the rest of it rather than costing every message the full
+	// retry delay.
+	down := make(map[string]int, len(cfg.Hooks))
 
 	var cs cycleSender
 
@@ -118,7 +127,7 @@ func Webhook(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message,
 }
 
 func processWebhook(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, cfg WebhookConfig, rl ratelimit.Limiter,
-	down map[string]struct{},
+	down map[string]int,
 ) bool {
 	run := newRecipientRun(g)
 
@@ -127,7 +136,7 @@ func processWebhook(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			continue
 		}
 
-		if _, ok := down[h.URL]; ok {
+		if down[h.URL] >= webhookDownStrikes {
 			run.failed(errWebhookDown)
 
 			continue
@@ -154,9 +163,12 @@ func processWebhook(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 
 			// Never a config error either: each endpoint has its own
 			// credentials, so nothing here condemns the others.
-			if isUnreachable(err) {
-				down[h.URL] = struct{}{}
+			switch {
+			case isUnreachable(err):
+				down[h.URL] = webhookDownStrikes
 				err = errWebhookDown
+			case errors.Is(lastAttempt(err), errWebhookServer):
+				down[h.URL]++
 			}
 
 			run.failed(err)
@@ -164,6 +176,7 @@ func processWebhook(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, 
 			continue
 		}
 
+		delete(down, h.URL)
 		run.delivered(h.URL)
 	}
 
@@ -212,7 +225,12 @@ func postWebhook(ctx context.Context, h config.Webhook, g msgtypes.Message) erro
 		return nil
 	}
 
-	err = fmt.Errorf("%w: HTTP %d", ErrWebhookStatus, resp.StatusCode)
+	status := ErrWebhookStatus
+	if resp.StatusCode >= http.StatusInternalServerError {
+		status = errWebhookServer
+	}
+
+	err = fmt.Errorf("%w: HTTP %d", status, resp.StatusCode)
 
 	if resp.StatusCode < 400 || isPermanentHTTPStatus(resp.StatusCode) {
 		return retry.Unrecoverable(err)

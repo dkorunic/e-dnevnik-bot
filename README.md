@@ -278,7 +278,7 @@ Every alert is POSTed to each endpoint, at most 12 requests per minute.
 
 - `format = "json"` (default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`, with `event` one of `grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`, `portaldrift`. `format = "text"` sends the plain-text alert, as ntfy expects.
 - `headers` are sent verbatim.
-- Only `2xx` counts as delivered. `5xx`, `408`, `429` and network errors are retried. Anything else, including a redirect (not followed), queues the alert for the next poll. An unreachable endpoint is skipped for the rest of that poll. Other endpoints are unaffected.
+- Only `2xx` counts as delivered. `5xx`, `408`, `429` and network errors are retried. Anything else, including a redirect (not followed), queues the alert for the next poll. An unreachable endpoint, or one that answers `5xx` to two alerts in a row, is skipped for the rest of that poll. Other endpoints are unaffected.
 - Plain `http` to a non-loopback host logs a warning at startup. Logs show only the scheme and host.
 
 #### Weekly exam digest

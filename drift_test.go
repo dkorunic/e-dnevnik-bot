@@ -23,7 +23,8 @@ func TestWeekMonday(t *testing.T) {
 }
 
 // TestRecordDrift walks the state machine: one sighting only arms, a repeat
-// confirms and alerts once per week, and a clean scrape resets it all.
+// confirms and alerts once per week, and a clean scrape disarms it but keeps
+// this week's alert on record.
 func TestRecordDrift(t *testing.T) {
 	t.Parallel()
 
@@ -32,6 +33,8 @@ func TestRecordDrift(t *testing.T) {
 
 	week1 := time.Date(2026, time.November, 9, 0, 0, 0, 0, time.UTC)
 	week2 := week1.AddDate(0, 0, 7)
+	week3 := week1.AddDate(0, 0, 14)
+	week4 := week1.AddDate(0, 0, 21)
 
 	for i, step := range []struct {
 		drifted          bool
@@ -44,7 +47,14 @@ func TestRecordDrift(t *testing.T) {
 		{true, week1, true, false},  // already alerted this week
 		{true, week2, true, true},   // a new week alerts again
 		{false, week2, false, false},
-		{true, week2, false, false}, // re-armed from scratch
+		{true, week2, false, false}, // a clean scrape disarms: one sighting again
+		{true, week2, true, false},  // flapping: still only one alert this week
+		{false, week2, false, false},
+		{true, week3, false, false}, // an old alert must not skip the first sighting
+		{true, week3, true, true},   // confirmed in a new week: alert
+		{false, week4, false, false},
+		{true, week4, false, false}, // a clean scrape in a later week forgets it all
+		{false, week4, false, false},
 	} {
 		confirmed, alert, err := recordDrift(t.Context(), eDB, "pero", step.drifted, step.monday)
 		if err != nil {

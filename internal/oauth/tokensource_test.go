@@ -299,6 +299,48 @@ func TestPersistingTokenSourceTolerateUnwritablePath(t *testing.T) {
 	}
 }
 
+// TestPersistingTokenSourceRetriesFailedSave: a token that never reached the disk
+// may be the only copy of a rotated refresh token, so the next call saves it
+// even though the token has not changed.
+func TestPersistingTokenSourceRetriesFailedSave(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "created-later")
+	tokenPath := filepath.Join(dir, "calendar_token.json")
+
+	p := &persistingTokenSource{
+		src: &stubTokenSource{
+			tokens: []*oauth2.Token{{AccessToken: "access-1", RefreshToken: "refresh-1", Expiry: time.Now().Add(time.Hour)}},
+		},
+		tokenPath: tokenPath,
+	}
+
+	if _, err := p.Token(); err != nil {
+		t.Fatalf("Token() = %v, want nil", err)
+	}
+
+	if _, err := tokenFromFile(tokenPath); err == nil {
+		t.Fatal("first save succeeded; the test needs it to fail")
+	}
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	if _, err := p.Token(); err != nil {
+		t.Fatalf("Token() = %v, want nil", err)
+	}
+
+	onDisk, err := tokenFromFile(tokenPath)
+	if err != nil {
+		t.Fatalf("token not saved on the next call: %v", err)
+	}
+
+	if onDisk.RefreshToken != "refresh-1" {
+		t.Errorf("persisted RefreshToken = %q, want refresh-1", onDisk.RefreshToken)
+	}
+}
+
 // TestPersistingTokenSourceExplainsEachCauseOnce: a revoked grant and a
 // rejected client need different remedies, so each is explained once — a shared
 // latch let whichever came first hide the other's message until restart.

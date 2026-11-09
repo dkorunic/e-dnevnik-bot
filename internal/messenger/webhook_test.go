@@ -90,7 +90,7 @@ func TestWebhookPostsBothFormats(t *testing.T) {
 
 	eDB := webhookDB(t)
 
-	if processWebhook(context.Background(), eDB, webhookMsg(), cfg, ratelimit.New(1000), map[string]struct{}{}) {
+	if processWebhook(context.Background(), eDB, webhookMsg(), cfg, ratelimit.New(1000), map[string]int{}) {
 		t.Fatal("processWebhook reported a cycle-stopping failure")
 	}
 
@@ -132,7 +132,7 @@ func TestWebhookUnknownStatusRequeuesOnce(t *testing.T) {
 		cfg := WebhookConfig{Retries: 3, Hooks: []config.Webhook{{URL: srv.URL}}}
 		eDB := webhookDB(t)
 
-		if processWebhook(context.Background(), eDB, webhookMsg(), cfg, ratelimit.New(1000), map[string]struct{}{}) {
+		if processWebhook(context.Background(), eDB, webhookMsg(), cfg, ratelimit.New(1000), map[string]int{}) {
 			t.Errorf("HTTP %d stopped the cycle; it concerns one endpoint", code)
 		}
 
@@ -159,7 +159,7 @@ func TestWebhookDownEndpointSparesOthers(t *testing.T) {
 
 	cfg := WebhookConfig{Retries: 1, Hooks: []config.Webhook{{URL: dead}, {URL: ok.URL}}}
 	eDB := webhookDB(t)
-	down := map[string]struct{}{}
+	down := map[string]int{}
 
 	for range 2 {
 		if processWebhook(context.Background(), eDB, webhookMsg(), cfg, ratelimit.New(1000), down) {
@@ -184,6 +184,66 @@ func TestWebhookDownEndpointSparesOthers(t *testing.T) {
 		if !slices.Contains(f.Msg.SkipRecipients, ok.URL) || slices.Contains(f.Msg.SkipRecipients, dead) {
 			t.Errorf("SkipRecipients = %v, want the healthy endpoint only", f.Msg.SkipRecipients)
 		}
+	}
+}
+
+// TestWebhookRepeatedServerErrorsSkipEndpoint: an endpoint answering 5xx spends
+// the whole retry budget on each message while the poll cycle waits, so it is
+// skipped after the second one. Every message stays queued.
+func TestWebhookRepeatedServerErrorsSkipEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+
+	srv := statusServer(t, http.StatusBadGateway, &hits)
+	cfg := WebhookConfig{Retries: 1, Hooks: []config.Webhook{{URL: srv.URL}}}
+	eDB := webhookDB(t)
+	down := map[string]int{}
+
+	for range 4 {
+		if processWebhook(context.Background(), eDB, webhookMsg(), cfg, ratelimit.New(1000), down) {
+			t.Fatal("a server error stopped the cycle; it concerns one endpoint")
+		}
+	}
+
+	if n := hits.Load(); n != 2 {
+		t.Errorf("%d requests, want 2 before the endpoint is skipped", n)
+	}
+
+	if failed := queue.FetchFailedMsgs(context.Background(), eDB, WebhookQueueName); len(failed) != 4 {
+		t.Errorf("queued %d messages, want 4", len(failed))
+	}
+}
+
+// TestWebhookIsolatedServerErrorsKeepEndpoint: a 500 caused by one message must
+// not skip the endpoint, or that message, retried first every cycle, would hold
+// back everything queued behind it until MaxQueueAge.
+func TestWebhookIsolatedServerErrorsKeepEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if hits.Add(1)%2 == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := WebhookConfig{Retries: 1, Hooks: []config.Webhook{{URL: srv.URL}}}
+	eDB := webhookDB(t)
+	down := map[string]int{}
+
+	for range 4 {
+		processWebhook(context.Background(), eDB, webhookMsg(), cfg, ratelimit.New(1000), down)
+	}
+
+	if n := hits.Load(); n != 4 {
+		t.Errorf("%d requests, want 4: a delivery in between clears the count", n)
+	}
+
+	if failed := queue.FetchFailedMsgs(context.Background(), eDB, WebhookQueueName); len(failed) != 2 {
+		t.Errorf("queued %d messages, want 2", len(failed))
 	}
 }
 
