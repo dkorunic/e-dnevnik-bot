@@ -542,6 +542,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 			// Identity first: the average row is display only (see withAverage).
 			key := g.Fields
+			aliases := classAliases(g)
 			g = withAverage(g)
 
 			// Seeded regardless of forward (not skipped before the flag), which
@@ -553,7 +554,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				}
 
 				return queue.OutboxRow(g)
-			})
+			}, aliases...)
 			if err != nil {
 				// The guard above cannot cover the write itself. Judged by ctx, not
 				// the error, which is the driver's to word: unflagged events
@@ -612,6 +613,32 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			sendDriftAlerts(ctx, eDB, sr, gradesMsg, time.Now())
 		}
 	})
+}
+
+// classAliases returns g's identity under the other class-suffix form. Subject
+// carries " / <class>" only while a user has several active classes, so without
+// this, gaining or finishing a class would re-alert the user's history.
+func classAliases(g msgtypes.Message) []sqlitedb.Alias {
+	if g.Class == "" {
+		return nil
+	}
+
+	suffix := " / " + g.Class
+
+	subject, hadSuffix := strings.CutSuffix(g.Subject, suffix)
+	if !hadSuffix {
+		subject = g.Subject + suffix
+	}
+
+	fields := g.Fields
+
+	// An exam repeats its subject as the first field.
+	if g.Code == msgtypes.Exam && len(fields) > 0 && fields[0] == g.Subject {
+		fields = slices.Clone(fields)
+		fields[0] = subject
+	}
+
+	return []sqlitedb.Alias{{SubBucket: subject, Target: fields}}
 }
 
 // averageDescription heads the subject-average row of a grade alert.

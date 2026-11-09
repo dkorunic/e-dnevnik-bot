@@ -221,6 +221,59 @@ func TestNewDBPathWithQuestionMark(t *testing.T) {
 	}
 }
 
+// A live alias counts as seen, writes no outbox row and re-flags under the
+// current key; an expired one reads as absent.
+func TestCheckAndFlagOutboxAlias(t *testing.T) {
+	t.Parallel()
+
+	eDB, err := New(context.Background(), filepath.Join(t.TempDir(), "alias.db.sqlite"))
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer eDB.Close()
+
+	ctx := context.Background()
+	rowAsked := false
+	row := func() ([]byte, []byte, error) {
+		rowAsked = true
+
+		return nil, nil, nil
+	}
+
+	live := Alias{SubBucket: "s / 5.a", Target: []string{"1"}}
+	if _, err := eDB.CheckAndFlagTTL(ctx, "u", live.SubBucket, live.Target); err != nil {
+		t.Fatalf("CheckAndFlagTTL() failed: %v", err)
+	}
+
+	found, err := eDB.CheckAndFlagOutbox(ctx, "u", "s", []string{"1"}, row, live)
+	if err != nil || !found {
+		t.Errorf("live alias: found = %v, err = %v, want true", found, err)
+	}
+
+	if rowAsked {
+		t.Error("live alias: asked for an outbox row, which would alert the event again")
+	}
+
+	if found, _ := eDB.CheckAndFlagTTL(ctx, "u", "s", []string{"1"}); !found {
+		t.Error("live alias: not re-flagged under the current key")
+	}
+
+	expired := Alias{SubBucket: "old / 5.a", Target: []string{"2"}}
+	if _, err = eDB.db.Exec("INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
+		hashContent("u", expired.SubBucket, expired.Target), []byte(""), time.Now().Add(-time.Hour).Unix()); err != nil {
+		t.Fatalf("failed to insert expired alias: %v", err)
+	}
+
+	found, err = eDB.CheckAndFlagOutbox(ctx, "u", "old", []string{"2"}, row, expired)
+	if err != nil || found {
+		t.Errorf("expired alias: found = %v, err = %v, want false", found, err)
+	}
+
+	if !rowAsked {
+		t.Error("expired alias: no outbox row asked for a new event")
+	}
+}
+
 func TestCheckAndFlagTTLExpiredKey(t *testing.T) {
 	t.Parallel()
 	tmpFile := filepath.Join(t.TempDir(), "test-db-ttl-expired.db.sqlite")

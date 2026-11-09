@@ -38,6 +38,7 @@ type Message struct {
 	Username       string    // username (SSO/SAML)
 	Subject        string    // subject
 	Average        string    // grade subject's mean at scrape time; display only, never dedup identity
+	Class          string    // set when Subject carries " / <class>" only while multi-class: dedup then accepts either form
 	Descriptions   []string  // descriptions for fields
 	Fields         []string  // fields with actual grades/exams and remarks
 	SkipRecipients []string  // recipients already notified; skip on retry to prevent duplicates

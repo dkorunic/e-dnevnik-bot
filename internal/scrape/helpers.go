@@ -157,6 +157,7 @@ func parseGrades(ctx context.Context, ch chan<- msgtypes.Message, username strin
 					Code:         msgtypes.Grade,
 					Username:     username,
 					Subject:      subject,
+					Class:        className,
 					Descriptions: descriptions,
 					Fields:       fields,
 					Average:      average,
@@ -257,6 +258,7 @@ func parseEvents(ctx context.Context, ch chan<- msgtypes.Message, username strin
 			Code:         msgtypes.Exam,
 			Username:     username,
 			Subject:      subject,
+			Class:        className,
 			Descriptions: eventDescriptions,
 			Fields: []string{
 				subject,
@@ -387,7 +389,7 @@ func parseCourses(username string, rawCourses []byte) (fetch.Courses, error) {
 // Reports cancellation so the caller can surface ctx.Err() rather than report a
 // truncated scrape as complete.
 func emitFlexTable(ctx context.Context, ch chan<- msgtypes.Message, doc *goquery.Document, scope tabScope,
-	sel goquery.Matcher, code msgtypes.EventCode, username, subject string,
+	sel goquery.Matcher, code msgtypes.EventCode, username, subject, className string,
 ) bool {
 	var cancelled bool
 
@@ -417,6 +419,7 @@ func emitFlexTable(ctx context.Context, ch chan<- msgtypes.Message, doc *goquery
 						Code:         code,
 						Username:     username,
 						Subject:      subject,
+						Class:        className,
 						Fields:       fields,
 						Descriptions: descriptions,
 					}:
@@ -442,11 +445,11 @@ func parseCourse(ctx context.Context, ch chan<- msgtypes.Message, username strin
 
 	scope := newTabScope(doc)
 
-	if emitFlexTable(ctx, ch, doc, scope, selNationalExamTable, msgtypes.NationalExam, username, subject) {
+	if emitFlexTable(ctx, ch, doc, scope, selNationalExamTable, msgtypes.NationalExam, username, subject, className) {
 		return ctx.Err()
 	}
 
-	if emitFlexTable(ctx, ch, doc, scope, selReadingsTable, msgtypes.Reading, username, subject) {
+	if emitFlexTable(ctx, ch, doc, scope, selReadingsTable, msgtypes.Reading, username, subject, className) {
 		return ctx.Err()
 	}
 

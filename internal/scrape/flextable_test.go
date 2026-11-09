@@ -70,7 +70,7 @@ func TestEmitFlexTableTreatsBothTablesIdentically(t *testing.T) {
 
 	emit := func(sel goquery.Matcher, code msgtypes.EventCode) []msgtypes.Message {
 		ch := make(chan msgtypes.Message, 8)
-		cancelled := emitFlexTable(t.Context(), ch, doc, scope, sel, code, "u@skole.hr", "Matematika")
+		cancelled := emitFlexTable(t.Context(), ch, doc, scope, sel, code, "u@skole.hr", "Matematika", "1.a")
 		close(ch)
 
 		if cancelled {
@@ -108,7 +108,7 @@ func TestEmitFlexTableAlignsValuesWithHeaders(t *testing.T) {
 	doc := docFrom(t, flexTableHTML)
 
 	ch := make(chan msgtypes.Message, 8)
-	emitFlexTable(t.Context(), ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "Matematika")
+	emitFlexTable(t.Context(), ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "Matematika", "1.a")
 	close(ch)
 
 	got := collect(ch)
@@ -144,7 +144,7 @@ func TestEmitFlexTableReportsCancellation(t *testing.T) {
 	// Unbuffered: the send cannot proceed, so the cancelled ctx wins the select.
 	ch := make(chan msgtypes.Message)
 
-	if !emitFlexTable(ctx, ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "M") {
+	if !emitFlexTable(ctx, ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "M", "1.a") {
 		t.Error("emitFlexTable() reported no cancellation on a cancelled context; parseCourse would return nil and hide a truncated scrape")
 	}
 }
@@ -179,7 +179,7 @@ func TestEmitFlexTableSkipsContentlessAndHeaderlessTables(t *testing.T) {
 			doc := docFrom(t, tt.html)
 
 			ch := make(chan msgtypes.Message, 4)
-			emitFlexTable(t.Context(), ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "M")
+			emitFlexTable(t.Context(), ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "M", "1.a")
 			close(ch)
 
 			if got := collect(ch); len(got) != 0 {
@@ -213,7 +213,7 @@ func TestEmitFlexTableHonoursTabScope(t *testing.T) {
 	doc := docFrom(t, tabbed)
 
 	ch := make(chan msgtypes.Message, 8)
-	emitFlexTable(t.Context(), ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "M")
+	emitFlexTable(t.Context(), ch, doc, newTabScope(doc), selNationalExamTable, msgtypes.NationalExam, "u@skole.hr", "M", "1.a")
 	close(ch)
 
 	got := collect(ch)

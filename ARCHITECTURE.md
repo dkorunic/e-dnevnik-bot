@@ -168,7 +168,7 @@ Webhook endpoints are independent, so none of its failures stop the cycle.
 | Hard kill (SIGKILL, OOM, power) | The outbox prevents loss, but delivered rows may repeat, since nothing records which messengers finished. The digest row is not in its claim's transaction. |
 | Deleted database | The next run silently re-seeds with no alerts. |
 | Dedup TTL | After about a year, an event still on the portal alerts again. |
-| Identity | `Message.Fields` and the subject are the identity. Changing what is scraped, or a student's class count, re-alerts once. Dates have no year, so an identical row a year later can be missed. |
+| Identity | `Message.Fields` and the subject are the identity. Changing what is scraped re-alerts once; a student's class count does not (`classAliases`). Dates have no year, so an identical row a year later can be missed. |
 | `D.M.` dates | A grade from the same calendar day of an earlier year counts as current in the relevance filter. |
 | Plaintext credentials | Readable by any process running as the same user. |
 | Unofficial WhatsApp protocol | `whatsmeow` can break on protocol changes; bans are possible. |

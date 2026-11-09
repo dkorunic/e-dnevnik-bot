@@ -529,6 +529,75 @@ func TestMsgDedupShutdownDuringSeedLoadIsNotAFailure(t *testing.T) {
 	}
 }
 
+// classEvent builds one event as the scraper emits it with and without a second
+// active class.
+func classEvent(code msgtypes.EventCode, class string, multiClass bool) msgtypes.Message {
+	subject := "Matematika"
+	if multiClass {
+		subject += " / " + class
+	}
+
+	// Fixed, so both forms of an event match however the clock moves.
+	g := grade(subject)
+	g.Code = code
+	g.Class = class
+	g.Fields = []string{"12.10.", "5"}
+
+	if code == msgtypes.Exam {
+		g.Timestamp = time.Date(2030, time.December, 10, 0, 0, 0, 0, time.UTC)
+		g.Fields = []string{subject, g.Timestamp.Format("02.01.2006."), "Algebra"}
+	}
+
+	return g
+}
+
+// TestMsgDedupClassCountChangeDoesNotRealert: finishing or gaining a class
+// renames every subject, which must not alert the student's history again.
+// Not parallel: mutates package-level flag pointers.
+func TestMsgDedupClassCountChangeDoesNotRealert(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, true)
+
+	for _, code := range []msgtypes.EventCode{msgtypes.Grade, msgtypes.Exam, msgtypes.NationalExam, msgtypes.Reading} {
+		for _, startMulti := range []bool{true, false} {
+			eDB := openExistingDB(t, filepath.Join(t.TempDir(), "class.db"))
+			defer eDB.Close() //nolint:errcheck
+
+			first := classEvent(code, "5.a", startMulti)
+			if got := runDedup(t, t.Context(), eDB, first); len(got) != 1 {
+				t.Fatalf("code %v, multi %v: first sighting forwarded %d alerts, want 1", code, startMulti, len(got))
+			}
+
+			if got := runDedup(t, t.Context(), eDB, classEvent(code, "5.a", !startMulti)); len(got) != 0 {
+				t.Errorf("code %v, multi %v: forwarded %d alerts after the class count changed, want 0", code, startMulti, len(got))
+			}
+
+			changed := classEvent(code, "5.a", !startMulti)
+			changed.Fields = slices.Concat(changed.Fields, []string{"new"})
+
+			if got := runDedup(t, t.Context(), eDB, changed); len(got) != 1 {
+				t.Errorf("code %v, multi %v: forwarded %d alerts for a really new event, want 1", code, startMulti, len(got))
+			}
+		}
+	}
+}
+
+// TestMsgDedupClassAliasKeepsClassesApart: the alias only recognises rows from
+// before the change, so identical rows in two current classes both alert.
+// Not parallel: mutates package-level flag pointers.
+func TestMsgDedupClassAliasKeepsClassesApart(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	eDB := openExistingDB(t, filepath.Join(t.TempDir(), "classes.db"))
+	defer eDB.Close() //nolint:errcheck
+
+	got := runDedup(t, t.Context(), eDB, classEvent(msgtypes.Grade, "5.a", true), classEvent(msgtypes.Grade, "3.D", true))
+	if len(got) != 2 {
+		t.Errorf("forwarded %d alerts for one row in each of two classes, want 2", len(got))
+	}
+}
+
 // TestMsgDedupAverageIsNotIdentity: the subject average changes with every new
 // grade, so it must reach the alert but never the dedup key — otherwise one new
 // grade would re-alert every older grade of that subject.

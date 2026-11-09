@@ -42,6 +42,7 @@ func TestParseGrades(t *testing.T) {
 		Code:         msgtypes.Grade,
 		Username:     "testuser",
 		Subject:      "Math",
+		Class:        "ClassA",
 		Descriptions: []string{"Date", "Grade"},
 		Fields:       []string{"01.01.2025.", "5"},
 	}
@@ -73,6 +74,7 @@ func TestParseEvents(t *testing.T) {
 		Code:     msgtypes.Exam,
 		Username: "testuser",
 		Subject:  "Test",
+		Class:    "ClassA",
 		Descriptions: []string{
 			EventSummary,
 			DateDescription,
@@ -193,6 +195,7 @@ func TestParseCourse(t *testing.T) {
 			Code:         msgtypes.Reading,
 			Username:     "testuser",
 			Subject:      "English",
+			Class:        "ClassA",
 			Descriptions: []string{"Author", "Title"},
 			Fields:       []string{"J.K. Rowling", "Harry Potter"},
 		},
@@ -257,6 +260,10 @@ func TestParseGradesMultiClass(t *testing.T) {
 	msg := <-ch
 	expectedSubject := "Physics / ClassB"
 
+	if msg.Class != "ClassB" {
+		t.Errorf("Class = %q, want %q", msg.Class, "ClassB")
+	}
+
 	if msg.Subject != expectedSubject {
 		t.Errorf("expected subject %q, got %q", expectedSubject, msg.Subject)
 	}
@@ -299,6 +306,10 @@ func TestParseEventsMultiClass(t *testing.T) {
 
 	msg := <-ch
 	expectedSubject := "Test / ClassC"
+
+	if msg.Class != "ClassC" {
+		t.Errorf("Class = %q, want %q", msg.Class, "ClassC")
+	}
 
 	if msg.Subject != expectedSubject {
 		t.Errorf("expected subject %q, got %q", expectedSubject, msg.Subject)
@@ -379,6 +390,10 @@ func TestParseCourseMultiClass(t *testing.T) {
 
 	if len(msgs) == 0 {
 		t.Fatal("parseCourse() should return at least 1 reading message")
+	}
+
+	if msgs[0].Class != "ClassD" {
+		t.Errorf("Class = %q, want ClassD", msgs[0].Class)
 	}
 
 	expectedSubject := "Literature / ClassD"

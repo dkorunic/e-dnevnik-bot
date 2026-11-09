@@ -221,7 +221,7 @@ func TestProcessMailConnectionDroppedMidBatchRequeues(t *testing.T) {
 	eDB := mailTestDB(t)
 
 	processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com", "b@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), new(uint(1)))
+		"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 1})
 
 	failed := queue.FetchFailedMsgs(t.Context(), eDB, MailQueueName)
 	if len(failed) != 1 {
@@ -255,7 +255,7 @@ func TestProcessMail5xxRecipientIsDropped(t *testing.T) {
 	eDB := mailTestDB(t)
 
 	processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com", "b@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), new(uint(1)))
+		"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 1})
 
 	if failed := queue.FetchFailedMsgs(t.Context(), eDB, MailQueueName); len(failed) != 0 {
 		t.Errorf("FetchFailedMsgs = %+v, want nothing queued: a 550 recipient is dropped and the other was delivered", failed)
@@ -317,7 +317,7 @@ func TestProcessMailSenderRejectionIsQueuedAndStopsTheCycle(t *testing.T) {
 	eDB := mailTestDB(t)
 
 	tripped := processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com", "b@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), new(uint(3)))
+		"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 3})
 	if !tripped {
 		t.Error("processMail() = false, want the cycle stopped on a rejected sender")
 	}
@@ -353,7 +353,7 @@ func TestProcessMailDataRejectionIsQueued(t *testing.T) {
 	eDB := mailTestDB(t)
 
 	tripped := processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), new(uint(3)))
+		"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 3})
 	if tripped {
 		t.Error("processMail() = true, want the cycle to go on")
 	}
@@ -410,7 +410,7 @@ func TestSendMailBatchLoginFailureAfterMessageFailureStopsRetrying(t *testing.T)
 	_ = m.To("a@example.com")
 	m.SetBodyString(mail.TypeTextPlain, "x")
 
-	_, _, err = sendMailBatch(t.Context(), []*mail.Msg{m}, []string{"a@example.com"}, 4)
+	_, _, err = sendMailBatch(t.Context(), []*mail.Msg{m}, []string{"a@example.com"}, mailRetries{attempts: 4})
 	if !isConfigSendErr(err) {
 		t.Errorf("sendMailBatch() = %v, want a config error", err)
 	}
@@ -466,7 +466,7 @@ func TestProcessMailRecoveredConnectionDoesNotStopTheCycle(t *testing.T) {
 	setMailRetryDelay(t, time.Millisecond)
 
 	tripped := processMail(t.Context(), mailTestDB(t), mailBatchMsg, []string{"a@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), new(uint(2)))
+		"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 2})
 	if tripped {
 		t.Error("processMail() = true, want the cycle to go on: the last attempt reached the server")
 	}
@@ -493,7 +493,7 @@ func TestProcessMailSpendsRetryDelaysOncePerCycle(t *testing.T) {
 	setMailRetryDelay(t, time.Millisecond)
 
 	eDB := mailTestDB(t)
-	retries := uint(3)
+	retries := mailRetries{attempts: 3}
 
 	for range 2 {
 		if processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com"},
@@ -508,6 +508,71 @@ func TestProcessMailSpendsRetryDelaysOncePerCycle(t *testing.T) {
 
 	if failed := queue.FetchFailedMsgs(t.Context(), eDB, MailQueueName); len(failed) != 2 {
 		t.Errorf("queued %d messages, want 2", len(failed))
+	}
+}
+
+// A deferral spends only later deferrals' retries: a connection blip after it
+// keeps its own, or one reset would stop the cycle and delay every other alert.
+// Not parallel: swaps the mailCli global.
+func TestProcessMailDeferralKeepsConnectionRetries(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() = %v", err)
+	}
+
+	t.Cleanup(func() { _ = ln.Close() })
+
+	var deferring, dropNext atomic.Bool
+
+	deferring.Store(true)
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+
+			if dropNext.CompareAndSwap(true, false) {
+				_ = c.Close()
+
+				continue
+			}
+
+			go serveFakeSMTP(c, smtpScript{reply: func(cmd string, _ int) string {
+				if strings.HasPrefix(cmd, "RCPT TO") && deferring.Load() {
+					return "451 4.3.0 try later"
+				}
+
+				return ""
+			}})
+		}
+	}()
+
+	host, port, _ := net.SplitHostPort(ln.Addr().String())
+	portInt, _ := strconv.Atoi(port)
+
+	fakeSMTPClient(t, host, portInt)
+	setMailRetryDelay(t, time.Millisecond)
+
+	eDB := mailTestDB(t)
+	retries := mailRetries{attempts: 2}
+
+	if processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com"},
+		"from@example.com", "subject", ratelimit.New(1000), &retries) {
+		t.Fatal("processMail() = true on a deferral, want the cycle to go on")
+	}
+
+	deferring.Store(false)
+	dropNext.Store(true)
+
+	if processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com"},
+		"from@example.com", "subject", ratelimit.New(1000), &retries) {
+		t.Error("processMail() = true, want the connection blip retried")
+	}
+
+	if failed := queue.FetchFailedMsgs(t.Context(), eDB, MailQueueName); len(failed) != 1 {
+		t.Errorf("queued %d messages, want only the deferred one", len(failed))
 	}
 }
 
@@ -570,7 +635,7 @@ func TestProcessMailRecipientRejections(t *testing.T) {
 			eDB := mailTestDB(t)
 
 			tripped := processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com"},
-				"from@example.com", "subject", ratelimit.New(1000), new(uint(3)))
+				"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 3})
 			if tripped != tt.tripped {
 				t.Errorf("processMail() = %v, want %v", tripped, tt.tripped)
 			}
@@ -618,7 +683,7 @@ func TestProcessMailNestedMailAfterDataRejectionIsNotAConfigError(t *testing.T) 
 	eDB := mailTestDB(t)
 
 	tripped := processMail(t.Context(), eDB, mailBatchMsg, []string{"a@example.com", "b@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), new(uint(1)))
+		"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 1})
 	if tripped {
 		t.Error("processMail() = true, want the cycle to go on: nothing says the account was rejected")
 	}
@@ -648,7 +713,7 @@ func TestProcessMailDropsDeadRecipientBesideUnknownReachFailure(t *testing.T) {
 	eDB := mailTestDB(t)
 
 	processMail(t.Context(), eDB, mailBatchMsg, []string{"dead@example.com", "ok@example.com"},
-		"from@example.com", "subject", ratelimit.New(1000), new(uint(1)))
+		"from@example.com", "subject", ratelimit.New(1000), &mailRetries{attempts: 1})
 
 	failed := queue.FetchFailedMsgs(t.Context(), eDB, MailQueueName)
 	if len(failed) != 1 {

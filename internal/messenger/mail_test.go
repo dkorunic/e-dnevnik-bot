@@ -58,7 +58,7 @@ func TestProcessMail(t *testing.T) {
 	defer eDB.Close()
 
 	_ = mailInit(host, portInt, "user", "pass")
-	processMail(context.Background(), eDB, msg, []string{"test@example.com"}, "from@example.com", "subject", rl, new(uint(1)))
+	processMail(context.Background(), eDB, msg, []string{"test@example.com"}, "from@example.com", "subject", rl, &mailRetries{attempts: 1})
 
 	// Bogus listener can't complete SMTP; processMail must queue for retry.
 	queued := queue.FetchFailedMsgs(context.Background(), eDB, MailQueueName)
@@ -145,7 +145,7 @@ func TestProcessMailInvalidFromIsMessageLevel(t *testing.T) {
 
 	processMail(context.Background(), eDB,
 		msgtypes.Message{Code: msgtypes.Grade, Username: "u", Subject: "s", Fields: []string{"5"}},
-		to, "not-an-address", "subject", ratelimit.NewUnlimited(), new(uint(1)))
+		to, "not-an-address", "subject", ratelimit.NewUnlimited(), &mailRetries{attempts: 1})
 
 	// One message-level report, not one per recipient.
 	if got := strings.Count(buf.String(), `"level":"error"`); got != 1 {

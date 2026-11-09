@@ -99,6 +99,12 @@ func (db *Edb) Close() error {
 	return db.db.Close()
 }
 
+// Alias is another identity an event may already be flagged under.
+type Alias struct {
+	SubBucket string
+	Target    []string
+}
+
 // CheckAndFlagTTL reports whether the key was already seen, flagging it with a
 // 1+ year TTL if not.
 //
@@ -118,7 +124,9 @@ func (db *Edb) CheckAndFlagTTL(ctx context.Context, bucket, subBucket string, ta
 // only for an event not seen before and may return a nil key to store nothing; an
 // error leaves the event unflagged. It holds the write lock, so it must not touch
 // the database.
-func (db *Edb) CheckAndFlagOutbox(ctx context.Context, bucket, subBucket string, target []string, row func() ([]byte, []byte, error)) (bool, error) {
+//
+// A live alias counts as seen, like a legacy hit, and is probed only on a miss.
+func (db *Edb) CheckAndFlagOutbox(ctx context.Context, bucket, subBucket string, target []string, row func() ([]byte, []byte, error), aliases ...Alias) (bool, error) {
 	key := hashContent(bucket, subBucket, target)
 
 	now := time.Now()
@@ -154,6 +162,17 @@ func (db *Edb) CheckAndFlagOutbox(ctx context.Context, bucket, subBucket string,
 		migrated, err = keyLive(ctx, conn, hashContentLegacy(bucket, subBucket, target), now)
 		if err != nil {
 			return false, err
+		}
+
+		for i := 0; i < len(aliases) && !migrated; i++ {
+			migrated, err = keyLive(ctx, conn, hashContent(bucket, aliases[i].SubBucket, aliases[i].Target), now)
+			if err != nil {
+				return false, err
+			}
+
+			if migrated {
+				logger.Debug().Msgf("Already seen under another class form: %v/%v", bucket, aliases[i].SubBucket)
+			}
 		}
 	}
 

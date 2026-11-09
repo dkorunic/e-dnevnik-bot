@@ -64,7 +64,7 @@ Docs: a change to behaviour, flags, config keys, packages or tasks updates `READ
 - **Poison-drop permanent errors** (`messenger/*.go`): `markNamePermanent` wraps `retry.Unrecoverable(permanentError{err})` — the inner sentinel survives `retry.Do` stripping so `isPermanentSendErr` detects it post-loop; permanent per-recipient failures are logged + skipped, not requeued
 - **Config errors are queued, never dropped** (`markConfigErr`): a bad token or login stops the cycle and keeps the message. Never classify an auth failure as permanent. Webhook endpoints are independent, so nothing there stops the cycle
 - **Outbox** (`routines.go`, `queue/queue.go`): `CheckAndFlagOutbox` writes the flag and outbox row in one transaction, so a hard kill cannot lose a flagged event; `enabledQueues` must stay in step with `msgSend`
-- **Dedup identity** (`scrape/helpers.go:cellValues`): `Message.Fields` is hashed, so changing which cells it emits re-alerts every stored event once
+- **Dedup identity** (`scrape/helpers.go:cellValues`): `Message.Fields` is hashed, so changing which cells it emits re-alerts every stored event once; a changed class count does not (`classAliases`, `routines.go`)
 - **Single-threaded dedup** (`routines.go:msgDedup`): do not parallelize
 - **First-run seeding is silent, per user** (`seed.go` + `msgDedup`): do not suppress
 - **Digest and drift alerts bypass dedup** (`digest.go`, `drift.go`): a failed scrape must not claim a digest week or count as a quiet one

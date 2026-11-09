@@ -116,7 +116,7 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	cs := cycleSender{limit: MailCycleLimit}
 
-	retries := cfg.Retries
+	retries := mailRetries{attempts: cfg.Retries}
 
 	resendQueued(ctx, eDB, MailQueueName, func(m msgtypes.Message) {
 		cs.send(ctx, eDB, MailQueueName, m, func() bool {
@@ -221,12 +221,19 @@ func (e mailConnError) Unwrap() error { return e.err }
 
 // mailTempError marks an attempt the server deferred, a 4xx say. One that outlives
 // its retries does not stop the cycle: a single full mailbox at the head of the
-// queue would then hold back every later alert. The rest of the cycle gets one
+// queue would then hold back every later alert. Later deferrals that cycle get one
 // attempt each instead, sparing the minutes of retry delay.
 type mailTempError struct{ err error }
 
 func (e mailTempError) Error() string { return e.err.Error() }
 func (e mailTempError) Unwrap() error { return e.err }
+
+// mailRetries is one cycle's retry budget. deferred is set once a message has
+// spent its attempts on 4xx answers; connection failures keep theirs regardless.
+type mailRetries struct {
+	attempts uint
+	deferred bool
+}
 
 // mailRecipientStatuses are the enhanced statuses (RFC 3463) that name the
 // recipient's address; every 5.2.x names their mailbox. 5.1.7 and 5.1.8 are absent
@@ -297,7 +304,7 @@ func isMailAccountRejected(se *mail.SendError) bool {
 // recipient, re-queueing on partial or total failure. The rate limiter is taken
 // once per batch rather than per recipient: delivery shares one SMTP
 // connection.
-func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries *uint) bool {
+func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to []string, from, subject string, rl ratelimit.Limiter, retries *mailRetries) bool {
 	// Capped client-side: an MTA-rejected oversize would loop in the queue
 	// until MaxQueueAge.
 	htmlContent := truncateHTMLBody(g.Username, g.Subject, g.Code, g.Descriptions, g.Fields, MailMaxBodyChars)
@@ -392,7 +399,7 @@ func processMail(ctx context.Context, eDB *sqlitedb.Edb, g msgtypes.Message, to 
 			}
 
 			if _, deferred := errors.AsType[mailTempError](last); deferred {
-				*retries = 1
+				retries.deferred = true
 			}
 
 			run.failed(err)
@@ -425,13 +432,13 @@ func undeliveredRecipients(rcpt, delivered []string) []string {
 // it — so a partial failure never re-sends to anyone already served. Retries
 // short-circuit once every remaining failure is permanent. It returns who was
 // served, and who to drop when other failures keep the error from being permanent.
-func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries uint) ([]string, []string, error) {
+func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries mailRetries) ([]string, []string, error) {
 	var successful, dead []string
 
 	pendingMsgs, pendingRcpt := msgs, rcpt
 
 	err := retry.New(
-		retry.Attempts(retries),
+		retry.Attempts(retries.attempts),
 		retry.Context(ctx),
 		retry.Delay(mailRetryDelay),
 		retry.MaxDelay(2*mailRetryDelay), // backoff doubles without limit, and -r has none
@@ -480,6 +487,14 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 				return mailConnError{sendErr}
 			}
 
+			deferredErr := func() error {
+				if retries.deferred {
+					return retry.Unrecoverable(mailTempError{sendErr})
+				}
+
+				return mailTempError{sendErr}
+			}
+
 			// Retrying helps only if one remaining failure is transient.
 			unknownReach := false
 
@@ -490,7 +505,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 
 				switch {
 				case !ok:
-					return mailTempError{sendErr}
+					return deferredErr()
 				case isMailAccountRejected(msgErr):
 					return markConfigErr(sendErr)
 				case isPermanentMailSendErr(msgErr):
@@ -498,7 +513,7 @@ func sendMailBatch(ctx context.Context, msgs []*mail.Msg, rcpt []string, retries
 				case isMailRejected(msgErr):
 					unknownReach = true
 				default:
-					return mailTempError{sendErr}
+					return deferredErr()
 				}
 			}
 

@@ -143,7 +143,7 @@ The configuration is read once at startup; restart the bot after changing a pass
 - **Undelivered alerts are queued** per backend and retried on later polls, for up to 30 days. Recipients already reached are not sent a duplicate.
 - **Seen events expire after 9000 hours** (about a year).
 - **A changed event is a new event.** Editing a grade's note, for example, alerts again.
-- **Changing a student's number of active classes repeats alerts once.** With more than one class, subjects are named `Subject / Class`, and that name is part of an event's identity. Recent grades and exams alert again, readings and national exams alert again regardless of age, and upcoming exams appear twice in calendars.
+- **With more than one active class, subjects are named `Subject / Class`.** Gaining or finishing a class changes those names without repeating alerts.
 
 ## Configuration
 
