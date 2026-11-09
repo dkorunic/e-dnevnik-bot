@@ -170,7 +170,7 @@ func TestRunPollCycleClearsOutbox(t *testing.T) {
 
 	cfg := config.TomlConfig{User: []config.User{{Username: "testuser"}}}
 
-	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() { runPollCycle(t.Context(), cfg) })
+	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() { runPollCycle(t.Context(), cfg, false) })
 
 	eDB, err = sqlitedb.New(t.Context(), path)
 	if err != nil {
@@ -186,6 +186,101 @@ func TestRunPollCycleClearsOutbox(t *testing.T) {
 	if got := subjectsIn(t, eDB, queue.OutboxKey); len(got) != 0 {
 		t.Errorf("outbox after a finished cycle = %v, want it empty", got)
 	}
+}
+
+// A restart inside quiet hours polls at once and used to alert in the middle of
+// the night. The held cycle must send nothing and keep the event for the next.
+// Not parallel: mutates package-level flag pointers and the scrapeStage seam.
+func TestRunPollCycleHoldsAlertsUntilNextCycle(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+	resetExitLatch(t)
+
+	path := setDBFile(t, "held.db")
+
+	eDB, err := sqlitedb.New(t.Context(), path)
+	if err != nil {
+		t.Fatalf("sqlitedb.New() = %v", err)
+	}
+
+	if err := eDB.Put(t.Context(), seedMigratedKey, []byte{1}); err != nil {
+		t.Fatalf("Put() = %v", err)
+	}
+
+	if !putSeedMarker(t.Context(), eDB, "u") {
+		t.Fatal("putSeedMarker() failed")
+	}
+
+	_ = eDB.Close()
+
+	exam := msgtypes.Message{
+		Code:      msgtypes.Exam,
+		Username:  "u",
+		Subject:   "exam",
+		Timestamp: time.Now().Add(72 * time.Hour),
+		Fields:    []string{"x"},
+	}
+
+	origStage := scrapeStage
+	scrapeStage = func(_ context.Context, wg *sync.WaitGroup, ch chan<- msgtypes.Message, _ config.TomlConfig, _ *userSet) {
+		wg.Go(func() { ch <- exam })
+	}
+
+	t.Cleanup(func() { scrapeStage = origStage })
+
+	cfg := config.TomlConfig{User: []config.User{{Username: "u"}}, CalendarDeferred: true}
+	cfg.Digest.Active = true
+
+	inspect := func(check func(eDB *sqlitedb.Edb, digests int)) {
+		t.Helper()
+
+		eDB, err := sqlitedb.New(t.Context(), path)
+		if err != nil {
+			t.Fatalf("sqlitedb.New() = %v", err)
+		}
+
+		defer eDB.Close() //nolint:errcheck
+
+		rows, err := eDB.ScanPrefix(t.Context(), digestKeyPrefix)
+		if err != nil {
+			t.Fatalf("ScanPrefix() = %v", err)
+		}
+
+		check(eDB, len(rows))
+	}
+
+	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() { runPollCycle(t.Context(), cfg, true) })
+
+	inspect(func(eDB *sqlitedb.Edb, digests int) {
+		if got := subjectsIn(t, eDB, messenger.CalendarQueueName); len(got) != 0 {
+			t.Errorf("messenger queue after a held cycle = %v, want no messenger run", got)
+		}
+
+		if got := subjectsIn(t, eDB, queue.OutboxKey); len(got) != 1 || got[0] != "exam" {
+			t.Errorf("outbox after a held cycle = %v, want the event kept", got)
+		}
+
+		if digests != 0 {
+			t.Errorf("held cycle claimed %d digest weeks, want it left to a later poll", digests)
+		}
+	})
+
+	// The same event is a duplicate now; only the held row can deliver it.
+	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() { runPollCycle(t.Context(), cfg, false) })
+
+	inspect(func(eDB *sqlitedb.Edb, digests int) {
+		if got := subjectsIn(t, eDB, messenger.CalendarQueueName); len(got) != 1 || got[0] != "exam" {
+			t.Errorf("messenger queue after the next cycle = %v, want the event once", got)
+		}
+
+		if got := subjectsIn(t, eDB, queue.OutboxKey); len(got) != 0 {
+			t.Errorf("outbox after the next cycle = %v, want it empty", got)
+		}
+
+		if digests != 1 {
+			t.Errorf("next cycle claimed %d digest weeks, want 1", digests)
+		}
+	})
 }
 
 // A user with no classes stays unseeded all summer, and the announcement used to

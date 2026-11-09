@@ -254,7 +254,7 @@ func TestRunPollCycleSkipsCycleOnUnopenableDB(t *testing.T) {
 
 	t.Cleanup(func() { dbFile = orig })
 
-	runPollCycle(t.Context(), config.TomlConfig{})
+	runPollCycle(t.Context(), config.TomlConfig{}, false)
 
 	if !exitWithError.Load() {
 		t.Error("a cycle skipped for an unopenable database did not flag the run as failed")

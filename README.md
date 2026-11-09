@@ -105,7 +105,7 @@ FLAGS
 | `-i` | Minimum and default `1h`; lower values are raised to it. |
 | `-j` | ±10% random jitter on the poll interval. |
 | `-p` | An older event is recorded as seen and never alerted, so a grade backdated past this period produces no alert. |
-| `-q` | Daily window in local time, end exclusive; `off` disables it. A poll due inside the window waits for its end. The first poll after startup always runs. One-shot runs and `-t` ignore it. A window leaving less than one interval per day logs a warning and polls once a day. |
+| `-q` | Daily window in local time, end exclusive; `off` disables it. A poll due inside the window waits for its end. The first poll after startup always runs, to catch a bad password early; inside the window it logs in and scrapes, but its alerts wait for the next poll. One-shot runs and `-t` ignore it. A window leaving less than one interval per day logs a warning and polls once a day. |
 | `-r` | Applies to scraping and delivery. `0` is treated as `1`. |
 | `-t` | Sends a test message through every chat backend using a throwaway database, and exits non-zero if a send fails. Calendars accept only exams, so `-t` does not exercise them. |
 | `--exams=false`, `--nationalexams=false` | Stops those alerts on every backend, calendars included. Events are still recorded as seen, so re-enabling does not replay them. Exams still appear in the digest. |

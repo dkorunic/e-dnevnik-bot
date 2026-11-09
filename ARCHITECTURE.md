@@ -58,10 +58,10 @@ Root package `main`:
 ## 3. Poll cycle
 
 ```
-ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs)
+ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs, held inside the window)
   versionCheck                 background, 30 s limit; skipped for local/dirty builds
   openDB                       on failure: skip the cycle, latch exitWithError
-  recoverOutbox                a killed cycle's rows move to every enabled queue
+  recoverOutbox                a killed or held cycle's rows move to every enabled queue
   scrapers                     one goroutine per user; failures recorded in userSet
   msgDedup                     single goroutine, for each event:
     collect exams for the digest (before dedup)
@@ -77,9 +77,10 @@ ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs
     sendDigests                at most one per user per week; bypasses dedup
     sendDriftAlerts            with --driftcheck; bypasses dedup
   msgSend                      dispatch() to each sink; a full buffer spills to its queue
+                               held cycle: holdAlerts only drains, digest not claimed
     each messenger: resend queue, drop expired, send live, requeue failures
   wait for all stages
-  ClearOutbox                  unless a queue write failed this cycle
+  ClearOutbox                  unless a queue write failed this cycle or it was held
 ```
 
 ## 4. Persistence
@@ -90,7 +91,7 @@ ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs
 |---|---|---|
 | SHA-256 of `(username, subject, fields)` | marker | Dedup, expires after `DefaultEntryTTL` (9000 h); an older separator-less hash is still honoured |
 | `<name>-queue\x00<time><seq>` | CBOR message | Per-messenger failed-message queue, one row per message, 30-day `MaxQueueAge` |
-| `outbox\x00<time><seq>` | CBOR message | Events flagged but not yet delivered or queued |
+| `outbox\x00<time><seq>` | CBOR message | Events flagged but not yet delivered or queued, or held by a first poll in quiet hours |
 | `seeded\x00<user>`, `seeded-migrated` | marker | Per-user first-run state; one-time migration of older databases |
 | `digest-week\x00<user>` | Monday | Digest already claimed for that week |
 | `portal-drift\x00<user>` | state | Drift confirmation and weekly alert limit |

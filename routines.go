@@ -293,6 +293,21 @@ func msgSend(ctx context.Context, eDB *sqlitedb.Edb, wgMsg *sync.WaitGroup, grad
 	})
 }
 
+// holdAlerts stands in for msgSend in a held cycle. Each message already has its
+// outbox row, so reading gradesMsg is all that is left to do.
+func holdAlerts(wgMsg *sync.WaitGroup, gradesMsg <-chan msgtypes.Message) {
+	wgMsg.Go(func() {
+		held := 0
+		for range gradesMsg {
+			held++
+		}
+
+		if held > 0 {
+			logger.Info().Msgf("Quiet hours: holding %d alerts for the next poll", held)
+		}
+	})
+}
+
 // recoverFanOut costs the cycle instead of the process, mirroring
 // recoverMessenger.
 //
@@ -412,14 +427,14 @@ func enabledQueues(cfg config.TomlConfig) [][]byte {
 	return names
 }
 
-// recoverOutbox hands what a killed cycle left in the outbox to every messenger's
-// queue, for this cycle's resend. Nothing says which messengers already delivered
-// a row, so those send it again: a duplicate after a hard kill, instead of a loss.
-// A row stays until every queue holds it.
+// recoverOutbox hands what a killed or held cycle left in the outbox to every
+// messenger's queue, for this cycle's resend. Nothing says which messengers
+// already delivered a row, so after a hard kill those send it again: a duplicate
+// instead of a loss. A row stays until every queue holds it.
 func recoverOutbox(ctx context.Context, eDB *sqlitedb.Edb, cfg config.TomlConfig) {
 	rows := queue.FetchOutbox(ctx, eDB)
 	if len(rows) > 0 {
-		logger.Warn().Msgf("Recovering %d messages from a cycle that did not finish; some may repeat", len(rows))
+		logger.Info().Msgf("Queueing %d messages left by the previous cycle; after a hard kill some may repeat", len(rows))
 	}
 
 	for _, q := range rows {

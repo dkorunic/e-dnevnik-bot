@@ -122,7 +122,7 @@ func TestRunPollCycleCompletes(t *testing.T) {
 	setDBFile(t, "poll.db")
 
 	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
-		runPollCycle(t.Context(), config.TomlConfig{})
+		runPollCycle(t.Context(), config.TomlConfig{}, false)
 	})
 
 	if exitWithError.Load() {
@@ -141,7 +141,7 @@ func TestRunPollCycleShutdownDuringOpenIsNotAFailure(t *testing.T) {
 	cancel()
 
 	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
-		runPollCycle(ctx, config.TomlConfig{})
+		runPollCycle(ctx, config.TomlConfig{}, false)
 	})
 
 	if exitWithError.Load() {
@@ -162,7 +162,7 @@ func TestRunPollCycleWithDeferredCalendar(t *testing.T) {
 	path := setDBFile(t, "poll-deferred.db")
 
 	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
-		runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true})
+		runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true}, false)
 	})
 
 	eDB, err := sqlitedb.New(t.Context(), path)
@@ -190,7 +190,7 @@ func TestRunPollCycleIsRepeatable(t *testing.T) {
 
 	for i := range 3 {
 		runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
-			runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true})
+			runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true}, false)
 		})
 
 		if exitWithError.Load() {
@@ -469,7 +469,7 @@ func TestRunPollCycleKeepsDBOpenForMessengers(t *testing.T) {
 	runWithinTimeout(t, 60*time.Second, "runPollCycle", func() {
 		// The user is configured: first-run seeding is per user, and an
 		// unconfigured one would seed silently and forward nothing.
-		runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true, User: []config.User{{Username: "pero.peric"}}})
+		runPollCycle(t.Context(), config.TomlConfig{CalendarDeferred: true, User: []config.User{{Username: "pero.peric"}}}, false)
 	})
 
 	// Reopen: runPollCycle closed its own handle on the way out.

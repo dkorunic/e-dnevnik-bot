@@ -309,7 +309,8 @@ func main() {
 			logger.Info().Msg(scheduledActive)
 			_ = sysdnotify.Status(scheduledActive)
 
-			runPollCycle(ctx, cfg)
+			// Only a first poll gets here inside the window, see pollRuns.
+			runPollCycle(ctx, cfg, pollSkipped(now))
 
 			if !*daemon {
 				fatalIfErrors(flushProfiles)
@@ -394,7 +395,12 @@ func awaitShutdown(stop context.CancelFunc, ticker, statusTicker *time.Ticker) {
 // must outlive every stage since msgDedup and the messengers both write to it.
 // exitWithError latches for the process lifetime, so a daemon that errored in
 // any cycle still exits non-zero.
-func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
+//
+// With hold, for a restart inside quiet hours, nobody is alerted: the messengers
+// stay off, which also leaves the queues alone, and the outbox keeps what dedup
+// flagged for the next cycle's recoverOutbox. The digest is not claimed at all,
+// since a later poll catches up.
+func runPollCycle(ctx context.Context, cfg config.TomlConfig, hold bool) {
 	gradesScraped := make(chan msgtypes.Message, chanBufLen)
 	gradesMsg := make(chan msgtypes.Message, chanBufLen)
 
@@ -424,7 +430,7 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 	failed := &userSet{}
 
 	var dg *digestRun
-	if cfg.Digest.Active {
+	if cfg.Digest.Active && !hold {
 		dg = &digestRun{
 			failed: failed,
 			users:  usernames(cfg.User),
@@ -437,7 +443,11 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 
 	msgDedup(ctx, eDB, &wgFilter, gradesScraped, gradesMsg, dg, &seedRun{failed: failed, users: usernames(cfg.User)})
 
-	msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
+	if hold {
+		holdAlerts(&wgMsg, gradesMsg)
+	} else {
+		msgSend(ctx, eDB, &wgMsg, gradesMsg, cfg)
+	}
 
 	wgScrape.Wait()
 	close(gradesScraped)
@@ -446,8 +456,10 @@ func runPollCycle(ctx context.Context, cfg config.TomlConfig) {
 	wgMsg.Wait()
 	wgVersion.Wait()
 
-	// Everything is delivered or queued by now.
-	queue.ClearOutbox(ctx, eDB)
+	// Everything is delivered or queued by now, unless held.
+	if !hold {
+		queue.ClearOutbox(ctx, eDB)
+	}
 
 	closeCycleDB(eDB)
 }

@@ -71,7 +71,7 @@ func TestRunPollCycleKeepsOutboxAfterFailedQueueWrite(t *testing.T) {
 
 	cfg := config.TomlConfig{User: []config.User{{Username: "u"}}, CalendarDeferred: true}
 
-	runPollCycle(t.Context(), cfg)
+	runPollCycle(t.Context(), cfg, false)
 
 	if _, err := admin.Exec(`DROP TRIGGER no_queue`); err != nil {
 		t.Fatalf("DROP TRIGGER = %v", err)
@@ -79,7 +79,7 @@ func TestRunPollCycleKeepsOutboxAfterFailedQueueWrite(t *testing.T) {
 
 	// The next cycle scrapes the same event, now a duplicate; only recovery can
 	// deliver it.
-	runPollCycle(t.Context(), cfg)
+	runPollCycle(t.Context(), cfg, false)
 
 	eDB, err = sqlitedb.New(t.Context(), path)
 	if err != nil {

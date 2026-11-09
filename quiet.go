@@ -108,7 +108,8 @@ func pollSkipped(now time.Time) bool {
 
 // pollRuns reports whether a tick due at now polls. The first always does: it
 // validates credentials and scraping, and a bad password should not wait for
-// morning to show up in the logs.
+// morning to show up in the logs. Inside the window it holds its alerts, see
+// runPollCycle.
 func pollRuns(now time.Time, first bool) bool {
 	return first || !pollSkipped(now)
 }
