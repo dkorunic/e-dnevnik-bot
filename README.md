@@ -117,7 +117,7 @@ Exit status is non-zero when a scrape or a send fails.
 
 | Variable | Effect |
 |---|---|
-| `TZ` | Local time zone for quiet hours and the digest. Docker defaults to UTC. |
+| `TZ` | Local time zone for quiet hours and the digest. Docker defaults to UTC. An unknown zone logs a warning at startup and leaves the time zone unchanged (UTC in Docker). |
 | `LOG_LEVEL` | Numeric [zerolog](https://github.com/rs/zerolog) level, `-1` (trace) to `7` (disabled). Ignored with `-v`. |
 | `NO_COLOR` | Disables colour with `-l`. |
 | `GITHUB_TOKEN` | Authenticates the new-release check. |
