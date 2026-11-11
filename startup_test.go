@@ -727,3 +727,42 @@ func TestClampFlagsRespectsLogConfiguration(t *testing.T) {
 		})
 	}
 }
+
+// TestInitTimeZone: in the Alpine image a dependency settles time.Local to UTC
+// before the embedded tzdata registers, so main must load TZ again. The test
+// starts from that UTC state, since a host with zoneinfo cannot reproduce it.
+// Not parallel: mutates time.Local and the environment.
+func TestInitTimeZone(t *testing.T) {
+	saved := time.Local
+	t.Cleanup(func() { time.Local = saved })
+
+	tests := []struct {
+		name    string
+		tz      string
+		want    string
+		wantErr bool
+	}{
+		{name: "zone name", tz: "Europe/Zagreb", want: "Europe/Zagreb"},
+		{name: "colon prefix", tz: ":Europe/Zagreb", want: "Europe/Zagreb"},
+		{name: "UTC", tz: "UTC", want: "UTC"},
+		{name: "empty", tz: "", want: "UTC"},
+		{name: "unknown zone", tz: "Europe/Nowhere", want: "UTC", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TZ", tt.tz)
+
+			time.Local = time.UTC
+
+			err := initTimeZone()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("initTimeZone() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if got := time.Local.String(); got != tt.want {
+				t.Errorf("time.Local = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
