@@ -420,8 +420,10 @@ func queuedExpired(g msgtypes.Message, now time.Time) bool {
 	case msgtypes.Exam:
 		return g.Timestamp.Format(time.DateOnly) < today
 	case msgtypes.ExamDigest, msgtypes.PortalDrift:
-		// Timestamp is the week's Monday.
-		return g.Timestamp.AddDate(0, 0, 6).Format(time.DateOnly) < today
+		// Timestamp is the week's Monday at local midnight, not a UTC marker, so
+		// compared as an instant: a UTC date reads the old week as current for
+		// the first hours of the next.
+		return !now.Before(g.Timestamp.AddDate(0, 0, 7))
 	case msgtypes.Grade, msgtypes.Reading, msgtypes.FinalGrade, msgtypes.NationalExam:
 	}
 
@@ -459,7 +461,9 @@ func resendQueued(ctx context.Context, eDB *sqlitedb.Edb, queueName []byte, proc
 		process(q.Msg)
 
 		// A requeue that did not land leaves this row the only copy. Recipients
-		// reached just now may see a duplicate, which beats a lost alert.
+		// reached just now may see a duplicate, which beats a lost alert. A
+		// concurrent fan-out spill that fails reads the same way (see
+		// queue.storeFailureKey).
 		if queue.StoreFailureCount(eDB, queueName) != failures {
 			continue
 		}

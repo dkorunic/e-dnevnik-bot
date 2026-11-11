@@ -98,11 +98,17 @@ func Mail(ctx context.Context, eDB *sqlitedb.Edb, ch <-chan msgtypes.Message, cf
 
 	logger.Debug().Msgf("Started e-mail messenger (%v)", MailVersion)
 
-	portInt, err := strconv.Atoi(cfg.Port)
-	if err != nil {
-		logger.Warn().Msgf("%v: %v", ErrMailInvalidPort, cfg.Port)
+	// Empty is a valid config (see checkMailPort), so it takes the default
+	// silently rather than warn every cycle.
+	portInt := 587
 
-		portInt = 587
+	if cfg.Port != "" {
+		p, perr := strconv.Atoi(cfg.Port)
+		if perr != nil {
+			logger.Warn().Msgf("%v: %v", ErrMailInvalidPort, cfg.Port)
+		} else {
+			portInt = p
+		}
 	}
 
 	if err = mailInit(cfg.Server, portInt, cfg.Username, cfg.Password); err != nil {

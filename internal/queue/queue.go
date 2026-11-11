@@ -117,8 +117,10 @@ func recordStoreFailure(eDB *sqlitedb.Edb, key []byte) {
 }
 
 // storeFailureKey is per database so a failure cannot leak into a later cycle's
-// handle, and per queue because each queue has a single reader, so a change in
-// the count while that reader processes a row can only be its own.
+// handle, and per queue so one messenger's failure does not hold another's rows.
+// A queue has one reader but two writers: its messenger, and the fan-out's
+// overflow spill. A failed spill during a resend therefore also keeps that row,
+// a duplicate next cycle rather than a loss.
 type storeFailureKey struct {
 	eDB   *sqlitedb.Edb
 	queue string

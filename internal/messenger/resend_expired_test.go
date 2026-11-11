@@ -53,6 +53,32 @@ func TestResendQueuedDropsExpiredMessages(t *testing.T) {
 
 // The store holds the WhatsApp session, which is enough to act as the device.
 // Not parallel: t.Chdir, since the store's path is relative to the working directory.
+// A digest's week ends at the next local Monday's midnight, not at UTC's: east
+// of UTC the old week otherwise reads as current for the first hours of Monday.
+func TestQueuedExpiredWeekEndsAtLocalMidnight(t *testing.T) {
+	t.Parallel()
+
+	zagreb := time.FixedZone("CET", 3600)
+	monday := time.Date(2026, 11, 2, 0, 0, 0, 0, zagreb)
+	next := monday.AddDate(0, 0, 7)
+
+	for _, tc := range []struct {
+		now  time.Time
+		want bool
+	}{
+		{next.Add(-time.Minute), false},
+		{next, true},
+		{next.Add(30 * time.Minute), true}, // still Sunday in UTC
+	} {
+		for _, code := range []msgtypes.EventCode{msgtypes.ExamDigest, msgtypes.PortalDrift} {
+			g := msgtypes.Message{Code: code, Timestamp: monday}
+			if got := queuedExpired(g, tc.now); got != tc.want {
+				t.Errorf("code %v at %v: got %v, want %v", code, tc.now, got, tc.want)
+			}
+		}
+	}
+}
+
 func TestOpenWhatsAppStoreIsPrivate(t *testing.T) {
 	t.Chdir(t.TempDir())
 
