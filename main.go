@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -150,6 +151,30 @@ func signalContext() (context.Context, context.CancelFunc) {
 	}
 }
 
+// initTimeZone loads TZ again now that the embedded tzdata is registered.
+// Packages initialise in import-path order, so time/tzdata comes after the
+// dependencies, and one that reads the local time in its init settles
+// time.Local first: UTC for the whole run in the tzdata-less Alpine image.
+// It must run before any goroutine reads the local time.
+func initTimeZone() error {
+	tz, ok := os.LookupEnv("TZ")
+	tz = strings.TrimPrefix(tz, ":")
+
+	// Unset, empty, UTC and file paths are resolved without tzdata.
+	if !ok || tz == "" || tz == "UTC" || filepath.IsAbs(tz) {
+		return nil
+	}
+
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return err
+	}
+
+	time.Local = loc
+
+	return nil
+}
+
 // main wires up config, logging, memory limits, signals and profiling, runs
 // first-run setup, then does a single run or drives the poll loop.
 func main() {
@@ -158,6 +183,10 @@ func main() {
 	scrape.CheckDrift = *driftCheck
 
 	initLog()
+
+	if err := initTimeZone(); err != nil {
+		logger.Warn().Msgf("Ignoring TZ, local time is %v: %v", time.Local, err)
+	}
 
 	// After initLog: these answer the command line, so they must honour the
 	// level and format it asked for.
