@@ -12,8 +12,8 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/dustin/go-humanize v1.1.0
 	github.com/enetx/g v1.1.1
-	github.com/enetx/http v1.0.36
-	github.com/enetx/surf v1.0.224
+	github.com/enetx/http v1.0.29
+	github.com/enetx/surf v1.0.207
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-telegram/bot v1.28.0
@@ -50,7 +50,8 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.1 // indirect
-	github.com/enetx/quic-go v1.0.14 // indirect
+	github.com/enetx/http2 v1.0.26 // indirect
+	github.com/enetx/http3 v1.0.9 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -67,6 +68,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/petermattis/goid v0.0.0-20261109124353-7cfa343ad0ab // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/quic-go/quic-go v0.64.1 // indirect
 	github.com/refraction-networking/utls v1.8.3-0.20261108164504-a13c59ffe98b // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/vektah/gqlparser/v2 v2.5.64 // indirect

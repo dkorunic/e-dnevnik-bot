@@ -209,7 +209,7 @@ func fixupRedirectHeaders(cli *surf.Client) {
 	}
 }
 
-// newSurfClient builds c's impersonating HTTP client. One Chrome 156 profile
+// newSurfClient builds c's impersonating HTTP client. One Chrome 152 profile
 // supplies every browser-identifying signal — user agent, client hints, header
 // order, ClientHello, HTTP/2 SETTINGS — so they cannot contradict each other.
 //
