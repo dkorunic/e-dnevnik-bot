@@ -87,5 +87,5 @@ Docs: a change to behaviour, flags, config keys, packages or tasks updates `READ
 
 - Blocks non-Croatian IPs — bot must run inside Croatia.
 - 120-second HTTP timeout per request.
-- Impersonates Chrome 152 through one `enetx/surf` profile: never hand-set browser-identifying headers. `SecureTLS()` is mandatory (`fetch/chrome.go`).
+- Impersonates Chrome 156 through one `enetx/surf` profile: never hand-set browser-identifying headers. `SecureTLS()` is mandatory (`fetch/chrome.go`).
 - SAML/SSO via cookie jar, no token persistence.

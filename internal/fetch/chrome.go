@@ -69,6 +69,10 @@ func (c *Client) chromeNavigationMW(r *surf.Request) error {
 		// Inert on surf v1.0.206, which lists both; kept so a profile that
 		// drops them again cannot fail silently.
 		if ordered {
+			// surf >= v1.0.224 no longer inserts Cache-Control on a POST, and
+			// its order key lists only headers present when it runs, so ours
+			// would land last. Its old slot sat just before the client hints.
+			order = insertHeaderOrder(order, "cache-control", "sec-ch-ua-platform")
 			order = insertHeaderOrder(order, "upgrade-insecure-requests", "user-agent")
 			order = insertHeaderOrder(order, "sec-fetch-user", "sec-fetch-dest")
 
@@ -205,7 +209,7 @@ func fixupRedirectHeaders(cli *surf.Client) {
 	}
 }
 
-// newSurfClient builds c's impersonating HTTP client. One Chrome 152 profile
+// newSurfClient builds c's impersonating HTTP client. One Chrome 156 profile
 // supplies every browser-identifying signal — user agent, client hints, header
 // order, ClientHello, HTTP/2 SETTINGS — so they cannot contradict each other.
 //
