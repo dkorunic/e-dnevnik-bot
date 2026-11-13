@@ -66,9 +66,9 @@ task tools          # install whichever of the three formatters is missing
 
 Single test: `go test -run TestName ./path/to/package/`.
 
-**`task update` currently breaks the build.** `go get -u` raises `quic-go` to v0.65.0, which removed an API that `enetx/http3` v1.0.9 still calls (`qlog.DefaultConnectionTracerWithSchemas`). Afterwards run `go get github.com/quic-go/quic-go@v0.64.1`, until an `enetx/http3` release builds against the newer version.
+**`go.mod` excludes `github.com/enetx/utls` v1.8.1.** It is a 2025 tag from before the fork renamed its imports (it still imports `refraction-networking/utls/internal/...`), and semver ranks it above the live v1.0.x line, so without the exclude `go get -u` selects it and `task update` fails outright. Drop the exclude only once enetx/utls retracts that tag.
 
-**Keep `enetx/surf` at v1.0.207 (with `enetx/http` v1.0.29).** From v1.0.224 surf depends on `enetx/quic-go`, which (through v1.0.18) does not compile for 32-bit ARM: `client_handshake.go` passes `quicvarint.Max` to `%d`, overflowing `int`. Tests pass, so only goreleaser's linux armv6/armv7 builds catch it — v0.46.4 failed to release that way. After `task update`, also run `go get github.com/enetx/surf@v1.0.207 github.com/enetx/http@v1.0.29`, and before bumping surf check `GOOS=linux GOARCH=arm GOARM=7 go build .`.
+**Check 32-bit ARM before releasing a surf bump:** `GOOS=linux GOARCH=arm GOARM=7 go build .`. Tests pass on 64-bit hosts, so only goreleaser's armv6/armv7 builds catch a 32-bit-only compile error — v0.46.4 failed to release that way (`enetx/quic-go` through v1.0.18 passed `quicvarint.Max` to `%d`; fixed in v1.0.22).
 
 The main binary accepts `-t`/`--test` for an **emulation mode** that pushes a synthetic message through the full pipeline without scraping — use this to verify messenger credentials and formatting without waiting for real events.
 
@@ -183,40 +183,35 @@ Factor drawn from a continuous `[0.9, 1.1)` distribution via `rand.Float64()`. D
 
 **`SecureTLS()` in `newSurfClient` is mandatory.** surf skips certificate verification by default, and because the ClientHello is identical either way, no fingerprint or wire test can notice. `TestClientRejectsUntrustedCertificate` is the only guard: without the call, anyone on the network path collects students' passwords.
 
-The portal sits behind F5 BIG-IP, so `internal/fetch` impersonates Chrome 152 via `enetx/surf`, and **one profile owns every browser-identifying signal**: user agent, client hints, per-method header order, the TLS ClientHello behind JA3/JA4, and the HTTP/2 SETTINGS. Never hand-set any of them. They are only coherent because they come from a single source, and a value contradicting the fingerprint beneath it is a louder signal than sending nothing at all.
+The portal sits behind F5 BIG-IP, so `internal/fetch` impersonates Chrome 158 via `enetx/surf`, and **one profile owns every browser-identifying signal**: user agent, client hints, per-method header values and order, header-name casing, the TLS ClientHello behind JA3/JA4, and the HTTP/2 SETTINGS. Never hand-set any of them. They are only coherent because they come from a single source, and a value contradicting the fingerprint beneath it is a louder signal than sending nothing at all. (A hand-set Chrome 152 navigation `Accept` outlived a profile bump to 158 that way, and would have made the login POST disagree with every GET.)
 
-What the profile cannot know about *this* portal is corrected in `chromeNavigationMW`, registered at `overrideMWPriority = 999`. surf runs middleware **lowest priority first** and its own header pipeline registers at 0, so a lower number here loses every override silently. The rules living there:
+**surf lays headers out in the transport, not in middleware** (since v1.0.236). `logical()` fills in the profile's missing *values* before and again after the request middleware; `apply()` then writes the order (`Header-Order:`), the HTTP/1 casing and the protocol-specific headers per transport attempt — so per redirect hop, and per negotiated protocol (`Priority` only on h2, `Connection` on HTTP/1.1, both where Chrome sends them). Consequences:
+
+- **Never touch the order.** No `Header-Order:` exists while middleware runs, and an explicit one would override the profile's wholesale.
+- **Set values through `SetHeaders`, never `Header.Set`.** `logical()` drops a raw value equal to one it generated and regenerates it, and the regenerated value can differ: the login POST starts as a fetch (`Sec-Fetch-Site: same-origin` generated), becomes a navigation, and a raw `same-origin` from us was replaced by the navigation default `none`. `SetHeaders` marks the header as ours (`explicitProfileHeader`).
+- **Stub tests see values, not order.** `newStubClient` swaps `GetClient().Transport`, which skips `apply()`. Assert order and casing only on the socket (`wire_test.go`).
+
+What the profile cannot know about *this* portal is corrected in `chromeNavigationMW`, and nothing else is:
 
 - **`Accept-Language` stays `AcceptLanguageHR`.** surf defaults to en-US; the login alert matcher and the subject names both depend on Croatian responses.
-- **`Priority` is deleted on GET *and* POST.** It is an HTTP/2 header that surf inserts unconditionally, and this portal is Apache negotiating no ALPN at all — real Chrome cannot send it on this connection.
-- **`Connection: keep-alive` is prepended to `HeaderOrderKey`.** surf's order map has no slot for it, so it otherwise lands last rather than directly after `Host`.
-- **The login POST is a navigation, not an XHR.** surf models POSTs as XHR (`Accept: */*`, `Sec-Fetch-Mode: cors`); a form submit carries the navigation `Accept` and an `Origin`.
-- **`Cache-Control: max-age=0` is *set* on the POST, and `Pragma` deleted.** Chrome sends `max-age=0` on reload-like navigations — address bar, reload and form submit — and never `Pragma`. A link click carries `Sec-Fetch-User: ?1` *without* `Cache-Control`, which is what rules out user activation as the trigger and is why our plain GETs correctly omit it. The 302's GET inherits it from the POST, so `cache-control` is absent from `postOnlyHeaderOrder`. surf v1.0.224 (not yet usable, see Commands) inserts no `Cache-Control` on a POST, and `HeaderOrderKey` lists only headers present when surf's pipeline runs, so `chromeNavigationMW` slots `cache-control` into the order itself; without that it lands last.
-- **The POST order needs three corrections** (`chromePostClientHints`, then `content-type` before `user-agent`, then `origin` before `accept`). surf's POST profile splits the client hints across three slots and inverts those two pairs. Both order lists live in `wire_test.go` as capture constants.
+- **The login POST is a navigation** (`r.Navigation()`). surf models a POST as a fetch; a form submit is a navigation, and declaring it makes the profile supply the navigation `Accept`, Fetch Metadata, `Upgrade-Insecure-Requests` and `Cache-Control: max-age=0` (Chrome sends that on reload-like navigations — address bar, reload, form submit — but not on a link click, which is why plain GETs correctly omit it), in Chrome's form-submit order. On the GET its 302 becomes, surf carries `Cache-Control` over, as Chrome does, and drops `Origin` and the `Content-*` group because the body was dropped; a 307/308 keeps both.
+- **The POST carries `Origin` and the form `Content-Type`**, which the profile cannot infer.
+- **`Sec-Fetch-Site` and `Referer` follow `lastURL`**: `none` and no Referer on a cold navigation, `same-origin` and the previous URL after.
 
-`chromeNavigationMW` runs **once per `Do()`, not once per redirect hop** — surf applies middleware above its own `retry:` label, and redirects are followed inside `cli.Do`. The redirect handler then copies the initial request's headers onto every hop, stripping only the `Content-*` group on a POST→GET rewrite. So the POST rules above leak forward, and per-hop corrections need `CheckRedirect`, which runs *after* that copier:
+surf's `CheckRedirect` carries the max-redirect ceiling and the same-host rule; the builder's `checkRedirect` option discards both, so never replace it (`TestRedirectCeilingHolds` follows 129 hops instead of 10 if you do).
 
-- **`Origin` is deleted on a redirect hop that became a GET** (`fixupRedirectHeaders`). A Chrome 152 capture of this portal shows no `Origin` on a GET navigation, so the login POST's would contradict the profile on the post-login request. `Sec-Fetch-User` and `Upgrade-Insecure-Requests` are deliberately *kept*: the same capture shows Chrome sending both on navigations. A method-preserving redirect (307/308) is still a form submit and keeps its `Origin`.
-- **Wrap surf's `CheckRedirect`, never replace it.** It carries the max-redirect ceiling and the same-host rule; the builder's `checkRedirect` option discards both (`TestRedirectCeilingSurvivesOriginStrip` follows 129 hops instead of 10 if you do).
+**Any request with a body must be able to replay (`GetBody`).** The Chrome ClientHello offers h2 while the portal negotiates none, so surf retries over HTTP/1.1 — which only works for a request it can rewind. Since v1.0.236 surf sets `GetBody` for string, `*bytes.Reader`, `*strings.Reader` and `*bytes.Buffer` bodies; any other reader needs one set by hand. Bodyless GETs replay regardless, so losing it breaks authentication outright while leaving unauthenticated fetches working, and no wire test reaches that fallback: `TestLoginPostCanReplay` is the guard.
 
-Still unresolved: the redirect GET carries surf's **POST** `HeaderOrderKey` list. DevTools displays request headers alphabetically sorted, so a DevTools capture cannot establish Chrome's wire order — settling it needs the Network panel's "view source" or a raw wire capture.
-
-**Any request with a body must set `GetBody`** (see `doSAMLRequest`). surf sets `Body` but never `GetBody`, and because the Chrome ClientHello offers h2 while the portal negotiates none, surf retries over HTTP/1.1 — which only works for a request it can rewind. Bodyless GETs replay regardless, so omitting it breaks authentication outright while leaving unauthenticated fetches working, and no GET-only test will catch it.
-
-Verify header changes by diffing against a real capture, never from memory. The `Priority`, `Connection` and redirect-`Origin` rules above were all found that way, and two plausible shortcuts were wrong: matching our *own* GET order (Chrome orders a redirect hop differently from a fresh navigation) and deleting the `Content-Length` header (the ordered writer re-adds it from the order list).
+Verify header changes by diffing against a real capture, never from memory. Two plausible shortcuts were once wrong: matching our *own* GET order (Chrome orders a redirect hop differently from a fresh navigation) and deleting the `Content-Length` header (the ordered writer re-adds it from the order list).
 
 **DevTools is not sufficient.** The Network panel sorts request headers alphabetically and CDP returns a map, so neither shows wire order; Go's `Header` map canonicalises, so neither shows casing. Order and casing exist only on the socket.
 
-**Capture recipe.** `TestRedirectHopMatchesChromeWireOrder` (`internal/fetch/wire_test.go`) carries a raw HTTP/1.1 listener that records header names in wire order, and drives the real transport — not a stub — through a POST→302→GET. To re-derive the expected sequence after a surf bump:
+**Capture recipe.** `TestRedirectHopMatchesChromeWireOrder` (`internal/fetch/wire_test.go`) carries a raw HTTP/1.1 listener that records header lines in wire order, and drives the real transport — not a stub — through a POST→302→GET; `TestGetMatchesChromeWireOrder` does the same for a plain link navigation. All three sequences are compared exactly, names case-sensitively: Chrome sends the `sec-ch-*` hints lowercase and the rest canonical. To re-derive the expected sequences after a surf bump:
 
 1. Point that listener's address at a browser instead of the client: serve a form whose action POSTs back, then 302 to another path. `127.0.0.1` is a trustworthy origin, so Chrome sends the full set (client hints included) over plain HTTP — no certificate needed.
-2. Drive the form in Chrome, read the redirect hop's names off the listener, and update `chromeRedirectWireOrder` from that capture.
+2. Serve that form from a page reached by clicking a link, so one session records a link navigation, the form submit and its 302. Drive it in Chrome with real clicks (a scripted `click()` has no user activation, so Chrome omits `Sec-Fetch-User`), read the names off the listener, and update `chromeGetWireOrder`, `chromePostWireOrder` and `chromeRedirectWireOrder`. Last captured on Chrome 157 (2026-11-13), identical to the Chrome 152 capture; the Claude in Chrome extension's clicks count as real.
 
-Never edit `chromeRedirectWireOrder` to match a failing test: a change there means either surf's profile moved or Chrome did, and only a capture distinguishes them.
-
-For everything else, tests reach a stub via `newStubClient`, which swaps `GetClient().Transport` so surf's middleware still runs.
-
-**Header-name casing cannot be fixed from here.** Chrome sends the `sec-ch-*` client hints lowercase and everything else canonicalised; surf's own constants are lowercase (`header.SEC_CH_UA = "sec-ch-ua"`), but `enetx/http` writes every name through `CanonicalHeaderKey` (`header.go`), so they reach the wire as `Sec-Ch-Ua`. That is an upstream gap, not something `chromeNavigationMW` can correct — the wire-order test compares case-insensitively for that reason.
+Never edit those constants to match a failing test: a change there means either surf's profile moved or Chrome did, and only a capture distinguishes them.
 
 ### Messenger implementation contract — `internal/messenger/*.go`
 

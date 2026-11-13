@@ -43,7 +43,7 @@ Root package `main`:
 | Package | Role | Main dependencies |
 |---|---|---|
 | `msgtypes` | `Message` and `EventCode` (Grade, Exam, Reading, FinalGrade, NationalExam, ExamDigest, PortalDrift) | none |
-| `fetch` | Portal HTTP client: SAML/SSO login, class list, grades, ICS. 120 s per request. Impersonates Chrome 152 | `enetx/surf` |
+| `fetch` | Portal HTTP client: SAML/SSO login, class list, grades, ICS. 120 s per request. Impersonates Chrome 158 | `enetx/surf` |
 | `scrape` | HTML to `Message`; retry; per-user budget of at least 20 min; drift checks (`drift.go`) | `goquery`, `retry-go/v5` |
 | `sqlitedb` | KV store on one `kv(key, value, expires_at)` table; 4 connections; expired-row sweep on open | `modernc.org/sqlite` |
 | `codec` | CBOR encoding of queued messages | `fxamacker/cbor/v2` |

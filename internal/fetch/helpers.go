@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -176,16 +175,11 @@ func (c *Client) doSAMLRequest() error {
 		"csrf_token": {c.csrfToken},
 	}.Encode()
 
+	// A string body gives the request a GetBody, which it must have: the Chrome
+	// ClientHello offers h2 while this portal negotiates no ALPN, so surf retries
+	// over HTTP/1.1, which only a rewindable request survives
+	// (TestLoginPostCanReplay).
 	req := c.httpClient.Post(g.String(LoginURL)).Body(form)
-
-	// surf sets Body but not GetBody, leaving the request unable to replay. The
-	// Chrome ClientHello offers h2 while this portal negotiates no ALPN, so surf
-	// retries over HTTP/1.1 — possible only for a request it can rewind. Bodyless
-	// GETs replay regardless, so without this the login POST alone fails, as an
-	// opaque retry loop.
-	req.GetRequest().GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(strings.NewReader(form)), nil
-	}
 
 	resp, err := c.do(req)
 	if err != nil {

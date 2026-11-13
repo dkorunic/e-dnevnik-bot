@@ -16,23 +16,40 @@ import (
 	"github.com/enetx/g"
 )
 
-// chromeRedirectWireOrder is the header sequence a Chrome 152 wire capture
-// shows on a POST→302→GET, in wire order.
-//
-// Cache-Control is here because the redirect inherits the POST's max-age=0
-// (CLAUDE.md).
-//
-// Regenerate with the recipe in CLAUDE.md; never edit to match a failure.
-// chromePostWireOrder is the same capture's login POST, where surf's profile
-// scatters the client hints and inverts two pairs.
+// The wire constants below are header names in wire order, casing included,
+// from a raw-socket capture of a link click, then a form submit and its 302
+// (Chrome 152; re-captured on Chrome 157, 2026-11-13, identical). Regenerate
+// with the recipe in CLAUDE.md; never edit them to match a failure.
+
+// chromeGetWireOrder is the link-click navigation: no Cache-Control, which only
+// reload-like navigations carry.
+var chromeGetWireOrder = []string{
+	"Host",
+	"Connection",
+	"sec-ch-ua",
+	"sec-ch-ua-mobile",
+	"sec-ch-ua-platform",
+	"Upgrade-Insecure-Requests",
+	"User-Agent",
+	"Accept",
+	"Sec-Fetch-Site",
+	"Sec-Fetch-Mode",
+	"Sec-Fetch-User",
+	"Sec-Fetch-Dest",
+	"Referer",
+	"Accept-Encoding",
+	"Accept-Language",
+}
+
+// chromePostWireOrder is the login form submit.
 var chromePostWireOrder = []string{
 	"Host",
 	"Connection",
 	"Content-Length",
 	"Cache-Control",
-	"Sec-Ch-Ua",
-	"Sec-Ch-Ua-Mobile",
-	"Sec-Ch-Ua-Platform",
+	"sec-ch-ua",
+	"sec-ch-ua-mobile",
+	"sec-ch-ua-platform",
 	"Upgrade-Insecure-Requests",
 	"Content-Type",
 	"User-Agent",
@@ -47,6 +64,9 @@ var chromePostWireOrder = []string{
 	"Accept-Language",
 }
 
+// chromeRedirectWireOrder is the GET the form submit's 302 becomes: it keeps
+// the POST's Cache-Control: max-age=0 and moves the client hints after
+// Sec-Fetch-Dest.
 var chromeRedirectWireOrder = []string{
 	"Host",
 	"Connection",
@@ -58,9 +78,9 @@ var chromeRedirectWireOrder = []string{
 	"Sec-Fetch-Mode",
 	"Sec-Fetch-User",
 	"Sec-Fetch-Dest",
-	"Sec-Ch-Ua",
-	"Sec-Ch-Ua-Mobile",
-	"Sec-Ch-Ua-Platform",
+	"sec-ch-ua",
+	"sec-ch-ua-mobile",
+	"sec-ch-ua-platform",
 	"Referer",
 	"Accept-Encoding",
 	"Accept-Language",
@@ -143,20 +163,18 @@ func headerValue(head, name string) string {
 	return ""
 }
 
-// TestRedirectHopMatchesChromeWireOrder drives the real transport at a raw
-// listener and diffs the redirect hop against the Chrome capture. Asserting
-// HeaderOrderKey would not do: the ordered writer injects Content-Length from
-// the list alone, so the list can be right while the wire is wrong.
-//
-// Case-insensitive because enetx/http canonicalises every name at write time,
-// so Chrome's lowercase sec-ch-* hints are unreachable from here (CLAUDE.md).
-func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
+// wireListener serves raw HTTP/1.1 on loopback, answering a POST with a 302 to
+// /class and anything else with a logged-in page, and hands back each request's
+// header lines in wire order.
+func wireListener(t *testing.T) (string, <-chan []string) {
+	t.Helper()
+
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	defer l.Close()
+	t.Cleanup(func() { _ = l.Close() })
 
 	hops := make(chan []string, 4)
 
@@ -180,6 +198,15 @@ func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
 		}
 	}()
 
+	return "http://" + l.Addr().String(), hops
+}
+
+// TestGetMatchesChromeWireOrder guards a plain navigation on the socket, the
+// only place an order exists: surf lays it out per transport attempt, after
+// every middleware, so a stub transport sees none.
+func TestGetMatchesChromeWireOrder(t *testing.T) {
+	base, hops := wireListener(t)
+
 	c, err := NewClientWithContext(t.Context(), "user@skole.hr", "s3cret")
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +214,36 @@ func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
 
 	defer c.CloseConnections()
 
-	base := "http://" + l.Addr().String()
+	c.lastURL = base + "/class"
+
+	if _, err := c.getGeneric(base + "/grade/all"); err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+
+	var head []string
+
+	select {
+	case head = <-hops:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the GET")
+	}
+
+	assertWireOrder(t, "GET", headerNames(head), chromeGetWireOrder)
+}
+
+// TestRedirectHopMatchesChromeWireOrder drives the real transport at a raw
+// listener and diffs the redirect hop against the Chrome capture. Asserting
+// HeaderOrderKey would not do: the ordered writer injects Content-Length from
+// the list alone, so the list can be right while the wire is wrong.
+func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
+	base, hops := wireListener(t)
+
+	c, err := NewClientWithContext(t.Context(), "user@skole.hr", "s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer c.CloseConnections()
 
 	// What getCSRFToken leaves behind, so the POST carries a Referer as in
 	// production.
@@ -196,9 +252,6 @@ func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
 	form := url.Values{"username": {"u"}, "password": {"p"}, "csrf_token": {"tok"}}.Encode()
 
 	req := c.httpClient.Post(g.String(base + "/login")).Body(form)
-	req.GetRequest().GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(strings.NewReader(form)), nil
-	}
 
 	resp, err := c.do(req)
 	if err != nil {
@@ -232,13 +285,21 @@ func TestRedirectHopMatchesChromeWireOrder(t *testing.T) {
 		t.Errorf("login POST sent Pragma %q; Chrome sends none on any hop", got)
 	}
 
+	// Both hops are same-origin navigations with a Referer. surf would turn the
+	// POST's into "none" if the value were set without claiming it.
+	for what, head := range map[string][]string{"login POST": post, "redirect hop": redirected} {
+		if got := headerValue(strings.Join(head, "\n"), "Sec-Fetch-Site"); got != "same-origin" {
+			t.Errorf("%s sent Sec-Fetch-Site %q, want same-origin", what, got)
+		}
+	}
+
 	assertWireOrder(t, "login POST", headerNames(post), chromePostWireOrder)
 	assertWireOrder(t, "redirect hop", headerNames(redirected), chromeRedirectWireOrder)
 }
 
-// assertWireOrder compares a captured header sequence name by name. Case is
-// ignored: enetx/http canonicalises every name at write time, so Chrome's
-// lowercase sec-ch-* hints are unreachable from here (see CLAUDE.md).
+// assertWireOrder compares a captured header sequence name by name, casing
+// included: Chrome sends the sec-ch-* hints lowercase and the rest canonical,
+// and the wire is the only place casing exists.
 func assertWireOrder(t *testing.T, what string, got, want []string) {
 	t.Helper()
 
@@ -248,7 +309,7 @@ func assertWireOrder(t *testing.T, what string, got, want []string) {
 	}
 
 	for i := range got {
-		if !strings.EqualFold(got[i], want[i]) {
+		if got[i] != want[i] {
 			t.Errorf("%s header %d = %q, Chrome sends %q\n got:  %v\n want: %v",
 				what, i, got[i], want[i], got, want)
 		}

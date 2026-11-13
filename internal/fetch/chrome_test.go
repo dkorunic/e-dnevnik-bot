@@ -4,7 +4,7 @@
 package fetch
 
 import (
-	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -78,21 +78,32 @@ func TestRefererFollowsNavigationChain(t *testing.T) {
 }
 
 // TestLoginPostLooksLikeFormNavigation covers the correction to surf's profile,
-// which models POSTs as XHR. A form submission is a navigation.
+// which models POSTs as fetches. A form submission is a navigation, and every
+// value it carries must be the profile's own: its Accept is compared with a GET
+// from the same profile, never a pinned string that ages with Chrome.
 func TestLoginPostLooksLikeFormNavigation(t *testing.T) {
 	t.Parallel()
 
 	c, seen := captureRequests(t, authedBody)
+
+	if _, err := c.getGeneric(ClassURL); err != nil {
+		t.Fatalf("getGeneric: %v", err)
+	}
+
 	c.csrfToken = "tok"
 
 	if err := c.doSAMLRequest(); err != nil {
 		t.Fatalf("doSAMLRequest: %v", err)
 	}
 
-	req := (*seen)[0]
+	get, req := (*seen)[0], (*seen)[1]
 
+	// surf generates same-origin for a fetch and none for a navigation; a raw
+	// Header.Set of the former is taken for its own default and replaced.
 	want := map[string]string{
-		"Accept":                    chromeNavAccept,
+		"Accept":                    get.Header.Get("Accept"),
+		"Sec-Fetch-Site":            "same-origin",
+		"Referer":                   ClassURL,
 		"Sec-Fetch-Mode":            "navigate",
 		"Sec-Fetch-Dest":            "document",
 		"Sec-Fetch-User":            "?1",
@@ -113,7 +124,7 @@ func TestLoginPostLooksLikeFormNavigation(t *testing.T) {
 		t.Errorf("Cache-Control = %q, want \"max-age=0\" on a form submission", got)
 	}
 
-	// Pragma is surf's XHR profile leaking; Chrome sends none on any hop.
+	// Chrome sends no Pragma on any hop.
 	if got := req.Header.Get("Pragma"); got != "" {
 		t.Errorf("Pragma = %q, want it not sent", got)
 	}
@@ -135,142 +146,34 @@ func TestAcceptEncodingAdvertisesModernCodecs(t *testing.T) {
 	}
 }
 
-// wireHeaderOrder serialises req the way it goes onto the connection and
-// returns the header names in order. Asserting on the wire bytes rather than on
-// the order pseudo-header tests the transport, not our configuration.
-func wireHeaderOrder(t *testing.T, req *http.Request) []string {
-	t.Helper()
-
-	var buf bytes.Buffer
-	if err := req.Write(&buf); err != nil {
-		t.Fatalf("req.Write: %v", err)
-	}
-
-	var names []string
-
-	for line := range strings.SplitSeq(buf.String(), "\r\n") {
-		if strings.HasPrefix(line, "GET ") || strings.HasPrefix(line, "POST ") {
-			continue
-		}
-
-		if name, _, found := strings.Cut(line, ":"); found && name != "" {
-			names = append(names, name)
-		}
-	}
-
-	return names
-}
-
-// TestHeaderOrderMatchesChrome guards the ordering surf's profile supplies. Go
-// emits headers alphabetically, which no browser does.
-func TestHeaderOrderMatchesChrome(t *testing.T) {
-	t.Parallel()
-
-	c, seen := captureRequests(t, authedBody)
-	c.lastURL = ClassURL
-
-	if _, err := c.getGeneric(GradeAllURL); err != nil {
-		t.Fatalf("getGeneric: %v", err)
-	}
-
-	got := wireHeaderOrder(t, (*seen)[0])
-
-	want := []string{
-		"Sec-Ch-Ua",
-		"Sec-Ch-Ua-Mobile",
-		"Sec-Ch-Ua-Platform",
-		"Upgrade-Insecure-Requests",
-		"User-Agent",
-		"Accept",
-		"Sec-Fetch-Site",
-		"Sec-Fetch-Mode",
-		"Sec-Fetch-User",
-		"Sec-Fetch-Dest",
-		"Referer",
-		"Accept-Encoding",
-		"Accept-Language",
-	}
-
-	idx := 0
-
-	for _, name := range got {
-		if idx < len(want) && strings.EqualFold(name, want[idx]) {
-			idx++
-		}
-	}
-
-	if idx != len(want) {
-		t.Errorf("header order mismatch: matched %d/%d\n got: %v\nwant order: %v", idx, len(want), got, want)
-	}
-}
-
-// TestNoPriorityHeaderOverHTTP1 pins a deviation found by diffing against a real
-// Chrome 152 navigation: Priority is HTTP/2-only, surf inserts it regardless, and
-// this portal negotiates no ALPN.
-func TestNoPriorityHeaderOverHTTP1(t *testing.T) {
-	t.Parallel()
-
-	c, seen := captureRequests(t, authedBody)
-
-	if _, err := c.getGeneric(GradeAllURL); err != nil {
-		t.Fatalf("getGeneric: %v", err)
-	}
-
-	if got := (*seen)[0].Header.Get("Priority"); got != "" {
-		t.Errorf("GET Priority = %q, want it absent — real Chrome sends none on HTTP/1.1", got)
-	}
-
-	// Same connection, same rule.
-	pc, pseen := captureRequests(t, authedBody)
-	pc.csrfToken = "tok"
-
-	if err := pc.doSAMLRequest(); err != nil {
-		t.Fatalf("doSAMLRequest: %v", err)
-	}
-
-	if got := (*pseen)[0].Header.Get("Priority"); got != "" {
-		t.Errorf("POST Priority = %q, want it absent — real Chrome sends none on HTTP/1.1", got)
-	}
-}
-
-// TestConnectionHeaderSitsAfterHost pins the same diff's other finding: Chrome
-// sends Connection directly after Host, and surf's order map has no slot for it.
-func TestConnectionHeaderSitsAfterHost(t *testing.T) {
-	t.Parallel()
-
-	c, seen := captureRequests(t, authedBody)
-
-	if _, err := c.getGeneric(GradeAllURL); err != nil {
-		t.Fatalf("getGeneric: %v", err)
-	}
-
-	if got := (*seen)[0].Header.Get("Connection"); got != "keep-alive" {
-		t.Fatalf("Connection = %q, want keep-alive", got)
-	}
-
-	order := wireHeaderOrder(t, (*seen)[0])
-
-	if len(order) < 2 || !strings.EqualFold(order[0], "Host") || !strings.EqualFold(order[1], "Connection") {
-		t.Errorf("wire order starts %v, want Host then Connection", order[:min(2, len(order))])
-	}
-}
-
-// TestPostHeaderOrderMatchesChrome guards the login POST against the capture in
-// chromePostWireOrder.
-//
-// It once asserted surf's own output under a name claiming it matched Chrome,
-// which is why that deviation survived until a capture was taken. One shared
-// expectation now, so this and the socket-level test cannot drift apart.
-func TestPostHeaderOrderMatchesChrome(t *testing.T) {
+// TestLoginPostCanReplay guards the login against surf's h2-to-HTTP/1.1 retry,
+// which only a request with GetBody survives. No local listener negotiates that
+// fallback, so the wire tests cannot catch a body surf stops rewinding, and
+// bodyless GETs replay regardless.
+func TestLoginPostCanReplay(t *testing.T) {
 	t.Parallel()
 
 	c, seen := captureRequests(t, authedBody)
 	c.csrfToken = "tok"
-	c.lastURL = LoginURL
 
 	if err := c.doSAMLRequest(); err != nil {
 		t.Fatalf("doSAMLRequest: %v", err)
 	}
 
-	assertWireOrder(t, "login POST", wireHeaderOrder(t, (*seen)[0]), chromePostWireOrder)
+	req := (*seen)[0]
+	if req.GetBody == nil {
+		t.Fatal("login POST has no GetBody; surf cannot replay it over HTTP/1.1")
+	}
+
+	for range 2 {
+		rc, err := req.GetBody()
+		if err != nil {
+			t.Fatalf("GetBody: %v", err)
+		}
+
+		b, _ := io.ReadAll(rc)
+		if !strings.Contains(string(b), "csrf_token=tok") {
+			t.Fatalf("replayed body = %q, want the login form", b)
+		}
+	}
 }

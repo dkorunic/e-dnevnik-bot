@@ -30,7 +30,7 @@ Pre-commit: `task fmt` must pass. The three external formatters (gci, gofumpt, b
 
 Single test: `go test -run TestName ./path/to/package/`
 
-After `task update`, run `go get github.com/quic-go/quic-go@v0.64.1 github.com/enetx/surf@v1.0.207 github.com/enetx/http@v1.0.29`: quic-go v0.65.0 removed an API that `enetx/http3` v1.0.9 still calls, and surf v1.0.224+ pulls in `enetx/quic-go`, which does not build for 32-bit ARM (armv6/armv7 releases).
+`go.mod` excludes `github.com/enetx/utls` v1.8.1, a stale tag that semver ranks above the live v1.0.x line; without it `task update` fails. Before releasing a surf bump, check `GOOS=linux GOARCH=arm GOARM=7 go build .` (armv6/armv7 releases).
 
 Docs: a change to behaviour, flags, config keys, packages or tasks updates `README.md`, `CLAUDE.md`, `AGENTS.md`, `ARCHITECTURE.md` and `.e-dnevnik.toml.example` in the same commit.
 
@@ -87,5 +87,5 @@ Docs: a change to behaviour, flags, config keys, packages or tasks updates `READ
 
 - Blocks non-Croatian IPs — bot must run inside Croatia.
 - 120-second HTTP timeout per request.
-- Impersonates Chrome 152 through one `enetx/surf` profile: never hand-set browser-identifying headers. `SecureTLS()` is mandatory (`fetch/chrome.go`).
+- Impersonates Chrome 158 through one `enetx/surf` profile: never hand-set browser-identifying headers or touch header order; set values with `SetHeaders`, not `Header.Set`. `SecureTLS()` is mandatory (`fetch/chrome.go`).
 - SAML/SSO via cookie jar, no token persistence.

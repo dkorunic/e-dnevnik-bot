@@ -12,8 +12,8 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/dustin/go-humanize v1.1.0
 	github.com/enetx/g v1.1.1
-	github.com/enetx/http v1.0.29
-	github.com/enetx/surf v1.0.207
+	github.com/enetx/http v1.0.38
+	github.com/enetx/surf v1.0.236
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-telegram/bot v1.28.0
@@ -35,7 +35,7 @@ require (
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.38.0
-	google.golang.org/api v0.312.0
+	google.golang.org/api v0.314.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -50,8 +50,8 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.1 // indirect
-	github.com/enetx/http2 v1.0.26 // indirect
-	github.com/enetx/http3 v1.0.9 // indirect
+	github.com/enetx/quic-go v1.0.23 // indirect
+	github.com/enetx/utls v1.0.6 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -68,8 +68,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/petermattis/goid v0.0.0-20261109124353-7cfa343ad0ab // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.64.1 // indirect
-	github.com/refraction-networking/utls v1.8.3-0.20261108164504-a13c59ffe98b // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/vektah/gqlparser/v2 v2.5.64 // indirect
 	github.com/wzshiming/socks5 v0.8.0 // indirect
@@ -82,8 +80,8 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/exp v0.0.0-20261109185158-a52e3aef5920 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
+	golang.org/x/exp v0.0.0-20261112173441-d10d3b464990 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
@@ -96,3 +94,7 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
+
+// A stray 2025 tag from before the fork renamed its imports; it outranks the
+// v1.0.x line under semver, so go get -u would select it and fail to build.
+exclude github.com/enetx/utls v1.8.1
