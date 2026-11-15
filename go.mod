@@ -6,14 +6,14 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/KimMachineGun/automemlimit v1.0.1
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/andybalholm/cascadia v1.3.5
 	github.com/avast/retry-go/v5 v5.1.1
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/dustin/go-humanize v1.1.0
 	github.com/enetx/g v1.1.1
-	github.com/enetx/http v1.0.38
-	github.com/enetx/surf v1.0.236
+	github.com/enetx/http v1.0.48
+	github.com/enetx/surf v1.0.252
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-telegram/bot v1.28.0
@@ -28,14 +28,14 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rs/zerolog v1.35.1
-	github.com/slack-go/slack v0.35.0
+	github.com/slack-go/slack v0.36.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.2
-	go.mau.fi/whatsmeow v0.0.0-20261110152934-c88388f983b4
+	go.mau.fi/whatsmeow v0.0.0-20261113220833-ecc39170bc14
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.38.0
-	google.golang.org/api v0.314.0
+	google.golang.org/api v0.315.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -50,8 +50,8 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.1 // indirect
-	github.com/enetx/quic-go v1.0.23 // indirect
-	github.com/enetx/utls v1.0.6 // indirect
+	github.com/enetx/quic-go v1.0.36 // indirect
+	github.com/enetx/utls v1.0.9 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -81,7 +81,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
-	golang.org/x/exp v0.0.0-20261112173441-d10d3b464990 // indirect
+	golang.org/x/exp v0.0.0-20261113113407-e3970619a1a4 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
@@ -91,7 +91,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.12.1 // indirect
+	modernc.org/memory v1.13.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
 
