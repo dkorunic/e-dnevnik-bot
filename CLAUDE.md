@@ -198,6 +198,8 @@ What the profile cannot know about *this* portal is corrected in `chromeNavigati
 - **The POST carries `Origin` and the form `Content-Type`**, which the profile cannot infer.
 - **`Sec-Fetch-Site` and `Referer` follow `lastURL`**: `none` and no Referer on a cold navigation, `same-origin` and the previous URL after.
 
+**Never emulate the `_cspm` cookie.** Every portal page carries an inline F5 script that writes a `…_cspm_` cookie from `performance.timing`: that is AVR page-load-time telemetry (Client Side Performance Monitoring), not bot defence, and the portal serves the bot without it (2026-11). Its value is encoded with a per-page key, so a forged one is a louder signal than a missing one. Bot defence would look different (`TS…` cookies, `TSPD`/`bobcmn` scripts, a challenge page) and would surface as `ErrAuthMarkerMissing`.
+
 surf's `CheckRedirect` carries the max-redirect ceiling and the same-host rule; the builder's `checkRedirect` option discards both, so never replace it (`TestRedirectCeilingHolds` follows 129 hops instead of 10 if you do).
 
 **Any request with a body must be able to replay (`GetBody`).** The Chrome ClientHello offers h2 while the portal negotiates none, so surf retries over HTTP/1.1 — which only works for a request it can rewind. Since v1.0.236 surf sets `GetBody` for string, `*bytes.Reader`, `*strings.Reader` and `*bytes.Buffer` bodies; any other reader needs one set by hand. Bodyless GETs replay regardless, so losing it breaks authentication outright while leaving unauthenticated fetches working, and no wire test reaches that fallback: `TestLoginPostCanReplay` is the guard.
