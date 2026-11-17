@@ -59,7 +59,7 @@ chatids = [ "chat_id", "chat_id2" ]
 #
 # Optional per-event subjects; missing keys fall back to subject, except
 # portaldrift, which has its own default. Keys: grade, exam, reading,
-# finalgrade, nationalexam, examdigest, portaldrift.
+# finalgrade, nationalexam, examdigest, portaldrift, absence, note.
 #
 #[mail.subjects]
 #exam = "Novi ispit u e-Dnevniku"

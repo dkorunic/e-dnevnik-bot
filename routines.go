@@ -484,10 +484,10 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			}
 		}()
 
-		// firstRun reports whether user's events this cycle only seed.
-		firstRun := func(string) bool { return !eDB.Existing() }
+		// firstRun reports whether user's events of code this cycle only seed.
+		firstRun := func(string, msgtypes.EventCode) bool { return !eDB.Existing() }
 
-		var seeded map[string]bool
+		var seeded, codeSeeded map[string]bool
 
 		if sr != nil {
 			var ok bool
@@ -508,7 +508,11 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 				return
 			}
 
-			firstRun = func(user string) bool { return !seeded[user] }
+			codeSeeded = loadCodeSeeded(ctx, eDB)
+
+			firstRun = func(user string, code msgtypes.EventCode) bool {
+				return isFirstRun(seeded, codeSeeded, user, code)
+			}
 		} else if !eDB.Existing() {
 			logger.Info().Msg("Newly initialized database, won't send new-event alerts in this run")
 		}
@@ -548,7 +552,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 			// Seeded regardless of forward (not skipped before the flag), which
 			// prevents a flood when a suppressing flag is first enabled.
 			found, err := eDB.CheckAndFlagOutbox(ctx, g.Username, g.Subject, key, func() ([]byte, []byte, error) {
-				forward = !firstRun(g.Username) && !suppressedCode(g.Code) && !isStaleEvent(g, now)
+				forward = !firstRun(g.Username, g.Code) && !suppressedCode(g.Code) && !isStaleEvent(g, now)
 				if !forward {
 					return nil, nil, nil
 				}
@@ -600,7 +604,7 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 		flagged = nil
 
 		if sr != nil {
-			markSeeded(ctx, eDB, sr, seeded)
+			markSeeded(ctx, eDB, sr, seeded, codeSeeded)
 		}
 
 		if dg != nil {
@@ -668,6 +672,10 @@ func suppressedCode(code msgtypes.EventCode) bool {
 		return !*examAlerts
 	case msgtypes.NationalExam:
 		return !*nationalExamAlerts
+	case msgtypes.Absence:
+		return !*absenceAlerts
+	case msgtypes.Note:
+		return !*noteAlerts
 	case msgtypes.Grade, msgtypes.FinalGrade, msgtypes.ExamDigest, msgtypes.PortalDrift:
 	}
 

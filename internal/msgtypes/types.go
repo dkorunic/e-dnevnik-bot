@@ -18,6 +18,8 @@ const (
 	NationalExam
 	ExamDigest  // weekly summary of next week's exams; bypasses dedup
 	PortalDrift // portal pages no longer parse as expected; bypasses dedup
+	Absence     // one absent lesson hour from /absent
+	Note        // one section of /notes: class teacher, behaviour, measures, activities
 )
 
 // EventCodeNames maps the config-facing name of each EventCode to its value.
@@ -29,6 +31,8 @@ var EventCodeNames = map[string]EventCode{
 	"nationalexam": NationalExam,
 	"examdigest":   ExamDigest,
 	"portaldrift":  PortalDrift,
+	"absence":      Absence,
+	"note":         Note,
 }
 
 // Message is the pipeline's canonical event.

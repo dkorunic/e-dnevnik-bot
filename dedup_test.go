@@ -222,6 +222,8 @@ func TestMsgDedupExamGates(t *testing.T) {
 	}{
 		{&examAlerts, msgtypes.Exam},
 		{&nationalExamAlerts, msgtypes.NationalExam},
+		{&absenceAlerts, msgtypes.Absence},
+		{&noteAlerts, msgtypes.Note},
 	} {
 		orig := *tc.flag
 		off := false

@@ -28,6 +28,8 @@ const (
 	GradeAllURL    = "https://ocjene.skole.hr/grade/all"
 	CalendarURL    = "https://ocjene.skole.hr/exam/ical"
 	CourseURL      = "https://ocjene.skole.hr/course"
+	AbsentURL      = "https://ocjene.skole.hr/absent"
+	NotesURL       = "https://ocjene.skole.hr/notes"
 
 	MaxBodySize = 32 * 1024 * 1024 // 32 MiB upper bound for any single response
 

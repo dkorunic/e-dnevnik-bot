@@ -5,8 +5,11 @@ package main
 
 import (
 	"context"
+	"slices"
+	"strconv"
 
 	"github.com/dkorunic/e-dnevnik-bot/internal/logger"
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 	"github.com/dkorunic/e-dnevnik-bot/internal/sqlitedb"
 )
 
@@ -18,7 +21,53 @@ var (
 	// seedMigratedKey records that per-user markers are in use. Its absence
 	// on a database with rows means one written before them.
 	seedMigratedKey = []byte("seeded-migrated")
+
+	// codeSeedKeyPrefix marks a user whose events of one lateSeedCodes code
+	// have been recorded silently, under seeded-code\x00<code>\x00<user>.
+	codeSeedKeyPrefix = []byte("seeded-code\x00")
 )
+
+// lateSeedCodes are event codes added after installs were already seeded. Each
+// gets its own silent first run per user, or the upgrade would alert a user's
+// whole history of them at once: every absence of the school year, every note
+// section including the "nothing recorded" placeholders. Append a new scraped
+// code here; never remove one, or its markers stop being read.
+var lateSeedCodes = []msgtypes.EventCode{msgtypes.Absence, msgtypes.Note}
+
+// codeSeedName is a codeSeeded key, and the suffix of its database key. The
+// ordinal is stable (see msgtypes.EventCode).
+func codeSeedName(code msgtypes.EventCode, user string) string {
+	return strconv.Itoa(int(code)) + "\x00" + user
+}
+
+// isFirstRun reports whether user's events of code only seed this cycle: the
+// user's own first run, or a late code's.
+func isFirstRun(seeded, codeSeeded map[string]bool, user string, code msgtypes.EventCode) bool {
+	if !seeded[user] {
+		return true
+	}
+
+	return slices.Contains(lateSeedCodes, code) && !codeSeeded[codeSeedName(code, user)]
+}
+
+// loadCodeSeeded reads the per-code markers, keyed by codeSeedName. On a read
+// error it returns nil: every late code then counts as a first run, which only
+// delays its alerts, and markSeeded writes no marker on a guess.
+func loadCodeSeeded(ctx context.Context, eDB *sqlitedb.Edb) map[string]bool {
+	rows, err := eDB.ScanPrefix(ctx, codeSeedKeyPrefix)
+	if err != nil {
+		logger.Error().Msgf("Unable to read per-event first-run markers, recording absences and notes silently: %v", err)
+
+		return nil
+	}
+
+	seeded := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		seeded[string(r.Key[len(codeSeedKeyPrefix):])] = true
+	}
+
+	return seeded
+}
 
 // seedRun is what per-user first-run seeding needs from the cycle.
 //
@@ -109,18 +158,44 @@ func loadSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun) (map[string
 
 // markSeeded records every unseeded user whose scrape succeeded this cycle. A
 // failed or cancelled scrape stays unseeded, so its next run is silent again.
-func markSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun, seeded map[string]bool) {
+//
+// codeSeeded nil means the per-code markers could not be read, so none is
+// written: a marker must follow a silent run, not a guess.
+func markSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun, seeded, codeSeeded map[string]bool) {
 	if ctx.Err() != nil {
 		return
 	}
 
 	for _, u := range sr.users {
-		if seeded[u] || sr.failed.has(u) {
+		if sr.failed.has(u) {
 			continue
 		}
 
-		if putSeedMarker(ctx, eDB, u) {
+		if !seeded[u] && putSeedMarker(ctx, eDB, u) {
 			logger.Info().Msgf("First run for %v recorded; new-event alerts start next cycle", u)
+		}
+
+		if codeSeeded == nil {
+			continue
+		}
+
+		for _, code := range lateSeedCodes {
+			name := codeSeedName(code, u)
+			if codeSeeded[name] {
+				continue
+			}
+
+			key := append(append([]byte{}, codeSeedKeyPrefix...), name...)
+
+			if err := eDB.Put(ctx, key, []byte{1}); err != nil {
+				logger.Error().Msgf("Unable to record first-run marker for %v, code %v: %v", u, code, err)
+
+				continue
+			}
+
+			if seeded[u] {
+				logger.Info().Msgf("Existing events of code %v recorded for %v; their alerts start next cycle", code, u)
+			}
 		}
 	}
 }

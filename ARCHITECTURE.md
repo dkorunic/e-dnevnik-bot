@@ -42,8 +42,8 @@ Root package `main`:
 
 | Package | Role | Main dependencies |
 |---|---|---|
-| `msgtypes` | `Message` and `EventCode` (Grade, Exam, Reading, FinalGrade, NationalExam, ExamDigest, PortalDrift) | none |
-| `fetch` | Portal HTTP client: SAML/SSO login, class list, grades, ICS. 120 s per request. Impersonates Chrome 158 | `enetx/surf` |
+| `msgtypes` | `Message` and `EventCode` (Grade, Exam, Reading, FinalGrade, NationalExam, ExamDigest, PortalDrift, Absence, Note) | none |
+| `fetch` | Portal HTTP client: SAML/SSO login, class list, grades, ICS, absences, notes. 120 s per request. Impersonates Chrome 158 | `enetx/surf` |
 | `scrape` | HTML to `Message`; retry; per-user budget of at least 20 min; drift checks (`drift.go`) | `goquery`, `retry-go/v5` |
 | `sqlitedb` | KV store on one `kv(key, value, expires_at)` table; 4 connections; expired-row sweep on open | `modernc.org/sqlite` |
 | `codec` | CBOR encoding of queued messages | `fxamacker/cbor/v2` |
@@ -67,13 +67,13 @@ ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs
     collect exams for the digest (before dedup)
     key = SHA-256(username, subject, Fields)     Average is appended after this
     CheckAndFlagOutbox(key)                      one transaction:
-      forward = not first run for this user
-            and code not suppressed (--readinglist, --exams, --nationalexams)
+      forward = not first run for this user (nor for this user and code, for Absence and Note)
+            and code not suppressed (--readinglist, --exams, --nationalexams, --absences, --notes)
             and not older than -p                (undated or unparsable: passes)
       flag the key with TTL; if forward, also write the outbox row
     forward only if the key was not already live
   after scrapers close:
-    markSeeded                 users whose scrape succeeded
+    markSeeded                 users whose scrape succeeded, and their late-code markers
     sendDigests                at most one per user per week; bypasses dedup
     sendDriftAlerts            with --driftcheck; bypasses dedup
   msgSend                      dispatch() to each sink; a full buffer spills to its queue
@@ -93,6 +93,7 @@ ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs
 | `<name>-queue\x00<time><seq>` | CBOR message | Per-messenger failed-message queue, one row per message, 30-day `MaxQueueAge` |
 | `outbox\x00<time><seq>` | CBOR message | Events flagged but not yet delivered or queued, or held by a first poll in quiet hours |
 | `seeded\x00<user>`, `seeded-migrated` | marker | Per-user first-run state; one-time migration of older databases |
+| `seeded-code\x00<code>\x00<user>` | marker | First run of an event code added after installs were seeded (`lateSeedCodes`: Absence, Note) |
 | `digest-week\x00<user>` | Monday | Digest already claimed for that week |
 | `portal-drift\x00<user>` | state | Drift confirmation and weekly alert limit |
 

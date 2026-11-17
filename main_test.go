@@ -30,6 +30,8 @@ func TestMain(m *testing.M) {
 	on := true
 	examAlerts = &on
 	nationalExamAlerts = &on
+	absenceAlerts = &on
+	noteAlerts = &on
 	digestAlerts = &on
 	driftCheck = &on
 

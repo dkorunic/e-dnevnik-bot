@@ -424,7 +424,7 @@ func queuedExpired(g msgtypes.Message, now time.Time) bool {
 		// compared as an instant: a UTC date reads the old week as current for
 		// the first hours of the next.
 		return !now.Before(g.Timestamp.AddDate(0, 0, 7))
-	case msgtypes.Grade, msgtypes.Reading, msgtypes.FinalGrade, msgtypes.NationalExam:
+	case msgtypes.Grade, msgtypes.Reading, msgtypes.FinalGrade, msgtypes.NationalExam, msgtypes.Absence, msgtypes.Note:
 	}
 
 	return false

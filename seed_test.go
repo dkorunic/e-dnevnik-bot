@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"path/filepath"
 	"testing"
+
+	"github.com/dkorunic/e-dnevnik-bot/internal/msgtypes"
 )
 
 // TestLoadSeededRetriesMigrationAfterFailedMarker: a marker write that fails
@@ -95,5 +97,69 @@ func TestLoadSeededFreshInstallWithoutMigrationKeyFlagsNothing(t *testing.T) {
 		userGrade("a@skole.hr", "Matematika"), userGrade("b@skole.hr", "Fizika"))
 	if len(got) != 0 {
 		t.Fatalf("cycle after an unrecorded fresh-install migration forwarded %+v, want nothing", got)
+	}
+}
+
+// TestLateSeedCodesSeedSilentlyOnUpgrade: absences and notes arrived after
+// installs were seeded, so the first cycle after the upgrade would otherwise
+// alert a whole school year of absences and every note section at once. They
+// must seed per user and code, while grades keep alerting throughout, and a
+// user whose scrape failed must not be marked.
+// Not parallel: mutates package-level flag pointers.
+func TestLateSeedCodesSeedSilentlyOnUpgrade(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	path := filepath.Join(t.TempDir(), "late.db")
+	users := []string{"a@skole.hr", "b@skole.hr"}
+	ok := func() *seedRun { return &seedRun{failed: &userSet{}, users: users} }
+
+	absence := func(user, date string) msgtypes.Message {
+		return msgtypes.Message{
+			Code: msgtypes.Absence, Username: user, Subject: "Hrvatski jezik",
+			Descriptions: []string{"Datum"}, Fields: []string{date},
+		}
+	}
+
+	// The release before absences: both users seeded on grades alone, so drop
+	// the per-code markers this release writes on a first run.
+	prev := reopen(t, path)
+	runDedupSeeded(t, prev, ok(), userGrade("a@skole.hr", "Matematika"), userGrade("b@skole.hr", "Matematika"))
+
+	rows, err := prev.ScanPrefix(t.Context(), codeSeedKeyPrefix)
+	if err != nil || len(rows) != len(users)*len(lateSeedCodes) {
+		t.Fatalf("first run wrote %d per-code markers (err %v), want %d", len(rows), err, len(users)*len(lateSeedCodes))
+	}
+
+	for _, r := range rows {
+		if err := prev.Delete(t.Context(), r.Key); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+	}
+
+	// Upgrade cycle: B's scrape fails. A's old absence seeds silently, A's new
+	// grade still alerts.
+	failed := &userSet{}
+	failed.add("b@skole.hr")
+
+	got := runDedupSeeded(t, reopen(t, path), &seedRun{failed: failed, users: users},
+		absence("a@skole.hr", "16.10.2026."), userGrade("a@skole.hr", "Fizika"))
+	if len(got) != 1 || got[0].Code != msgtypes.Grade {
+		t.Fatalf("upgrade cycle forwarded %+v, want only A's new grade — existing absences must seed silently", got)
+	}
+
+	// Next cycle: A's new absence alerts; B, unmarked after its failed scrape,
+	// seeds its history now.
+	got = runDedupSeeded(t, reopen(t, path), ok(),
+		absence("a@skole.hr", "16.10.2026."), absence("a@skole.hr", "20.10.2026."),
+		absence("b@skole.hr", "3.10.2026."))
+	if len(got) != 1 || got[0].Username != "a@skole.hr" || got[0].Fields[0] != "20.10.2026." {
+		t.Fatalf("second cycle forwarded %+v, want only A's new absence", got)
+	}
+
+	// And B alerts from then on.
+	got = runDedupSeeded(t, reopen(t, path), ok(), absence("b@skole.hr", "3.10.2026."), absence("b@skole.hr", "5.10.2026."))
+	if len(got) != 1 || got[0].Fields[0] != "5.10.2026." {
+		t.Fatalf("third cycle forwarded %+v, want only B's new absence", got)
 	}
 }

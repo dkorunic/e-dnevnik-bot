@@ -83,6 +83,17 @@ func (c *Client) GetCourses() ([]byte, error) {
 	return c.getCourses()
 }
 
+// GetAbsences fetches the selected class's absences page: every absent day of
+// the school year, whatever month the page shows.
+func (c *Client) GetAbsences() ([]byte, error) {
+	return c.getGeneric(AbsentURL)
+}
+
+// GetNotes fetches the selected class's notes page.
+func (c *Client) GetNotes() ([]byte, error) {
+	return c.getGeneric(NotesURL)
+}
+
 // GetCourse fetches the course with the given destination URL and returns its
 // raw body, or an error.
 func (c *Client) GetCourse(dest string) ([]byte, error) {

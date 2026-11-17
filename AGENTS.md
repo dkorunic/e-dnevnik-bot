@@ -52,7 +52,7 @@ Docs: a change to behaviour, flags, config keys, packages or tasks updates `READ
 | `-p <duration>` | Relevance period for grades and exams (default `720h`, `0` = unlimited) |
 | `-q <HH:MM-HH:MM>` / `--quiethours` | Daily local-time window with no polls, daemon mode only (default `23:00-06:00`, `off` disables) |
 | `--readinglist` | Process reading list events |
-| `--exams` / `--nationalexams` / `--digest` | Default true; `=false` suppresses those alerts (suppressed events are still dedup-flagged) |
+| `--exams` / `--nationalexams` / `--absences` / `--notes` / `--digest` | Default true; `=false` suppresses those alerts (suppressed events are still dedup-flagged) |
 | `--driftcheck` | Cross-check scrapes against the portal's own averages; off by default |
 | `-r <uint>` | Retry attempts on error (default: 3) |
 
@@ -66,7 +66,7 @@ Docs: a change to behaviour, flags, config keys, packages or tasks updates `READ
 - **Outbox** (`routines.go`, `queue/queue.go`): `CheckAndFlagOutbox` writes the flag and outbox row in one transaction, so a hard kill cannot lose a flagged event; `enabledQueues` must stay in step with `msgSend`
 - **Dedup identity** (`scrape/helpers.go:cellValues`): `Message.Fields` is hashed, so changing which cells it emits re-alerts every stored event once; a changed class count does not (`classAliases`, `routines.go`)
 - **Single-threaded dedup** (`routines.go:msgDedup`): do not parallelize
-- **First-run seeding is silent, per user** (`seed.go` + `msgDedup`): do not suppress
+- **First-run seeding is silent, per user** (`seed.go` + `msgDedup`): do not suppress. A newly scraped event code goes in `lateSeedCodes`, or upgrading alerts its whole history
 - **Digest and drift alerts bypass dedup** (`digest.go`, `drift.go`): a failed scrape must not claim a digest week or count as a quiet one
 - **TTL-based dedup re-fires** after ~1 year: `sqlitedb/db.go:CheckAndFlagTTL`
 - **Continuous jitter** `[0.9, 1.1)`: `main.go:durationRandJitter` — do not discretize

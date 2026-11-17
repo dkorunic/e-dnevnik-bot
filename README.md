@@ -34,6 +34,8 @@ e-Dnevnik bot is a self-hosted service that polls the [CARNet e-Dnevnik](https:/
 | Final grades | End-of-year grades per subject |
 | National exams | Results |
 | Reading lists | Opt-in: `--readinglist` |
+| Absences | Each absent lesson hour, and again when its status changes (pending → excused or unexcused) |
+| Notes | Class teacher's note, behaviour, disciplinary measures, activities and class teacher details, whenever one changes |
 
 Alerts go to every enabled backend:
 
@@ -83,6 +85,8 @@ FLAGS
       --readinglist              send reading list alerts
       --exams BOOL               send exam alerts (default: true)
       --nationalexams BOOL       send national exam alerts (default: true)
+      --absences BOOL            send absence alerts (default: true)
+      --notes BOOL               send class teacher note, behaviour and activity alerts (default: true)
       --digest BOOL              send weekly exam digest (also needs [digest] enabled) (default: true)
       --driftcheck               check grades against the portal's own averages and warn when the portal changes
   -j, --jitter BOOL              enable slight (up to 10%) jitter for tick intervals (default: true)
@@ -107,9 +111,9 @@ FLAGS
 | `-q` | Daily window in local time, end exclusive; `off` disables it. A poll due inside the window waits for its end. The first poll after startup always runs, to catch a bad password early; inside the window it logs in and scrapes, but its alerts wait for the next poll. One-shot runs and `-t` ignore it. A window leaving less than one interval per day logs a warning and polls once a day. |
 | `-r` | Applies to scraping and delivery. `0` is treated as `1`. |
 | `-t` | Sends a test message through every chat backend using a throwaway database, and exits non-zero if a send fails. Calendars accept only exams, so `-t` does not exercise them. |
-| `--exams=false`, `--nationalexams=false` | Stops those alerts on every backend, calendars included. Events are still recorded as seen, so re-enabling does not replay them. Exams still appear in the digest. |
+| `--exams=false`, `--nationalexams=false`, `--absences=false`, `--notes=false` | Stops those alerts on every backend, calendars included. Events are still recorded as seen, so re-enabling does not replay them. Exams still appear in the digest. |
 | `--digest=false` | Same as `enabled = false` in `[digest]`. |
-| `--driftcheck` | Cross-checks each scrape against the portal's own subject averages and table headers. A finding on two consecutive scrapes exits non-zero and sends a "🛠️ PROMJENA PORTALA" warning, at most once a week per user. Off by default. |
+| `--driftcheck` | Cross-checks each scrape against the portal's own subject averages and table headers, and its absence counts. A finding on two consecutive scrapes exits non-zero and sends a "🛠️ PROMJENA PORTALA" warning, at most once a week per user. Off by default. |
 
 Exit status is non-zero when a scrape or a send fails.
 
@@ -139,7 +143,7 @@ The configuration is read once at startup; restart the bot after changing a pass
 
 ### Alert behaviour
 
-- **First run is silent, per user.** The first successful scrape of a user records events without alerting. Deleting the database re-seeds silently.
+- **First run is silent, per user.** The first successful scrape of a user records events without alerting. Deleting the database re-seeds silently. Absences and notes, added later, get the same silent first run on upgrade, so existing ones do not alert.
 - **Undelivered alerts are queued** per backend and retried on later polls, for up to 30 days. Recipients already reached are not sent a duplicate.
 - **Seen events expire after 9000 hours** (about a year).
 - **A changed event is a new event.** Editing a grade's note, for example, alerts again.
@@ -204,7 +208,8 @@ to = [ "user.name@gmail.com", "user2.name2@gmail.com" ]
 
 # Optional per-event subjects. Missing keys fall back to `subject`, except
 # portaldrift, which has its own default.
-# Keys: grade, exam, reading, finalgrade, nationalexam, examdigest, portaldrift.
+# Keys: grade, exam, reading, finalgrade, nationalexam, examdigest, portaldrift,
+# absence, note.
 [mail.subjects]
 exam = "Novi ispit u e-Dnevniku"
 examdigest = "Tjedni pregled ispita"
@@ -275,7 +280,7 @@ url = "http://192.168.1.10:8123/api/webhook/e-dnevnik-secret-id"
 
 Every alert is POSTed to each endpoint, at most 12 requests per minute.
 
-- `format = "json"` (default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`, with `event` one of `grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`, `portaldrift`. `format = "text"` sends the plain-text alert, as ntfy expects.
+- `format = "json"` (default) sends `{"title", "message", "event", "username", "subject", "descriptions", "fields"}`, with `event` one of `grade`, `exam`, `reading`, `finalgrade`, `nationalexam`, `examdigest`, `portaldrift`, `absence`, `note`. `format = "text"` sends the plain-text alert, as ntfy expects.
 - `headers` are sent verbatim.
 - Only `2xx` counts as delivered. `5xx`, `408`, `429` and network errors are retried. Anything else, including a redirect (not followed), queues the alert for the next poll. An unreachable endpoint, or one that answers `5xx` to two alerts in a row, is skipped for the rest of that poll. Other endpoints are unaffected.
 - Plain `http` to a non-loopback host logs a warning at startup. Logs show only the scheme and host.

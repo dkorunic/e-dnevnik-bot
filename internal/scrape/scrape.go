@@ -232,6 +232,49 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
+		// Both pages follow the class GetClassEvents selected.
+		var rawAbsences, rawNotes []byte
+
+		err = withRetry(func() error {
+			var err error
+			rawAbsences, err = client.GetAbsences()
+
+			return markPermanent(err)
+		})
+		if err != nil {
+			return err
+		}
+
+		mismatches, err := parseAbsences(budgetCtx, ch, username, rawAbsences, multiClass, cName, c.Year)
+		if err != nil {
+			return err
+		}
+
+		if CheckDrift {
+			for _, f := range mismatches {
+				if multiClass {
+					f += " / " + cName
+				}
+
+				drift = append(drift, f)
+			}
+		}
+
+		err = withRetry(func() error {
+			var err error
+			rawNotes, err = client.GetNotes()
+
+			return markPermanent(err)
+		})
+		if err != nil {
+			return err
+		}
+
+		err = parseNotes(budgetCtx, ch, username, rawNotes, cName)
+		if err != nil {
+			return err
+		}
+
 		var rawCourses []byte
 
 		err = withRetry(func() error {
