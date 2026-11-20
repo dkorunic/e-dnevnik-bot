@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/KimMachineGun/automemlimit v1.0.1
+	github.com/KimMachineGun/automemlimit v1.0.2
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/andybalholm/cascadia v1.3.5
@@ -12,11 +12,11 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/dustin/go-humanize v1.1.0
 	github.com/enetx/g v1.1.1
-	github.com/enetx/http v1.0.48
-	github.com/enetx/surf v1.0.252
+	github.com/enetx/http v1.0.49
+	github.com/enetx/surf v1.0.256
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-chi/chi/v5 v5.5.0
-	github.com/go-telegram/bot v1.28.0
+	github.com/go-telegram/bot v1.29.0
 	github.com/google/go-github/v93 v93.0.0
 	github.com/google/renameio/v2 v2.0.2
 	github.com/google/uuid v1.6.0
@@ -31,11 +31,11 @@ require (
 	github.com/slack-go/slack v0.36.0
 	github.com/tj/go-spin v1.1.0
 	github.com/wneessen/go-mail v0.8.2
-	go.mau.fi/whatsmeow v0.0.0-20261113220833-ecc39170bc14
+	go.mau.fi/whatsmeow v0.0.0-20261116172437-19d61352436f
 	go.uber.org/ratelimit v0.3.1
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 	golang.org/x/oauth2 v0.38.0
-	google.golang.org/api v0.315.0
+	google.golang.org/api v0.316.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -50,8 +50,8 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.1 // indirect
-	github.com/enetx/quic-go v1.0.36 // indirect
-	github.com/enetx/utls v1.0.9 // indirect
+	github.com/enetx/quic-go v1.0.40 // indirect
+	github.com/enetx/utls v1.0.10 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -70,10 +70,10 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/vektah/gqlparser/v2 v2.5.64 // indirect
-	github.com/wzshiming/socks5 v0.8.0 // indirect
+	github.com/wzshiming/socks5 v0.9.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.mau.fi/libsignal v0.2.3 // indirect
-	go.mau.fi/util v0.11.0 // indirect
+	go.mau.fi/util v0.11.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect
@@ -81,12 +81,12 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
-	golang.org/x/exp v0.0.0-20261113113407-e3970619a1a4 // indirect
+	golang.org/x/exp v0.0.0-20261118212433-45f410233ff9 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261118205021-e6950dcf398d // indirect
 	google.golang.org/grpc v1.85.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.80.1 // indirect
