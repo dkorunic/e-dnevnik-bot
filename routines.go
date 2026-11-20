@@ -52,6 +52,61 @@ var (
 	formatHRDateOnly = "2.1."
 )
 
+// maxDedupDBErrors is how many consecutive database errors dedup absorbs
+// before it stops flagging for the cycle.
+const maxDedupDBErrors = 3
+
+// dedupFailures absorbs CheckAndFlagOutbox errors for one dedup run. A failed
+// event stays unflagged, so it re-scrapes next cycle, and its user counts as
+// failed: no seed marker or digest claim may settle on a view missing it. A
+// transient lock (busy_timeout under queue writes) used to stop the daemon.
+type dedupFailures struct {
+	sr *seedRun
+	dg *digestRun
+	n  int // consecutive errors
+}
+
+func (f *dedupFailures) markFailed(u string) {
+	if f.sr != nil {
+		f.sr.failed.add(u)
+	}
+
+	if f.dg != nil {
+		f.dg.failed.add(u)
+	}
+}
+
+// record logs err for user's event and reports whether to stop flagging this
+// cycle: past maxDedupDBErrors in a row each further event would wait out
+// busy_timeout, so every user is then marked failed.
+func (f *dedupFailures) record(user string, err error) bool {
+	logger.Error().Msgf("Unable to record event for user %v, retrying it next cycle: %v", user, err)
+	exitWithError.Store(true)
+	f.markFailed(user)
+
+	f.n++
+	if f.n < maxDedupDBErrors {
+		return false
+	}
+
+	logger.Error().Msg("Database keeps failing, skipping the rest of this cycle")
+
+	var users []string
+
+	switch {
+	case f.sr != nil:
+		users = f.sr.users
+	case f.dg != nil:
+		users = f.dg.users
+	}
+
+	for _, u := range users {
+		f.markFailed(u)
+	}
+
+	return true
+}
+
 // scrapeStage is a test seam: runPollCycle's teardown ordering is observable
 // only with events in flight, which otherwise needs the live portal.
 var scrapeStage = scrapers
@@ -67,6 +122,12 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 		wgScrape.Go(func() {
 			err := scrapeUser(ctx, gradesScraped, i.Username, i.Password, *retries)
 
+			// Complete, so not a failure: only those codes' seed markers wait.
+			se, partial := errors.AsType[*scrape.SkippedError](err)
+			if partial {
+				failed.addSkipped(i.Username, se.Codes)
+			}
+
 			// Complete, so not a failure: sendDriftAlerts decides what it means.
 			if de, ok := errors.AsType[*scrape.DriftError](err); ok {
 				if !*driftCheck {
@@ -78,6 +139,10 @@ func scrapers(ctx context.Context, wgScrape *sync.WaitGroup, gradesScraped chan<
 				logger.Warn().Msgf("Portal drift for user %v: %v", i.Username, de)
 				failed.addDrift(i.Username, de.Findings)
 
+				return
+			}
+
+			if partial {
 				return
 			}
 
@@ -519,6 +584,8 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 
 		now := time.Now()
 
+		dbFail := dedupFailures{sr: sr, dg: dg}
+
 		var exams map[string][]msgtypes.Message
 		if dg != nil {
 			exams = make(map[string][]msgtypes.Message, len(dg.users))
@@ -567,20 +634,16 @@ func msgDedup(ctx context.Context, eDB *sqlitedb.Edb, wgFilter *sync.WaitGroup, 
 					return
 				}
 
-				// Not Fatal: os.Exit here would bypass in-flight messenger
-				// queue writes and deferred cleanup. RequestShutdown runs the
-				// normal graceful shutdown instead; unforwarded events are
-				// unflagged and re-scrape next run. The drain is what lets the
-				// scrapers finish (cf. recoverDedup).
-				logger.Error().Msgf("Problem with database, cannot continue: %v", err)
-				exitWithError.Store(true)
-				messenger.RequestShutdown()
-
-				for range gradesScraped {
+				if dbFail.record(g.Username, err) {
+					// The drain is what lets the scrapers finish (cf. recoverDedup).
+					for range gradesScraped {
+					}
 				}
 
-				return
+				continue
 			}
+
+			dbFail.n = 0
 
 			// Flagged: every path from here forwards or deliberately
 			// suppresses, so a panic in between must forward.

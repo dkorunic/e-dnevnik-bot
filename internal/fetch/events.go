@@ -60,7 +60,7 @@ func (e *Events) ConsumeICal(c *goics.Calendar, _ error) error {
 		node := el.Data
 
 		if node == nil || node[EventDateStart] == nil || node[EventSummary] == nil {
-			logger.Warn().Msgf("Skipping calendar event without a date or summary, possible portal drift: %v", el)
+			logger.Warn().Msg("Skipping calendar event without a date or summary, possible portal drift")
 
 			continue
 		}

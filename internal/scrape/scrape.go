@@ -6,6 +6,7 @@ package scrape
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/avast/retry-go/v5"
@@ -195,6 +196,8 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 	// Reported only after a scrape that otherwise succeeded.
 	var drift []string
 
+	var skipped pageSkips
+
 	if multiClass {
 		logger.Debug().Msgf("Found multiple active classes for user %v: %+v", username, classes)
 	} else {
@@ -233,47 +236,12 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		}
 
 		// Both pages follow the class GetClassEvents selected.
-		var rawAbsences, rawNotes []byte
-
-		err = withRetry(func() error {
-			var err error
-			rawAbsences, err = client.GetAbsences()
-
-			return markPermanent(err)
-		})
+		err = optionalPages(budgetCtx, ch, client, withRetry, username, multiClass, c, &skipped)
 		if err != nil {
 			return err
 		}
 
-		mismatches, err := parseAbsences(budgetCtx, ch, username, rawAbsences, multiClass, cName, c.Year)
-		if err != nil {
-			return err
-		}
-
-		if CheckDrift {
-			for _, f := range mismatches {
-				if multiClass {
-					f += " / " + cName
-				}
-
-				drift = append(drift, f)
-			}
-		}
-
-		err = withRetry(func() error {
-			var err error
-			rawNotes, err = client.GetNotes()
-
-			return markPermanent(err)
-		})
-		if err != nil {
-			return err
-		}
-
-		err = parseNotes(budgetCtx, ch, username, rawNotes, cName)
-		if err != nil {
-			return err
-		}
+		drift = append(drift, skipped.flushDrift()...)
 
 		var rawCourses []byte
 
@@ -327,9 +295,27 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 		}
 	}
 
+	var errs []error
+
 	if len(drift) > 0 {
-		return &DriftError{Findings: drift}
+		errs = append(errs, &DriftError{Findings: drift})
 	}
 
-	return nil
+	if len(skipped.codes) > 0 {
+		errs = append(errs, &SkippedError{Codes: skipped.codes})
+	}
+
+	return errors.Join(errs...)
+}
+
+// SkippedError reports a scrape that completed without some event codes: an
+// optional page failed or could not be trusted. Not a failure, since the rest
+// went out, but those codes must not be marked seeded: a first run that saw
+// none of them would alert their whole history next cycle.
+type SkippedError struct {
+	Codes []msgtypes.EventCode
+}
+
+func (e *SkippedError) Error() string {
+	return fmt.Sprintf("skipped event codes %v", e.Codes)
 }

@@ -30,11 +30,42 @@ var digestKeyPrefix = []byte("digest-week\x00")
 var hrWeekday = [...]string{"ned", "pon", "uto", "sri", "čet", "pet", "sub"}
 
 // userSet collects users whose scrape failed this cycle, and the portal-drift
-// findings of those whose scrape completed; safe for concurrent use.
+// findings and skipped event codes of those whose scrape completed; safe for
+// concurrent use.
 type userSet struct {
-	m     map[string]struct{}
-	drift map[string][]string
-	mu    sync.Mutex
+	m       map[string]struct{}
+	drift   map[string][]string
+	skipped map[string][]msgtypes.EventCode
+	mu      sync.Mutex
+}
+
+// addSkipped records event codes a completed scrape left out. Like addDrift it
+// does not mark the user failed; only those codes' seed markers wait.
+func (s *userSet) addSkipped(user string, codes []msgtypes.EventCode) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.skipped == nil {
+		s.skipped = make(map[string][]msgtypes.EventCode)
+	}
+
+	s.skipped[user] = codes
+}
+
+// skippedCode reports whether user's scrape left out code this cycle.
+func (s *userSet) skippedCode(user string, code msgtypes.EventCode) bool {
+	if s == nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Contains(s.skipped[user], code)
 }
 
 // addDrift records a completed scrape's drift findings. It does not mark the

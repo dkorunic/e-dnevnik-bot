@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -132,5 +133,58 @@ func TestScrapersDriftCheckOff(t *testing.T) {
 
 	if failed.has("a@skole.hr") || len(failed.driftOf("a@skole.hr")) != 0 {
 		t.Error("without --driftcheck a drifted scrape must count as complete and record no findings")
+	}
+}
+
+// A scrape that skipped an optional page completed: the user is not failed (the
+// digest and seed marker stand, the run does not latch), and the skipped code is
+// recorded so its seed marker waits, alone or joined with drift.
+// Not parallel: swaps scrapeUser, the exitWithError latch and --driftcheck.
+func TestScrapersRecordsSkippedCodes(t *testing.T) {
+	skipped := &scrape.SkippedError{Codes: []msgtypes.EventCode{msgtypes.Note}}
+
+	for name, ret := range map[string]error{
+		"alone":      skipped,
+		"with drift": errors.Join(&scrape.DriftError{Findings: []string{"f"}}, skipped),
+	} {
+		t.Run(name, func(t *testing.T) {
+			origScrape := scrapeUser
+			scrapeUser = func(context.Context, chan<- msgtypes.Message, string, string, uint) error { return ret }
+
+			origExit := exitWithError.Load()
+			dc := true
+			origDrift := driftCheck
+			driftCheck = &dc
+
+			r := uint(1)
+			origRetries := retries
+			retries = &r
+
+			t.Cleanup(func() {
+				scrapeUser = origScrape
+				driftCheck = origDrift
+				retries = origRetries
+
+				exitWithError.Store(origExit)
+			})
+
+			exitWithError.Store(false)
+
+			var wg sync.WaitGroup
+
+			failed := &userSet{}
+			cfg := config.TomlConfig{User: []config.User{{Username: "a@skole.hr", Password: "p"}}}
+
+			scrapers(t.Context(), &wg, make(chan msgtypes.Message, 1), cfg, failed)
+			wg.Wait()
+
+			if failed.has("a@skole.hr") || exitWithError.Load() {
+				t.Error("a scrape that only skipped a page counts as failed")
+			}
+
+			if !failed.skippedCode("a@skole.hr", msgtypes.Note) || failed.skippedCode("a@skole.hr", msgtypes.Absence) {
+				t.Error("skipped codes not recorded as returned")
+			}
+		})
 	}
 }

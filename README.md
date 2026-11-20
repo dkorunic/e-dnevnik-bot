@@ -35,7 +35,7 @@ e-Dnevnik bot is a self-hosted service that polls the [CARNet e-Dnevnik](https:/
 | National exams | Results |
 | Reading lists | Opt-in: `--readinglist` |
 | Absences | Each absent lesson hour, and again when its status changes (pending → excused or unexcused) |
-| Notes | Class teacher's note, behaviour, disciplinary measures, activities and class teacher details, whenever one changes |
+| Notes | Class teacher's note, behaviour, disciplinary measures, activities and class teacher details, whenever one changes (the "nothing recorded" placeholders do not alert) |
 
 Alerts go to every enabled backend:
 
@@ -113,7 +113,7 @@ FLAGS
 | `-t` | Sends a test message through every chat backend using a throwaway database, and exits non-zero if a send fails. Calendars accept only exams, so `-t` does not exercise them. |
 | `--exams=false`, `--nationalexams=false`, `--absences=false`, `--notes=false` | Stops those alerts on every backend, calendars included. Events are still recorded as seen, so re-enabling does not replay them. Exams still appear in the digest. |
 | `--digest=false` | Same as `enabled = false` in `[digest]`. |
-| `--driftcheck` | Cross-checks each scrape against the portal's own subject averages and table headers, and its absence counts. A finding on two consecutive scrapes exits non-zero and sends a "🛠️ PROMJENA PORTALA" warning, at most once a week per user. Off by default. |
+| `--driftcheck` | Cross-checks each scrape against the portal's own subject averages and table headers, and its absence counts, and reports an absence or notes page it cannot read. A finding on two consecutive scrapes exits non-zero and sends a "🛠️ PROMJENA PORTALA" warning, at most once a week per user. Off by default. |
 
 Exit status is non-zero when a scrape or a send fails.
 
@@ -143,7 +143,7 @@ The configuration is read once at startup; restart the bot after changing a pass
 
 ### Alert behaviour
 
-- **First run is silent, per user.** The first successful scrape of a user records events without alerting. Deleting the database re-seeds silently. Absences and notes, added later, get the same silent first run on upgrade, so existing ones do not alert.
+- **First run is silent, per user.** The first successful scrape of a user records events without alerting. Deleting the database re-seeds silently. Absences and notes, added later, get the same silent first run on upgrade, so existing ones do not alert. If either page cannot be fetched or read, that kind of alert is skipped for the cycle and the rest of the scrape continues.
 - **Undelivered alerts are queued** per backend and retried on later polls, for up to 30 days. Recipients already reached are not sent a duplicate.
 - **Seen events expire after 9000 hours** (about a year).
 - **A changed event is a new event.** Editing a grade's note, for example, alerts again.

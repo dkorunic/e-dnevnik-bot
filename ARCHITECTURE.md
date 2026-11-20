@@ -63,6 +63,7 @@ ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs
   openDB                       on failure: skip the cycle, latch exitWithError
   recoverOutbox                a killed or held cycle's rows move to every enabled queue
   scrapers                     one goroutine per user; failures recorded in userSet
+                               /absent and /notes optional: unreadable or failed skips that code
   msgDedup                     single goroutine, for each event:
     collect exams for the digest (before dedup)
     key = SHA-256(username, subject, Fields)     Average is appended after this
@@ -71,9 +72,11 @@ ticker fires (re-armed past quiet hours by nextPollDelay; first poll always runs
             and code not suppressed (--readinglist, --exams, --nationalexams, --absences, --notes)
             and not older than -p                (undated or unparsable: passes)
       flag the key with TTL; if forward, also write the outbox row
+      on a database error: leave it unflagged, mark the user failed; 3 in a row skip the cycle
     forward only if the key was not already live
   after scrapers close:
     markSeeded                 users whose scrape succeeded, and their late-code markers
+                               (not for a code whose page was skipped this cycle)
     sendDigests                at most one per user per week; bypasses dedup
     sendDriftAlerts            with --driftcheck; bypasses dedup
   msgSend                      dispatch() to each sink; a full buffer spills to its queue

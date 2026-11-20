@@ -4,6 +4,7 @@
 package scrape
 
 import (
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -145,15 +146,62 @@ func TestParseAbsencesLegendMismatch(t *testing.T) {
 	}
 }
 
-// An unreadable date still alerts, with the portal's own text.
-func TestParseAbsencesFailsOpenOnDate(t *testing.T) {
+// absencesErr runs parseAbsences on a page it must reject, and checks nothing
+// was emitted.
+func absencesErr(t *testing.T, raw, year string) error {
+	t.Helper()
+
+	ch := make(chan msgtypes.Message, 64)
+	_, err := parseAbsences(t.Context(), ch, "u", []byte(raw), false, "6.a", year)
+
+	close(ch)
+
+	if got := collect(ch); len(got) != 0 {
+		t.Errorf("parseAbsences() emitted %+v from a rejected page, want nothing", got)
+	}
+
+	return err
+}
+
+// A page the reader cannot trust emits nothing at all, not identities built
+// from fallbacks that would alert the year again once it reads normally. One
+// bad row rejects the readable ones too.
+func TestParseAbsencesRejectsUnreadablePage(t *testing.T) {
 	t.Parallel()
 
-	raw := absentPage(absentLegend(1, 0, 0, 0), absentDay("16", "Brumaire", absentRow("6", "Matematika", "", "green")))
+	good := absentDay("30", "Rujan", absentRow("1", "Matematika", "Bolest", "green"))
 
-	got, _ := runAbsences(t, raw, false, "26/27")
-	if len(got) != 1 || got[0].Fields[0] != "16. Brumaire" || !got[0].Timestamp.IsZero() {
-		t.Errorf("parseAbsences() = %+v, want the raw date and no timestamp", got)
+	for name, tc := range map[string]struct {
+		raw, year, want string
+	}{
+		"undated day":    {absentPage(absentLegend(2, 0, 0, 0), good, absentDay("16", "Brumaire", absentRow("6", "Matematika", "", "green"))), "26/27", `date "16" "Brumaire"`},
+		"no legend":      {absentPage("", good), "26/27", "no legend"},
+		"no school year": {absentPage(absentLegend(1, 0, 0, 0), good), "", `school year ""`},
+		"unknown colour": {absentPage(absentLegend(1, 0, 0, 0), good, absentDay("3", "Studeni", absentRow("2", "Priroda", "", "blue"))), "26/27", `row colour "blue"`},
+		"total colour":   {absentPage(absentLegend(1, 0, 0, 0), good, absentDay("3", "Studeni", absentRow("2", "Priroda", "", "gray"))), "26/27", `row colour "gray"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := absencesErr(t, tc.raw, tc.year)
+			if err == nil || !errors.Is(err, ErrPageUnreadable) || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("parseAbsences() = %v, want ErrPageUnreadable naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+// Without a "dark" legend entry a black row is not aliased, so the error names
+// the colour the row really carries.
+func TestParseAbsencesAliasNeedsDarkLegend(t *testing.T) {
+	t.Parallel()
+
+	legend := `<div class="absent-legend-table"><div class="row"><div class="cell"><i class="icon-circle grey"></i>` +
+		`<div class="absent-summary-data"><span>Čeka odluku</span><span>1</span></div></div></div></div>`
+
+	err := absencesErr(t, absentPage(legend, absentDay("3", "Studeni", absentRow("2", "Priroda", "", "black"))), "26/27")
+	if err == nil || !errors.Is(err, ErrPageUnreadable) || !strings.Contains(err.Error(), `"black"`) {
+		t.Errorf("parseAbsences() = %v, want ErrPageUnreadable naming \"black\"", err)
 	}
 }
 
@@ -190,6 +238,8 @@ const notesPage = `<div class="content-wrapper"><div class="content "><div class
 	`<div class="title">Vladanje</div><div class="section-text">Učenik nema upisanih vladanja.</div>` +
 	`<div class="title">Pedagoške mjere</div><div class="section-text">Učenik nema pedagoških mjera.</div></div></div>`
 
+// The placeholders ("nije upisana", "Učenik nema …") are left out: with the
+// class in the identity they would alert every September.
 func TestParseNotesLiveCapture(t *testing.T) {
 	t.Parallel()
 
@@ -204,11 +254,8 @@ func TestParseNotesLiveCapture(t *testing.T) {
 
 	want := [][2]string{
 		{"Razrednik / 6.a", "Ana Anić ana.anic@skole.hr\nšk. god. 2026./2027.\nujutro: ponedjeljak, 10:40h - 11:25h\npopodne: srijeda, 18:20h - 19:05h"},
-		{"Bilješka razrednika / 6.a", "Bilješka razrednika nije upisana."},
 		{"Izvanškolske aktivnosti / 6.a", "engleski jezik"},
 		{"Izvannastavne aktivnosti / 6.a", "debata"},
-		{"Vladanje / 6.a", "Učenik nema upisanih vladanja."},
-		{"Pedagoške mjere / 6.a", "Učenik nema pedagoških mjera."},
 	}
 
 	if len(got) != len(want) {
@@ -262,27 +309,50 @@ func TestParseAbsencesLegendOwnColourWins(t *testing.T) {
 	}
 }
 
-// A row colour the legend lacks is named in the findings, after the count
-// mismatches, which come in a stable order.
-func TestParseAbsencesUnknownColour(t *testing.T) {
+// Count mismatches come in a stable order, whatever the legend map's.
+func TestParseAbsencesMismatchOrder(t *testing.T) {
 	t.Parallel()
 
-	raw := absentPage(absentLegend(1, 1, 0, 0), absentDay("3", "Studeni", absentRow("2", "Priroda", "", "blue")))
+	raw := absentPage(absentLegend(1, 1, 1, 1))
 
 	want := []string{
+		"absences Čeka odluku: 1 on the portal, 0 scraped",
+		"absences Ostalo: 1 on the portal, 0 scraped",
 		"absences Opravdani: 1 on the portal, 0 scraped",
 		"absences Neopravdani: 1 on the portal, 0 scraped",
-		`absences: 1 rows with colour "blue", which the legend lacks`,
 	}
 
 	for range 20 {
-		got, mismatches := runAbsences(t, raw, false, "26/27")
-		if len(got) != 1 || got[0].Fields[3] != "blue" {
-			t.Fatalf("got %+v, want the row alerted with its colour as status", got)
-		}
-
-		if !slices.Equal(mismatches, want) {
+		if _, mismatches := runAbsences(t, raw, false, "26/27"); !slices.Equal(mismatches, want) {
 			t.Fatalf("mismatches =\n%v\nwant\n%v", strings.Join(mismatches, "\n"), strings.Join(want, "\n"))
+		}
+	}
+}
+
+// A page without a single section is unreadable, not a quiet one: seeding on it
+// would alert every section next cycle.
+func TestParseNotesRejectsPageWithoutSections(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan msgtypes.Message, 4)
+	if err := parseNotes(t.Context(), ch, "u", []byte(`<div class="content"></div>`), "6.a"); !errors.Is(err, ErrPageUnreadable) {
+		t.Errorf("parseNotes() = %v, want ErrPageUnreadable", err)
+	}
+}
+
+func TestIsNotePlaceholder(t *testing.T) {
+	t.Parallel()
+
+	for text, want := range map[string]bool{
+		"Učenik nema pedagoških mjera.":          true,
+		"Učenik nema izvannastavne aktivnosti.":  true,
+		"Bilješka razrednika nije upisana.":      true,
+		"debata":                                 false,
+		"Učenik nema pedagoških mjera.\nOpomena": false,
+		"Opomena razrednika":                     false,
+	} {
+		if got := isNotePlaceholder(text); got != want {
+			t.Errorf("isNotePlaceholder(%q) = %v, want %v", text, got, want)
 		}
 	}
 }

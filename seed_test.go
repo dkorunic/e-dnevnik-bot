@@ -163,3 +163,37 @@ func TestLateSeedCodesSeedSilentlyOnUpgrade(t *testing.T) {
 		t.Fatalf("third cycle forwarded %+v, want only B's new absence", got)
 	}
 }
+
+// A first run whose /absent page was skipped saw none of the absence history:
+// marking the code seeded on it would alert all of it next cycle. Notes, read
+// fine, are marked; absences seed on the first cycle that reads them.
+// Not parallel: mutates package-level flag pointers.
+func TestSkippedCodeIsNotMarkedSeeded(t *testing.T) {
+	setRelevancePeriod(t, 0)
+	setReadingList(t, false)
+
+	path := filepath.Join(t.TempDir(), "skipped.db")
+	users := []string{"a@skole.hr"}
+
+	absence := func(date string) msgtypes.Message {
+		return msgtypes.Message{
+			Code: msgtypes.Absence, Username: "a@skole.hr", Subject: "Hrvatski jezik",
+			Descriptions: []string{"Datum"}, Fields: []string{date},
+		}
+	}
+
+	failed := &userSet{}
+	failed.addSkipped("a@skole.hr", []msgtypes.EventCode{msgtypes.Absence})
+
+	runDedupSeeded(t, reopen(t, path), &seedRun{failed: failed, users: users}, userGrade("a@skole.hr", "Matematika"))
+
+	ok := func() *seedRun { return &seedRun{failed: &userSet{}, users: users} }
+
+	if got := runDedupSeeded(t, reopen(t, path), ok(), absence("16.10.2026."), absence("17.10.2026.")); len(got) != 0 {
+		t.Fatalf("first readable /absent forwarded %+v, want its history seeded silently", got)
+	}
+
+	if got := runDedupSeeded(t, reopen(t, path), ok(), absence("16.10.2026."), absence("20.10.2026.")); len(got) != 1 || got[0].Fields[0] != "20.10.2026." {
+		t.Fatalf("next cycle forwarded %+v, want only the new absence", got)
+	}
+}

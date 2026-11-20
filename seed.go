@@ -180,8 +180,10 @@ func markSeeded(ctx context.Context, eDB *sqlitedb.Edb, sr *seedRun, seeded, cod
 		}
 
 		for _, code := range lateSeedCodes {
+			// A skipped page saw none of the code's history: seeding on it
+			// would alert all of it next cycle.
 			name := codeSeedName(code, u)
-			if codeSeeded[name] {
+			if codeSeeded[name] || sr.failed.skippedCode(u, code) {
 				continue
 			}
 

@@ -67,9 +67,10 @@ func TestSignalContextStopIsNotAFailure(t *testing.T) {
 	}
 }
 
-// A broken database stops dedup, but scrapers still sending must be able to
-// finish whatever the shutdown request does: a scraper parked on a full channel
-// holds wgScrape.Wait forever.
+// A broken database skips the rest of the cycle without stopping the daemon (a
+// transient busy_timeout used to), and scrapers still sending must be able to
+// finish: a scraper parked on a full channel holds wgScrape.Wait forever. Five
+// events, so some arrive after dedup gives up at maxDedupDBErrors.
 // Not parallel: registers the process-wide shutdown function and uses the latch.
 func TestMsgDedupDatabaseFailureDoesNotWedgeScrapers(t *testing.T) {
 	resetExitLatch(t)
@@ -101,7 +102,7 @@ func TestMsgDedupDatabaseFailureDoesNotWedgeScrapers(t *testing.T) {
 		defer close(sent)
 		defer close(scraped)
 
-		for range 3 {
+		for range maxDedupDBErrors + 2 {
 			scraped <- grade("event")
 		}
 	}()
@@ -120,8 +121,8 @@ func TestMsgDedupDatabaseFailureDoesNotWedgeScrapers(t *testing.T) {
 
 	select {
 	case <-requested:
+		t.Error("a database error requested a shutdown, want the cycle skipped")
 	default:
-		t.Error("a broken database did not request a shutdown")
 	}
 
 	if !exitWithError.Load() {
