@@ -247,3 +247,42 @@ func equalMsg(a, b msgtypes.Message) bool {
 	return a.Code == b.Code && a.Username == b.Username && a.Subject == b.Subject && a.Class == b.Class &&
 		slices.Equal(a.Descriptions, b.Descriptions) && slices.Equal(a.Fields, b.Fields) && a.Timestamp.Equal(b.Timestamp)
 }
+
+// A legend that names the row's own colour wins over the black→dark alias, so
+// the portal aligning the two cannot rename every pending absence.
+func TestParseAbsencesLegendOwnColourWins(t *testing.T) {
+	t.Parallel()
+
+	legend := `<div class="absent-legend-table"><div class="row"><div class="cell"><i class="icon-circle black"></i>` +
+		`<div class="absent-summary-data"><span>Čeka odluku</span><span>1</span></div></div></div></div>`
+
+	got, mismatches := runAbsences(t, absentPage(legend, absentDay("3", "Studeni", absentRow("2", "Priroda", "", "black"))), false, "26/27")
+	if len(mismatches) != 0 || len(got) != 1 || got[0].Fields[3] != "Čeka odluku" {
+		t.Fatalf("got %+v, mismatches %v; want one Čeka odluku row and no mismatch", got, mismatches)
+	}
+}
+
+// A row colour the legend lacks is named in the findings, after the count
+// mismatches, which come in a stable order.
+func TestParseAbsencesUnknownColour(t *testing.T) {
+	t.Parallel()
+
+	raw := absentPage(absentLegend(1, 1, 0, 0), absentDay("3", "Studeni", absentRow("2", "Priroda", "", "blue")))
+
+	want := []string{
+		"absences Opravdani: 1 on the portal, 0 scraped",
+		"absences Neopravdani: 1 on the portal, 0 scraped",
+		`absences: 1 rows with colour "blue", which the legend lacks`,
+	}
+
+	for range 20 {
+		got, mismatches := runAbsences(t, raw, false, "26/27")
+		if len(got) != 1 || got[0].Fields[3] != "blue" {
+			t.Fatalf("got %+v, want the row alerted with its colour as status", got)
+		}
+
+		if !slices.Equal(mismatches, want) {
+			t.Fatalf("mismatches =\n%v\nwant\n%v", strings.Join(mismatches, "\n"), strings.Join(want, "\n"))
+		}
+	}
+}

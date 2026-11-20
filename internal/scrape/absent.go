@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -87,11 +89,6 @@ func absenceDate(day, month string, startYear int, yearOK bool) (string, time.Ti
 
 	return t.Format(TimeFormat), t
 }
-
-// rowColourAlias maps a row's icon colour to the legend's where the portal
-// draws them differently: pending rows are "black", their legend entry "dark"
-// (live, 2026-11).
-var rowColourAlias = map[string]string{"black": "dark"}
 
 // iconColour returns the colour class of an icon-circle, e.g. "gold".
 func iconColour(icon *goquery.Selection) string {
@@ -183,8 +180,11 @@ func parseAbsences(ctx context.Context, ch chan<- msgtypes.Message, username str
 			}
 
 			colour := iconColour(row.FindMatcher(selIconCircle).First())
-			if alias, ok := rowColourAlias[colour]; ok {
-				colour = alias
+
+			// Pending rows are drawn "black", their legend entry "dark" (live,
+			// 2026-11). A legend that names the row's own colour wins.
+			if _, ok := legend[colour]; !ok && colour == "black" {
+				colour = "dark"
 			}
 
 			scraped[colour]++
@@ -225,13 +225,28 @@ func parseAbsences(ctx context.Context, ch chan<- msgtypes.Message, username str
 
 	var mismatches []string
 
-	for colour, l := range legend {
+	// Sorted, so the findings and their truncation are stable across cycles.
+	for _, colour := range slices.Sorted(maps.Keys(legend)) {
+		l := legend[colour]
 		if l.label == absenceTotalLabel || l.count == scraped[colour] {
 			continue
 		}
 
 		f := fmt.Sprintf("absences %v: %d on the portal, %d scraped", l.label, l.count, scraped[colour])
 		logger.Warn().Msgf("Absence count mismatch for user %v, %v: possible portal HTML drift", username, f)
+
+		mismatches = append(mismatches, f)
+	}
+
+	// A row colour the legend lacks still alerts, with the colour as its status,
+	// but is named here so the next alias is found from the log, not the alerts.
+	for _, colour := range slices.Sorted(maps.Keys(scraped)) {
+		if _, ok := legend[colour]; ok || len(legend) == 0 {
+			continue
+		}
+
+		f := fmt.Sprintf("absences: %d rows with colour %q, which the legend lacks", scraped[colour], colour)
+		logger.Warn().Msgf("Unknown absence status for user %v, %v: possible portal HTML drift", username, f)
 
 		mismatches = append(mismatches, f)
 	}
