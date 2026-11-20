@@ -96,7 +96,7 @@ func TestParseAbsencesWholeYear(t *testing.T) {
 	raw := absentPage(absentLegend(2, 1, 1, 0),
 		absentDay("30", "Rujan", absentRow("1", "Matematika", "Bolest", "green"), absentRow("2", "Priroda", "Bolest", "green")),
 		absentDay("14", "Siječanj", absentRow("3", "Povijest", "", "red")),
-		absentDay("29", "Veljača", absentRow("4", "Glazbena kultura", "", "dark")))
+		absentDay("29", "Veljača", absentRow("4", "Glazbena kultura", "", "black")))
 
 	got, mismatches := runAbsences(t, raw, true, "2027./2028.")
 	if len(mismatches) != 0 {
@@ -124,7 +124,7 @@ func TestParseAbsencesWholeYear(t *testing.T) {
 func TestParseAbsencesStatusIsIdentity(t *testing.T) {
 	t.Parallel()
 
-	pending, _ := runAbsences(t, absentPage(absentLegend(0, 0, 1, 0), absentDay("3", "Studeni", absentRow("2", "Priroda", "", "dark"))), false, "26/27")
+	pending, _ := runAbsences(t, absentPage(absentLegend(0, 0, 1, 0), absentDay("3", "Studeni", absentRow("2", "Priroda", "", "black"))), false, "26/27")
 	decided, _ := runAbsences(t, absentPage(absentLegend(0, 1, 0, 0), absentDay("3", "Studeni", absentRow("2", "Priroda", "", "red"))), false, "26/27")
 
 	if len(pending) != 1 || len(decided) != 1 || slices.Equal(pending[0].Fields, decided[0].Fields) {

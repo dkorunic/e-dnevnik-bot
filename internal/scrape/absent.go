@@ -88,6 +88,11 @@ func absenceDate(day, month string, startYear int, yearOK bool) (string, time.Ti
 	return t.Format(TimeFormat), t
 }
 
+// rowColourAlias maps a row's icon colour to the legend's where the portal
+// draws them differently: pending rows are "black", their legend entry "dark"
+// (live, 2026-11).
+var rowColourAlias = map[string]string{"black": "dark"}
+
 // iconColour returns the colour class of an icon-circle, e.g. "gold".
 func iconColour(icon *goquery.Selection) string {
 	for c := range strings.FieldsSeq(icon.AttrOr("class", "")) {
@@ -178,6 +183,10 @@ func parseAbsences(ctx context.Context, ch chan<- msgtypes.Message, username str
 			}
 
 			colour := iconColour(row.FindMatcher(selIconCircle).First())
+			if alias, ok := rowColourAlias[colour]; ok {
+				colour = alias
+			}
+
 			scraped[colour]++
 
 			status := legend[colour].label
